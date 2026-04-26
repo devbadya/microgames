@@ -1,0 +1,60 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 270"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Metro Rush preview"
+>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c2038" />
+      <stop offset="55%" stop-color="#080d1b" />
+      <stop offset="100%" stop-color="#130820" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.18" cy="0.2" r="0.75">
+      <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.9" cy="0.18" r="0.8">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="9" flood-color="#000" flood-opacity="0.36" />
+    </filter>
+  </defs>
+
+  <rect width="480" height="270" fill="url(#bg)" />
+  <rect width="480" height="270" fill="url(#glowA)" />
+  <rect width="480" height="270" fill="url(#glowB)" />
+
+  <path d="M116 270 L214 50 H266 L364 270 Z" fill="rgba(255,255,255,0.055)" />
+  <path d="M162 270 L224 50" stroke="#6ee7ff" stroke-opacity="0.42" stroke-width="4" />
+  <path d="M318 270 L256 50" stroke="#6ee7ff" stroke-opacity="0.42" stroke-width="4" />
+  <path d="M240 270 L240 50" stroke="rgba(255,255,255,0.16)" stroke-width="3" stroke-dasharray="16 14" />
+
+  <g stroke="rgba(255,255,255,0.08)" stroke-width="2">
+    <line x1="154" y1="220" x2="326" y2="220" />
+    <line x1="176" y1="170" x2="304" y2="170" />
+    <line x1="196" y1="124" x2="284" y2="124" />
+    <line x1="214" y1="84" x2="266" y2="84" />
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="210" y="171" width="60" height="58" rx="10" fill="#8bdcff" />
+    <rect x="225" y="185" width="30" height="16" rx="4" fill="#e5fbff" opacity="0.9" />
+    <circle cx="240" cy="234" r="9" fill="#6ee7ff" opacity="0.85" />
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="130" y="137" width="56" height="42" rx="8" fill="#ff637d" />
+    <rect x="294" y="118" width="54" height="82" rx="9" fill="#ff637d" />
+    <rect x="301" y="148" width="40" height="8" rx="4" fill="#6ee7ff" opacity="0.8" />
+  </g>
+
+  <g fill="#facc15" filter="url(#shadow)">
+    <circle cx="242" cy="128" r="10" />
+    <circle cx="223" cy="101" r="8" />
+    <circle cx="257" cy="82" r="7" />
+  </g>
+</svg>
