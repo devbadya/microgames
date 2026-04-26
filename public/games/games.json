@@ -34,7 +34,7 @@
   {
     "slug": "rescue-marksman",
     "title": "Rescue Marksman",
-    "description": "First-person rooftop overwatch missions: stop red threats and protect civilians with 5 shots.",
+    "description": "Rooftop overwatch prototype: vague intel, 3 subjects, observation clues, one shot that changes the story.",
     "minutes": 4,
     "tags": ["aim", "levels", "mobile"],
     "thumbnail": "./thumbnails/rescue-marksman.svg"

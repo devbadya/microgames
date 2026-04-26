@@ -77,4 +77,9 @@
     <line x1="137" y1="135" x2="187" y2="135" />
     <line x1="293" y1="135" x2="343" y2="135" />
   </g>
+
+  <g fill="#d8f6ff" opacity="0.82" font-family="ui-monospace, monospace" font-size="12">
+    <text x="28" y="242">INTEL: black jacket / contact / possibly armed</text>
+    <text x="28" y="258">CONFIRM?  A  B  C</text>
+  </g>
 </svg>

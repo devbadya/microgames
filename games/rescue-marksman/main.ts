@@ -1,45 +1,50 @@
 import * as pc from "playcanvas";
 
-const SHOTS_PER_LEVEL = 5;
-const LEVEL_COUNT = 10;
+const SHOTS_PER_MISSION = 5;
 const TARGET_Z = -13;
 const CAMERA_Z = 8;
 const CAMERA_HEIGHT = 3.8;
 const AIM_LIMIT_X = 6.1;
 const AIM_LIMIT_Y = 2.65;
 const AIM_SENSITIVITY = 0.012;
+const MISSION_TIME = 80;
 
 const COLORS = {
   bg: new pc.Color(0.035, 0.045, 0.085),
   skyline: new pc.Color(0.075, 0.105, 0.17),
   window: new pc.Color(0.30, 0.50, 0.66),
-  civilian: new pc.Color(0.35, 0.82, 1.0),
-  civilianHead: new pc.Color(0.92, 0.72, 0.55),
-  hostile: new pc.Color(1.0, 0.32, 0.42),
-  hostileHead: new pc.Color(0.92, 0.72, 0.55),
+  personHead: new pc.Color(0.92, 0.72, 0.55),
   neutralized: new pc.Color(0.16, 0.22, 0.30),
   crosshair: new pc.Color(0.80, 0.95, 1.0),
   miss: new pc.Color(1.0, 0.82, 0.28),
   rooftop: new pc.Color(0.09, 0.12, 0.19),
   rifle: new pc.Color(0.06, 0.08, 0.11),
-  safe: new pc.Color(0.35, 0.90, 0.65),
+  jacketBlack: new pc.Color(0.035, 0.04, 0.055),
+  jacketGrey: new pc.Color(0.18, 0.21, 0.28),
+  jacketBlue: new pc.Color(0.10, 0.22, 0.40),
+  suspicious: new pc.Color(1.0, 0.36, 0.45),
+  civilian: new pc.Color(0.36, 0.80, 1.0),
+  package: new pc.Color(0.70, 0.52, 0.22),
+  police: new pc.Color(0.25, 0.48, 1.0),
 };
 
-type TargetKind = "civilian" | "hostile";
-type LevelState = "intro" | "playing" | "clear" | "failed" | "complete";
+type MissionState = "intro" | "playing" | "resolved";
+type NpcRole = "realTarget" | "decoy" | "protected";
 
-interface TargetSpec {
-  kind: TargetKind;
-  x: number;
-  y: number;
+interface NpcSpec {
+  id: string;
+  role: NpcRole;
+  baseX: number;
+  baseY: number;
+  jacket: pc.Color;
+  speed: number;
+  amplitude: number;
+  phase: number;
+  clues: string[];
 }
 
-interface LevelSpec {
-  targets: TargetSpec[];
-}
-
-interface Target {
-  kind: TargetKind;
+interface Npc {
+  spec: NpcSpec;
   x: number;
   y: number;
   radius: number;
@@ -47,19 +52,60 @@ interface Target {
   body: pc.Entity;
   head: pc.Entity;
   badge: pc.Entity;
+  prop: pc.Entity;
+  observeTime: number;
+  revealed: number;
 }
 
-const levels: LevelSpec[] = [
-  { targets: [{ kind: "hostile", x: 0.4, y: -0.4 }, { kind: "civilian", x: -2.6, y: -1.0 }, { kind: "civilian", x: 3.2, y: 0.6 }] },
-  { targets: [{ kind: "hostile", x: -2.7, y: 0.8 }, { kind: "hostile", x: 2.4, y: -1.0 }, { kind: "civilian", x: 0.0, y: 1.1 }] },
-  { targets: [{ kind: "hostile", x: -3.4, y: -1.2 }, { kind: "hostile", x: 0.7, y: 0.9 }, { kind: "civilian", x: 3.1, y: -0.1 }, { kind: "civilian", x: -0.8, y: -1.7 }] },
-  { targets: [{ kind: "hostile", x: -4.5, y: 1.3 }, { kind: "hostile", x: 0.1, y: -0.7 }, { kind: "hostile", x: 4.0, y: 0.8 }, { kind: "civilian", x: -2.0, y: -1.6 }] },
-  { targets: [{ kind: "hostile", x: -3.5, y: 0.0 }, { kind: "hostile", x: 2.8, y: 1.2 }, { kind: "hostile", x: 3.9, y: -1.4 }, { kind: "civilian", x: -0.2, y: 1.7 }, { kind: "civilian", x: 1.2, y: -1.8 }] },
-  { targets: [{ kind: "hostile", x: -5.0, y: -1.0 }, { kind: "hostile", x: -1.5, y: 1.2 }, { kind: "hostile", x: 2.1, y: -0.2 }, { kind: "civilian", x: 4.5, y: 1.1 }, { kind: "civilian", x: 0.2, y: -1.8 }] },
-  { targets: [{ kind: "hostile", x: -4.2, y: 1.4 }, { kind: "hostile", x: -0.6, y: -1.2 }, { kind: "hostile", x: 2.7, y: 1.2 }, { kind: "hostile", x: 4.8, y: -0.9 }, { kind: "civilian", x: 1.0, y: 0.0 }] },
-  { targets: [{ kind: "hostile", x: -5.1, y: 0.2 }, { kind: "hostile", x: -2.2, y: -1.5 }, { kind: "hostile", x: 1.6, y: 1.3 }, { kind: "hostile", x: 4.2, y: -1.2 }, { kind: "civilian", x: 0.2, y: -0.4 }, { kind: "civilian", x: 3.3, y: 1.6 }] },
-  { targets: [{ kind: "hostile", x: -4.7, y: -1.4 }, { kind: "hostile", x: -1.7, y: 1.3 }, { kind: "hostile", x: 1.7, y: -0.5 }, { kind: "hostile", x: 4.7, y: 1.1 }, { kind: "civilian", x: -0.1, y: -1.8 }, { kind: "civilian", x: 2.8, y: -1.8 }] },
-  { targets: [{ kind: "hostile", x: -5.2, y: 1.3 }, { kind: "hostile", x: -2.3, y: -1.6 }, { kind: "hostile", x: 1.2, y: 1.0 }, { kind: "hostile", x: 4.8, y: -0.7 }, { kind: "civilian", x: -0.6, y: -0.5 }, { kind: "civilian", x: 3.0, y: 1.7 }] },
+const missionIntel =
+  "Intel: black jacket, meeting a contact, possibly armed. Three people partially match. Confirm behavior before firing.";
+
+const npcSpecs: NpcSpec[] = [
+  {
+    id: "Subject A",
+    role: "decoy",
+    baseX: -3.2,
+    baseY: -0.55,
+    jacket: COLORS.jacketBlack,
+    speed: 0.85,
+    amplitude: 0.28,
+    phase: 0,
+    clues: [
+      "Subject A keeps checking their phone.",
+      "Audio: “I’m late for the interview. Hold the elevator.”",
+      "Subject A helps a pedestrian pick up dropped papers.",
+    ],
+  },
+  {
+    id: "Subject B",
+    role: "realTarget",
+    baseX: 0.25,
+    baseY: -0.15,
+    jacket: COLORS.jacketBlack,
+    speed: 0.45,
+    amplitude: 0.18,
+    phase: 1.8,
+    clues: [
+      "Subject B avoids the open street and waits near the delivery van.",
+      "Audio fragment: “Package changes hands in sixty seconds.”",
+      "Subject B reveals a small marked case, then scans the rooftops.",
+    ],
+  },
+  {
+    id: "Subject C",
+    role: "protected",
+    baseX: 3.3,
+    baseY: -0.85,
+    jacket: COLORS.jacketGrey,
+    speed: 0.65,
+    amplitude: 0.22,
+    phase: 3.2,
+    clues: [
+      "Subject C matches the jacket description only from a distance.",
+      "Audio: “I’m the contact. I’m getting out before this goes wrong.”",
+      "Subject C backs away from Subject B, hands visible.",
+    ],
+  },
 ];
 
 const canvas = document.getElementById("app") as HTMLCanvasElement;
@@ -69,6 +115,9 @@ const shotsEl = document.getElementById("shots");
 const targetsEl = document.getElementById("targets");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
+const intelEl = document.getElementById("intelText");
+const observeEl = document.getElementById("observeText");
+const newsEl = document.getElementById("newsText");
 
 const app = new pc.Application(canvas, {
   mouse: new pc.Mouse(canvas),
@@ -140,6 +189,10 @@ function makeSphere(name: string, color: pc.Color, scale: [number, number, numbe
   return entity;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 makeBox("skyline", COLORS.skyline, [15.5, 9.0, 0.18], [0, 0, TARGET_Z - 0.65], 0.72);
 makeBox("roofline", new pc.Color(0.08, 0.12, 0.20), [15.5, 0.24, 0.3], [0, -3.55, TARGET_Z - 0.25], 0.95);
 makeBox("rooftop-ledge", COLORS.rooftop, [11.5, 0.36, 1.35], [0, 1.55, 4.35], 0.96);
@@ -157,25 +210,26 @@ for (let i = 0; i < 36; i++) {
   makeBox(`window-${i}`, lit ? COLORS.window : new pc.Color(0.10, 0.15, 0.23), [0.52, 0.32, 0.08], [x, y, TARGET_Z - 0.05], lit ? 0.42 : 0.25);
 }
 
-const crosshairParts = [
+const impactParts = [
   makeBox("impact-h", COLORS.crosshair, [0.62, 0.035, 0.08], [0, 0, TARGET_Z + 0.7], 0),
   makeBox("impact-v", COLORS.crosshair, [0.035, 0.62, 0.08], [0, 0, TARGET_Z + 0.7], 0),
   makeBox("impact-dot", COLORS.crosshair, [0.08, 0.08, 0.08], [0, 0, TARGET_Z + 0.72], 0),
 ];
 
-let targets: Target[] = [];
-let levelIndex = 0;
-let shots = SHOTS_PER_LEVEL;
-let state: LevelState = "intro";
+let npcs: Npc[] = [];
+let shots = SHOTS_PER_MISSION;
+let missionClock = MISSION_TIME;
+let state: MissionState = "intro";
 let flashTimer = 0;
 let aimX = 0;
 let aimY = 0;
 let pointerStart: { x: number; y: number } | null = null;
 let pointerLast: { x: number; y: number } | null = null;
 let pointerMoved = false;
+let outcome = "";
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+function setText(el: Element | null, text: string): void {
+  if (el) el.textContent = text;
 }
 
 function updateCameraAim(): void {
@@ -194,142 +248,183 @@ function hideOverlay(): void {
 }
 
 function updateHud(): void {
-  const remaining = targets.filter((target) => target.kind === "hostile" && target.active).length;
-  if (levelEl) levelEl.textContent = `${Math.min(levelIndex + 1, LEVEL_COUNT)}/${LEVEL_COUNT}`;
+  if (levelEl) levelEl.textContent = "01";
   if (shotsEl) shotsEl.textContent = String(shots);
-  if (targetsEl) targetsEl.textContent = String(remaining);
+  if (targetsEl) targetsEl.textContent = `${Math.max(0, Math.ceil(missionClock))}s`;
 }
 
-function destroyTargets(): void {
-  for (const target of targets) {
-    target.body.destroy();
-    target.head.destroy();
-    target.badge.destroy();
-  }
-  targets = [];
-}
-
-function createTarget(spec: TargetSpec): Target {
-  const hostile = spec.kind === "hostile";
-  const bodyColor = hostile ? COLORS.hostile : COLORS.civilian;
-  const headColor = hostile ? COLORS.hostileHead : COLORS.civilianHead;
-  const badgeColor = hostile ? new pc.Color(0.95, 0.95, 1.0) : COLORS.safe;
-  const body = makeBox(`${spec.kind}-body`, bodyColor, [0.46, 0.74, 0.22], [spec.x, spec.y - 0.18, TARGET_Z + 0.35]);
-  const head = makeSphere(`${spec.kind}-head`, headColor, [0.34, 0.34, 0.34], [spec.x, spec.y + 0.36, TARGET_Z + 0.42]);
-  const badge = makeBox(`${spec.kind}-badge`, badgeColor, hostile ? [0.26, 0.07, 0.08] : [0.18, 0.18, 0.08], [spec.x, spec.y - 0.14, TARGET_Z + 0.62], 0.9);
-  if (hostile) badge.setEulerAngles(0, 0, 45);
+function createNpc(spec: NpcSpec): Npc {
+  const body = makeBox(`${spec.id}-body`, spec.jacket, [0.46, 0.74, 0.22], [spec.baseX, spec.baseY - 0.18, TARGET_Z + 0.35]);
+  const head = makeSphere(`${spec.id}-head`, COLORS.personHead, [0.34, 0.34, 0.34], [spec.baseX, spec.baseY + 0.36, TARGET_Z + 0.42]);
+  const badge = makeBox(`${spec.id}-badge`, spec.role === "protected" ? COLORS.civilian : COLORS.suspicious, [0.16, 0.16, 0.08], [spec.baseX, spec.baseY - 0.14, TARGET_Z + 0.62], 0.72);
+  const prop = makeBox(`${spec.id}-prop`, spec.role === "realTarget" ? COLORS.package : COLORS.window, [0.26, 0.16, 0.12], [spec.baseX + 0.36, spec.baseY - 0.24, TARGET_Z + 0.55], spec.role === "realTarget" ? 0 : 0.45);
   return {
-    kind: spec.kind,
-    x: spec.x,
-    y: spec.y + 0.02,
+    spec,
+    x: spec.baseX,
+    y: spec.baseY,
     radius: 0.46,
     active: true,
     body,
     head,
     badge,
+    prop,
+    observeTime: 0,
+    revealed: 0,
   };
 }
 
-function loadLevel(index: number): void {
-  destroyTargets();
-  levelIndex = index;
-  shots = SHOTS_PER_LEVEL;
+function resetMission(): void {
+  for (const npc of npcs) {
+    npc.body.destroy();
+    npc.head.destroy();
+    npc.badge.destroy();
+    npc.prop.destroy();
+  }
+  npcs = npcSpecs.map(createNpc);
+  shots = SHOTS_PER_MISSION;
+  missionClock = MISSION_TIME;
   state = "intro";
+  outcome = "";
   aimX = 0;
   aimY = 0;
   updateCameraAim();
-  for (const spec of levels[levelIndex]!.targets) {
-    targets.push(createTarget(spec));
-  }
   updateHud();
-  showOverlay(`Level ${levelIndex + 1}: rooftop overwatch. Stop red threats, protect blue civilians.`);
+  setText(intelEl, missionIntel);
+  setText(observeEl, "Hold the scope over a person to gather behavior and audio clues.");
+  setText(newsEl, "City feed: rain moving in, traffic heavy, police channels quiet.");
+  showOverlay("Mission 01: vague intel. Observe before you decide.");
 }
 
-function showImpact(x: number, y: number, color: pc.Color): void {
-  for (const part of crosshairParts) {
-    part.setPosition(x, y, part.getPosition().z);
-    part.render!.material = getMaterial(color, 0.95);
-  }
-  flashTimer = 0.16;
+function startMission(): void {
+  state = "playing";
+  hideOverlay();
 }
 
-function levelComplete(): void {
-  if (levelIndex >= LEVEL_COUNT - 1) {
-    state = "complete";
-    showOverlay("Mission complete. All 10 levels cleared.");
-    return;
-  }
-  state = "clear";
-  showOverlay(`Level ${levelIndex + 1} clear. Tap for level ${levelIndex + 2}.`);
-}
-
-function fail(message: string): void {
-  state = "failed";
-  showOverlay(`${message} Tap to retry level ${levelIndex + 1}.`);
-}
-
-function nearestTarget(x: number, y: number): Target | null {
-  let best: Target | null = null;
+function nearestNpc(x: number, y: number): Npc | null {
+  let best: Npc | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
-  for (const target of targets) {
-    if (!target.active) continue;
-    const dx = target.x - x;
-    const dy = target.y - y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < target.radius && dist < bestDist) {
-      best = target;
+  for (const npc of npcs) {
+    if (!npc.active) continue;
+    const dist = Math.hypot(npc.x - x, npc.y - y);
+    if (dist < npc.radius && dist < bestDist) {
+      best = npc;
       bestDist = dist;
     }
   }
   return best;
 }
 
-function neutralize(target: Target): void {
-  target.active = false;
-  target.body.render!.material = getMaterial(COLORS.neutralized, 0.5);
-  target.head.render!.material = getMaterial(COLORS.neutralized, 0.5);
-  target.badge.enabled = false;
-  target.body.setLocalScale(0.48, 0.16, 0.22);
-  target.head.setLocalScale(0.18, 0.18, 0.18);
-  target.body.setPosition(target.x, target.y - 0.52, TARGET_Z + 0.35);
-  target.head.setPosition(target.x + 0.32, target.y - 0.50, TARGET_Z + 0.42);
+function showImpact(x: number, y: number, color: pc.Color): void {
+  for (const part of impactParts) {
+    part.setPosition(x, y, part.getPosition().z);
+    part.render!.material = getMaterial(color, 0.95);
+  }
+  flashTimer = 0.16;
+}
+
+function neutralize(npc: Npc): void {
+  npc.active = false;
+  npc.body.render!.material = getMaterial(COLORS.neutralized, 0.55);
+  npc.head.render!.material = getMaterial(COLORS.neutralized, 0.55);
+  npc.badge.enabled = false;
+  npc.prop.enabled = false;
+  npc.body.setLocalScale(0.48, 0.16, 0.22);
+  npc.head.setLocalScale(0.18, 0.18, 0.18);
+  npc.body.setPosition(npc.x, npc.y - 0.52, TARGET_Z + 0.35);
+  npc.head.setPosition(npc.x + 0.32, npc.y - 0.50, TARGET_Z + 0.42);
+}
+
+function finish(message: string, news: string): void {
+  state = "resolved";
+  outcome = message;
+  setText(newsEl, news);
+  showOverlay(message);
 }
 
 function handleShot(): void {
-  if (state !== "playing") return;
-  if (shots <= 0) return;
+  if (state !== "playing" || shots <= 0) return;
   shots -= 1;
+  const hit = nearestNpc(aimX, aimY);
 
-  const hit = nearestTarget(aimX, aimY);
   if (!hit) {
     showImpact(aimX, aimY, COLORS.miss);
-  } else if (hit.kind === "civilian") {
-    showImpact(hit.x, hit.y, COLORS.miss);
+    setText(newsEl, "Police scanner: possible shot reported, no confirmed casualty. People begin to scatter.");
     updateHud();
-    fail("Civilian hit.");
+    if (shots === 0) finish("No shots left. The contact leaves the scene.", "Later feed: sirens across the east side. Your handler says the mission failed, but gives no proof.");
     return;
-  } else {
-    showImpact(hit.x, hit.y, COLORS.crosshair);
-    neutralize(hit);
   }
 
-  const remaining = targets.filter((target) => target.kind === "hostile" && target.active).length;
+  showImpact(hit.x, hit.y, hit.spec.role === "realTarget" ? COLORS.crosshair : COLORS.miss);
+  neutralize(hit);
   updateHud();
-  if (remaining === 0) levelComplete();
-  else if (shots === 0) fail("Out of shots.");
+
+  if (hit.spec.role === "realTarget") {
+    finish(
+      "Shot taken. The package never changes hands.",
+      "News crawl: police prevent an unspecified downtown incident. Witness video raises questions about who authorized the rooftop shooter.",
+    );
+  } else {
+    finish(
+      "Wrong person. The street erupts into panic.",
+      "Breaking: bystander shot from a rooftop. Police flood the district. Your employer goes silent.",
+    );
+  }
+}
+
+function revealObservation(npc: Npc, dt: number): void {
+  npc.observeTime += dt;
+  const thresholds = [0.8, 2.2, 4.0];
+  while (npc.revealed < thresholds.length && npc.observeTime >= thresholds[npc.revealed]!) {
+    npc.revealed += 1;
+  }
+
+  const visibleClues = npc.spec.clues.slice(0, npc.revealed);
+  if (visibleClues.length === 0) {
+    setText(observeEl, `${npc.spec.id}: observing... movement pattern unclear.`);
+  } else {
+    setText(observeEl, `${npc.spec.id}: ${visibleClues.join(" ")}`);
+  }
+}
+
+function updateNpc(npc: Npc, time: number): void {
+  if (!npc.active) return;
+  const move = Math.sin(time * npc.spec.speed + npc.spec.phase) * npc.spec.amplitude;
+  npc.x = npc.spec.baseX + move;
+  const bob = Math.sin(time * 3 + npc.spec.phase) * 0.025;
+  npc.body.setPosition(npc.x, npc.y - 0.20 + bob, TARGET_Z + 0.35);
+  npc.head.setPosition(npc.x, npc.y + 0.34 + bob, TARGET_Z + 0.42);
+  npc.badge.setPosition(npc.x, npc.y - 0.16 + bob, TARGET_Z + 0.62);
+  npc.prop.setPosition(npc.x + 0.36, npc.y - 0.24 + bob, TARGET_Z + 0.55);
+  npc.prop.enabled = npc.spec.role === "realTarget" && missionClock < 48;
+}
+
+function updateMission(dt: number): void {
+  if (state !== "playing") return;
+  missionClock -= dt;
+  if (missionClock <= 0) {
+    missionClock = 0;
+    updateHud();
+    finish(
+      "You waited too long. Subject B disappears into the crowd.",
+      "Hours later: emergency alerts mention an incident near the transit district. The organization blames your hesitation.",
+    );
+    return;
+  }
+
+  const focused = nearestNpc(aimX, aimY);
+  if (focused) revealObservation(focused, dt);
+  else setText(observeEl, "No subject centered. Drag the scope and hold on a person to gather clues.");
+
+  if (missionClock < 20 && state === "playing") {
+    setText(newsEl, "City feed: the delivery van starts moving. The window to act is closing.");
+  }
+
+  updateHud();
 }
 
 function continueFromOverlay(): void {
-  if (state === "intro") {
-    state = "playing";
-    hideOverlay();
-  } else if (state === "clear") {
-    loadLevel(levelIndex + 1);
-  } else if (state === "failed") {
-    loadLevel(levelIndex);
-  } else if (state === "complete") {
-    loadLevel(0);
-  }
+  if (state === "intro") startMission();
+  else if (state === "resolved") resetMission();
 }
 
 stage.addEventListener("pointerdown", (e: PointerEvent) => {
@@ -367,7 +462,10 @@ stage.addEventListener("pointerup", (e: PointerEvent) => {
 });
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
-  if (e.key === "Enter" || e.key === " ") {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    continueFromOverlay();
+  } else if (e.key === " ") {
     e.preventDefault();
     if (state === "playing") handleShot();
     else continueFromOverlay();
@@ -399,21 +497,18 @@ window.addEventListener("resize", fitToStage);
 new ResizeObserver(fitToStage).observe(stage);
 
 app.on("update", (dt: number) => {
+  const time = performance.now() / 1000;
   if (flashTimer > 0) {
     flashTimer = Math.max(0, flashTimer - dt);
     if (flashTimer === 0) {
-      for (const part of crosshairParts) {
+      for (const part of impactParts) {
         part.render!.material = getMaterial(COLORS.crosshair, 0);
       }
     }
   }
-  for (const target of targets) {
-    if (!target.active) continue;
-    const bob = Math.sin(performance.now() / 450 + target.x) * 0.025;
-    target.body.setPosition(target.x, target.y - 0.20 + bob, TARGET_Z + 0.35);
-    target.head.setPosition(target.x, target.y + 0.34 + bob, TARGET_Z + 0.42);
-    target.badge.setPosition(target.x, target.y - 0.16 + bob, TARGET_Z + 0.62);
-  }
+  for (const npc of npcs) updateNpc(npc, time);
+  updateMission(dt);
+  if (outcome && state === "resolved") setText(observeEl, "Mission note: no clean confirmation. The story changes because of what you chose.");
 });
 
 document.addEventListener(
@@ -424,7 +519,6 @@ document.addEventListener(
   { passive: false },
 );
 
-updateCameraAim();
 fitToStage();
-loadLevel(0);
+resetMission();
 app.start();

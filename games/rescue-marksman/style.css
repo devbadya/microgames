@@ -69,6 +69,42 @@
   min-height: 0;
 }
 
+.intelPanel {
+  position: fixed;
+  left: 1rem;
+  top: calc(4.5rem + env(safe-area-inset-top));
+  z-index: 12;
+  width: min(340px, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(7, 9, 15, 0.78);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+  backdrop-filter: saturate(150%) blur(12px);
+}
+
+.intelPanel section {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.intelPanel h2 {
+  margin: 0;
+  color: rgba(216, 246, 255, 0.78);
+  font-size: 0.68rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.intelPanel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.42;
+}
+
 #app {
   display: block;
   width: 100%;
@@ -217,6 +253,18 @@ kbd {
   .hudLabel {
     font-size: 0.6rem;
     letter-spacing: 0.08em;
+  }
+  .intelPanel {
+    top: auto;
+    left: 0.75rem;
+    bottom: calc(3.8rem + env(safe-area-inset-bottom));
+    width: calc(100vw - 1.5rem);
+    max-height: 34vh;
+    overflow: auto;
+    padding: 0.7rem;
+  }
+  .intelPanel p {
+    font-size: 0.78rem;
   }
   .overlayMsg {
     font-size: 1.2rem;
