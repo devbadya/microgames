@@ -1,0 +1,67 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 270"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Cube Dash preview"
+>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111a34" />
+      <stop offset="56%" stop-color="#090d1a" />
+      <stop offset="100%" stop-color="#16091f" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.2" cy="0.2" r="0.8">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.9" cy="0.82" r="0.7">
+      <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.24" />
+      <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0" />
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000" flood-opacity="0.34" />
+    </filter>
+  </defs>
+
+  <rect width="480" height="270" fill="url(#bg)" />
+  <rect width="480" height="270" fill="url(#glowA)" />
+  <rect width="480" height="270" fill="url(#glowB)" />
+
+  <g stroke="rgba(255,255,255,0.07)" stroke-width="1">
+    <line x1="0" y1="70" x2="480" y2="70" />
+    <line x1="0" y1="130" x2="480" y2="130" />
+    <line x1="0" y1="190" x2="480" y2="190" />
+    <line x1="70" y1="0" x2="70" y2="270" />
+    <line x1="140" y1="0" x2="140" y2="270" />
+    <line x1="210" y1="0" x2="210" y2="270" />
+    <line x1="280" y1="0" x2="280" y2="270" />
+    <line x1="350" y1="0" x2="350" y2="270" />
+    <line x1="420" y1="0" x2="420" y2="270" />
+  </g>
+
+  <rect x="0" y="208" width="480" height="62" fill="rgba(255,255,255,0.06)" />
+  <rect x="0" y="204" width="480" height="4" fill="#6ee7ff" opacity="0.85" />
+
+  <g filter="url(#shadow)">
+    <rect x="104" y="146" width="52" height="52" rx="8" fill="#a78bfa" transform="rotate(-14 130 172)" />
+    <rect x="121" y="163" width="18" height="18" rx="4" fill="#ddd6fe" opacity="0.9" transform="rotate(-14 130 172)" />
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M236 206 L259 160 L282 206 Z" fill="#ff637d" />
+    <path d="M309 206 L332 160 L355 206 Z" fill="#ff637d" />
+    <rect x="372" y="155" width="48" height="48" rx="8" fill="#62d4ff" />
+    <rect x="388" y="171" width="17" height="17" rx="4" fill="#b9f3ff" opacity="0.82" />
+  </g>
+
+  <path
+    d="M56 180 C88 128 132 112 177 132 C214 148 220 176 260 164"
+    fill="none"
+    stroke="#a78bfa"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-dasharray="10 12"
+    opacity="0.62"
+  />
+</svg>

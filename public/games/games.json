@@ -14,5 +14,13 @@
     "minutes": 2,
     "tags": ["arcade", "tap", "mobile"],
     "thumbnail": "./thumbnails/sky-hopper.svg"
+  },
+  {
+    "slug": "cube-dash",
+    "title": "Cube Dash",
+    "description": "Jump a rotating neon cube through spikes and blocks in a fast auto-runner.",
+    "minutes": 2,
+    "tags": ["runner", "jump", "mobile"],
+    "thumbnail": "./thumbnails/cube-dash.svg"
   }
 ]
