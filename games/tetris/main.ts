@@ -3,7 +3,10 @@ import * as pc from "playcanvas";
 const COLS = 10;
 const ROWS = 20;
 
-const COLORS = {
+type PieceKey = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
+type ColorKey = PieceKey | "bg" | "empty" | "border" | "ghost";
+
+const COLORS: Record<ColorKey, pc.Color> = {
   bg: new pc.Color(0.04, 0.06, 0.10),
   empty: new pc.Color(0.10, 0.13, 0.19),
   border: new pc.Color(0.18, 0.22, 0.30),
@@ -17,81 +20,110 @@ const COLORS = {
   L: new pc.Color(0.98, 0.66, 0.40),
 };
 
-const PIECES = {
+const PIECES: Record<PieceKey, number[][]> = {
   I: [[1, 1, 1, 1]],
-  O: [[1, 1], [1, 1]],
-  T: [[0, 1, 0], [1, 1, 1]],
-  S: [[0, 1, 1], [1, 1, 0]],
-  Z: [[1, 1, 0], [0, 1, 1]],
-  J: [[1, 0, 0], [1, 1, 1]],
-  L: [[0, 0, 1], [1, 1, 1]],
+  O: [
+    [1, 1],
+    [1, 1],
+  ],
+  T: [
+    [0, 1, 0],
+    [1, 1, 1],
+  ],
+  S: [
+    [0, 1, 1],
+    [1, 1, 0],
+  ],
+  Z: [
+    [1, 1, 0],
+    [0, 1, 1],
+  ],
+  J: [
+    [1, 0, 0],
+    [1, 1, 1],
+  ],
+  L: [
+    [0, 0, 1],
+    [1, 1, 1],
+  ],
 };
 
-const KEYS = Object.keys(PIECES);
+const KEYS = Object.keys(PIECES) as PieceKey[];
 
-function rotateCW(matrix) {
+type Cell = PieceKey | null;
+type Board = Cell[][];
+
+interface Piece {
+  key: PieceKey;
+  shape: number[][];
+  x: number;
+  y: number;
+}
+
+function rotateCW(matrix: number[][]): number[][] {
   const h = matrix.length;
-  const w = matrix[0].length;
-  const out = Array.from({ length: w }, () => new Array(h).fill(0));
+  const w = matrix[0]!.length;
+  const out: number[][] = Array.from({ length: w }, () => new Array<number>(h).fill(0));
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      out[x][h - 1 - y] = matrix[y][x];
+      out[x]![h - 1 - y] = matrix[y]![x]!;
     }
   }
   return out;
 }
 
-function emptyBoard() {
-  return Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
+function emptyBoard(): Board {
+  return Array.from({ length: ROWS }, () => new Array<Cell>(COLS).fill(null));
 }
 
-function shapeCells(matrix, ox, oy) {
-  const cells = [];
+function shapeCells(matrix: number[][], ox: number, oy: number): [number, number][] {
+  const cells: [number, number][] = [];
   for (let y = 0; y < matrix.length; y++) {
-    for (let x = 0; x < matrix[0].length; x++) {
-      if (matrix[y][x]) cells.push([ox + x, oy + y]);
+    const row = matrix[y]!;
+    for (let x = 0; x < row.length; x++) {
+      if (row[x]) cells.push([ox + x, oy + y]);
     }
   }
   return cells;
 }
 
-function canPlace(board, matrix, ox, oy) {
+function canPlace(board: Board, matrix: number[][], ox: number, oy: number): boolean {
   for (const [x, y] of shapeCells(matrix, ox, oy)) {
     if (x < 0 || x >= COLS || y >= ROWS) return false;
-    if (y >= 0 && board[y][x] !== null) return false;
+    if (y >= 0 && board[y]![x] !== null) return false;
   }
   return true;
 }
 
-function spawnPiece() {
-  const k = KEYS[Math.floor(Math.random() * KEYS.length)];
+function spawnPiece(): Piece {
+  const k = KEYS[Math.floor(Math.random() * KEYS.length)]!;
   const shape = PIECES[k].map((row) => row.slice());
   return {
     key: k,
     shape,
-    x: Math.floor((COLS - shape[0].length) / 2),
+    x: Math.floor((COLS - shape[0]!.length) / 2),
     y: -shape.length,
   };
 }
 
-function lockPiece(board, piece) {
+function lockPiece(board: Board, piece: Piece): boolean {
   let topOut = false;
   for (const [x, y] of shapeCells(piece.shape, piece.x, piece.y)) {
     if (y < 0) {
       topOut = true;
       continue;
     }
-    board[y][x] = piece.key;
+    board[y]![x] = piece.key;
   }
   return !topOut;
 }
 
-function clearLines(board) {
+function clearLines(board: Board): number {
   let cleared = 0;
   for (let y = ROWS - 1; y >= 0; y--) {
-    if (board[y].every((c) => c !== null)) {
+    if (board[y]!.every((c) => c !== null)) {
       board.splice(y, 1);
-      board.unshift(new Array(COLS).fill(null));
+      board.unshift(new Array<Cell>(COLS).fill(null));
       cleared += 1;
       y += 1;
     }
@@ -99,14 +131,14 @@ function clearLines(board) {
   return cleared;
 }
 
-function ghostY(board, piece) {
+function ghostY(board: Board, piece: Piece): number {
   let y = piece.y;
   while (canPlace(board, piece.shape, piece.x, y + 1)) y += 1;
   return y;
 }
 
-const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("app"));
-const stage = document.getElementById("stage");
+const canvas = document.getElementById("app") as HTMLCanvasElement;
+const stage = document.getElementById("stage") as HTMLElement;
 
 const app = new pc.Application(canvas, {
   mouse: new pc.Mouse(canvas),
@@ -156,8 +188,8 @@ rim.addComponent("light", {
 rim.setEulerAngles(180, 0, 0);
 app.root.addChild(rim);
 
-const materials = new Map();
-function getMaterial(color) {
+const materials = new Map<string, pc.StandardMaterial>();
+function getMaterial(color: pc.Color): pc.StandardMaterial {
   const key = `${color.r.toFixed(3)}-${color.g.toFixed(3)}-${color.b.toFixed(3)}`;
   let m = materials.get(key);
   if (!m) {
@@ -175,21 +207,22 @@ function getMaterial(color) {
 const xOffset = -(COLS - 1) / 2;
 const yOffset = (ROWS - 1) / 2;
 
-const cellEntities = [];
+const cellEntities: pc.Entity[][] = [];
 for (let y = 0; y < ROWS; y++) {
-  cellEntities.push([]);
+  const row: pc.Entity[] = [];
   for (let x = 0; x < COLS; x++) {
     const e = new pc.Entity();
     e.addComponent("render", { type: "box" });
     e.setLocalScale(0.92, 0.92, 0.92);
     e.setPosition(xOffset + x, yOffset - y, 0);
-    e.render.material = getMaterial(COLORS.empty);
+    e.render!.material = getMaterial(COLORS.empty);
     app.root.addChild(e);
-    cellEntities[y].push(e);
+    row.push(e);
   }
+  cellEntities.push(row);
 }
 
-(function makeBorder() {
+(function makeBorder(): void {
   const w = COLS + 0.4;
   const h = ROWS + 0.4;
   const t = 0.2;
@@ -204,7 +237,7 @@ for (let y = 0; y < ROWS; y++) {
     e.addComponent("render", { type: "box" });
     e.setLocalScale(s.sx, s.sy, 0.5);
     e.setPosition(s.x, s.y, 0);
-    e.render.material = getMaterial(COLORS.border);
+    e.render!.material = getMaterial(COLORS.border);
     app.root.addChild(e);
   }
 })();
@@ -215,8 +248,8 @@ const levelEl = document.getElementById("level");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
 
-let board = emptyBoard();
-let piece = spawnPiece();
+let board: Board = emptyBoard();
+let piece: Piece = spawnPiece();
 let dropAccumulator = 0;
 let dropInterval = 0.7;
 let score = 0;
@@ -225,23 +258,23 @@ let level = 1;
 let gameOver = false;
 let paused = false;
 
-function updateHud() {
+function updateHud(): void {
   if (scoreEl) scoreEl.textContent = String(score);
   if (linesEl) linesEl.textContent = String(lines);
   if (levelEl) levelEl.textContent = String(level);
 }
 
-function showOverlay(msg) {
+function showOverlay(msg: string): void {
   if (!overlayEl || !overlayMsg) return;
   overlayMsg.textContent = msg;
   overlayEl.hidden = false;
 }
 
-function hideOverlay() {
+function hideOverlay(): void {
   if (overlayEl) overlayEl.hidden = true;
 }
 
-function newGame() {
+function newGame(): void {
   board = emptyBoard();
   piece = spawnPiece();
   dropAccumulator = 0;
@@ -255,7 +288,7 @@ function newGame() {
   updateHud();
 }
 
-function tryMove(dx, dy) {
+function tryMove(dx: number, dy: number): boolean {
   if (canPlace(board, piece.shape, piece.x + dx, piece.y + dy)) {
     piece.x += dx;
     piece.y += dy;
@@ -264,7 +297,7 @@ function tryMove(dx, dy) {
   return false;
 }
 
-function tryRotate() {
+function tryRotate(): void {
   const r = rotateCW(piece.shape);
   for (const dx of [0, -1, 1, -2, 2]) {
     if (canPlace(board, r, piece.x + dx, piece.y)) {
@@ -275,7 +308,7 @@ function tryRotate() {
   }
 }
 
-function softDrop() {
+function softDrop(): void {
   if (tryMove(0, 1)) {
     score += 1;
   } else {
@@ -283,14 +316,16 @@ function softDrop() {
   }
 }
 
-function hardDrop() {
+function hardDrop(): void {
   let dropped = 0;
   while (tryMove(0, 1)) dropped += 1;
   score += dropped * 2;
   settle();
 }
 
-function settle() {
+const LINE_POINTS: readonly number[] = [0, 100, 300, 500, 800];
+
+function settle(): void {
   const ok = lockPiece(board, piece);
   if (!ok) {
     endGame();
@@ -298,7 +333,7 @@ function settle() {
   }
   const cleared = clearLines(board);
   if (cleared > 0) {
-    const points = [0, 100, 300, 500, 800][cleared] ?? 1000;
+    const points = LINE_POINTS[cleared] ?? 1000;
     score += points * level;
     lines += cleared;
     const newLevel = Math.floor(lines / 10) + 1;
@@ -314,13 +349,13 @@ function settle() {
   updateHud();
 }
 
-function endGame() {
+function endGame(): void {
   gameOver = true;
   showOverlay("Game over — press R to restart");
   updateHud();
 }
 
-window.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", (e: KeyboardEvent) => {
   const k = e.key;
   if (k === "r" || k === "R") {
     newGame();
@@ -356,32 +391,34 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-function renderBoard() {
+function renderBoard(): void {
   const ghostPos = canPlace(board, piece.shape, piece.x, piece.y)
     ? ghostY(board, piece)
     : piece.y;
 
   for (let y = 0; y < ROWS; y++) {
+    const row = board[y]!;
+    const ents = cellEntities[y]!;
     for (let x = 0; x < COLS; x++) {
-      const k = board[y][x];
-      cellEntities[y][x].render.material = getMaterial(k ? COLORS[k] : COLORS.empty);
+      const k = row[x];
+      ents[x]!.render!.material = getMaterial(k ? COLORS[k] : COLORS.empty);
     }
   }
 
   for (const [x, y] of shapeCells(piece.shape, piece.x, ghostPos)) {
-    if (y >= 0 && y < ROWS && x >= 0 && x < COLS && board[y][x] === null) {
-      cellEntities[y][x].render.material = getMaterial(COLORS.ghost);
+    if (y >= 0 && y < ROWS && x >= 0 && x < COLS && board[y]![x] === null) {
+      cellEntities[y]![x]!.render!.material = getMaterial(COLORS.ghost);
     }
   }
 
   for (const [x, y] of shapeCells(piece.shape, piece.x, piece.y)) {
     if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
-      cellEntities[y][x].render.material = getMaterial(COLORS[piece.key]);
+      cellEntities[y]![x]!.render!.material = getMaterial(COLORS[piece.key]);
     }
   }
 }
 
-app.on("update", (dt) => {
+app.on("update", (dt: number) => {
   if (!gameOver && !paused) {
     dropAccumulator += dt;
     while (dropAccumulator >= dropInterval) {
@@ -395,7 +432,7 @@ app.on("update", (dt) => {
   renderBoard();
 });
 
-function fitToStage() {
+function fitToStage(): void {
   const rect = stage.getBoundingClientRect();
   const w = Math.max(1, Math.floor(rect.width));
   const h = Math.max(1, Math.floor(rect.height));
@@ -404,7 +441,7 @@ function fitToStage() {
   const minBoardW = COLS + 1.6;
   const minBoardH = ROWS + 1.6;
   const oh = Math.max(minBoardH / 2, minBoardW / 2 / aspect);
-  camera.camera.orthoHeight = oh;
+  camera.camera!.orthoHeight = oh;
 }
 
 window.addEventListener("resize", fitToStage);

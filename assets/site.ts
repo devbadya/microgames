@@ -1,21 +1,34 @@
-async function loadGames() {
-  const res = await fetch("./games/games.json", { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to load games.json (${res.status})`);
-  const data = await res.json();
-  if (!Array.isArray(data)) throw new Error("games.json must be an array");
-  return data;
+interface Game {
+  slug: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  minutes?: number;
 }
 
-function normalize(s) {
+async function loadGames(): Promise<Game[]> {
+  const res = await fetch("./games/games.json", { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to load games.json (${res.status})`);
+  const data: unknown = await res.json();
+  if (!Array.isArray(data)) throw new Error("games.json must be an array");
+  return data as Game[];
+}
+
+function normalize(s: unknown): string {
   return String(s ?? "").trim().toLowerCase();
 }
 
-function renderCard(game) {
+interface GameCard extends HTMLElement {
+  dataset: DOMStringMap & { search: string };
+}
+
+function renderCard(game: Game): GameCard {
   const slug = normalize(game.slug).replace(/\s+/g, "-");
   const title = String(game.title ?? (slug || "Untitled"));
   const description = String(game.description ?? "");
   const tags = Array.isArray(game.tags) ? game.tags : [];
-  const minutes = Number.isFinite(game.minutes) ? game.minutes : null;
+  const minutes =
+    typeof game.minutes === "number" && Number.isFinite(game.minutes) ? game.minutes : null;
   const href = `./games/${encodeURIComponent(slug)}/`;
 
   const card = document.createElement("article");
@@ -51,23 +64,24 @@ function renderCard(game) {
   a.textContent = "Play";
 
   card.append(h3, p, chipRow, a);
-  card.dataset.search = `${normalize(title)} ${normalize(description)} ${tags.map(normalize).join(" ")}`.trim();
-  return card;
+  card.dataset.search =
+    `${normalize(title)} ${normalize(description)} ${tags.map(normalize).join(" ")}`.trim();
+  return card as GameCard;
 }
 
-function setStatus(text) {
+function setStatus(text: string): void {
   const el = document.getElementById("status");
   if (el) el.textContent = text;
 }
 
-function main() {
+function main(): void {
   const grid = document.getElementById("grid");
-  const search = document.getElementById("search");
+  const search = document.getElementById("search") as HTMLInputElement | null;
   if (!grid || !search) return;
 
-  let cards = [];
+  let cards: GameCard[] = [];
 
-  const applyFilter = () => {
+  const applyFilter = (): void => {
     const q = normalize(search.value);
     let visible = 0;
     for (const card of cards) {
@@ -80,7 +94,7 @@ function main() {
 
   search.addEventListener("input", applyFilter);
 
-  (async () => {
+  void (async () => {
     setStatus("Loading games…");
     try {
       const games = await loadGames();
@@ -90,11 +104,9 @@ function main() {
     } catch (e) {
       grid.replaceChildren();
       setStatus("Failed to load games. Check games/games.json.");
-      // eslint-disable-next-line no-console
       console.error(e);
     }
   })();
 }
 
 document.addEventListener("DOMContentLoaded", main);
-

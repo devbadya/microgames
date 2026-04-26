@@ -6,10 +6,13 @@
   "description": "A collection of tiny PlayCanvas games on GitHub Pages.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
     "vite": "^8.0.10"
   },
   "dependencies": {
