@@ -32,11 +32,6 @@
           <span class="hudLabel">Best</span>
           <span id="best" class="hudValue">0</span>
         </div>
-        <div class="hudItem hudProgress">
-          <span class="hudLabel">Progress</span>
-          <span id="progress" class="hudValue">0%</span>
-          <span class="progressBar" aria-hidden="true"><span id="progressFill" class="progressFill"></span></span>
-        </div>
       </div>
     </header>
 
@@ -66,6 +61,11 @@
 
     <main class="gameStage" id="stage">
       <canvas id="app"></canvas>
+      <div class="progressHud" aria-label="Level progress" role="status">
+        <span class="progressHudLabel">Progress</span>
+        <span id="progress" class="progressHudValue">0%</span>
+        <span class="progressBar" aria-hidden="true"><span id="progressFill" class="progressFill"></span></span>
+      </div>
       <div id="overlay" class="overlay">
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Tap to start</p>

@@ -84,17 +84,52 @@
   letter-spacing: -0.01em;
 }
 
-.hudProgress {
-  align-items: stretch;
-  min-width: 5.5rem;
+.gameStage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.progressHud {
+  position: absolute;
+  z-index: 2;
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92%, 24rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  pointer-events: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.progressHudLabel {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+}
+
+.progressHudValue {
+  font-size: clamp(2.1rem, 5.5vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
 }
 
 .progressBar {
-  margin-top: 0.32rem;
   display: block;
-  height: 4px;
+  width: 100%;
+  height: 0.6rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
@@ -104,12 +139,6 @@
   width: 0%;
   background: linear-gradient(90deg, #facc15, #fb7185 60%, #6ee7ff);
   transition: width 0.12s linear;
-}
-
-.gameStage {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 .iconSettingsPanel {
@@ -206,6 +235,7 @@
 
 .overlay {
   position: absolute;
+  z-index: 5;
   inset: 0;
   display: grid;
   place-items: center;
@@ -308,6 +338,15 @@ kbd {
   }
   .overlayHint {
     font-size: 0.82rem;
+  }
+  .progressHud {
+    width: min(94%, 22rem);
+  }
+  .progressHudValue {
+    font-size: clamp(1.75rem, 7vw, 2.35rem);
+  }
+  .progressBar {
+    height: 0.5rem;
   }
 }
 
