@@ -16,7 +16,6 @@ export default defineConfig({
         main: resolve(root, "index.html"),
         metroRush: resolve(root, "games/metro-rush/index.html"),
         notFound: resolve(root, "404.html"),
-        rescueMarksman: resolve(root, "games/rescue-marksman/index.html"),
         skyHopper: resolve(root, "games/sky-hopper/index.html"),
         tetris: resolve(root, "games/tetris/index.html"),
       },
