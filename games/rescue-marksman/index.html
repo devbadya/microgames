@@ -38,19 +38,26 @@
 
     <main class="gameStage" id="stage">
       <canvas id="app"></canvas>
+      <div class="scopeOverlay" aria-hidden="true">
+        <div class="scopeRing"></div>
+        <div class="scopeLine scopeLineH"></div>
+        <div class="scopeLine scopeLineV"></div>
+        <div class="scopeDot"></div>
+      </div>
       <div id="overlay" class="overlay">
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Tap to start</p>
-          <p class="overlayHint">Neutralize red targets. Do not hit blue civilians. 5 shots per level.</p>
+          <p class="overlayHint">Drag to aim the scope. Tap or press Space to fire. Protect blue civilians.</p>
         </div>
       </div>
     </main>
 
     <footer class="gameHelp">
+      <span><kbd>Drag</kbd> aim</span>
       <span><kbd>Tap / Click</kbd> shoot</span>
+      <span><kbd>Space</kbd> shoot</span>
       <span><kbd>Red</kbd> target</span>
       <span><kbd>Blue</kbd> civilian</span>
-      <span><kbd>5 shots</kbd> per level</span>
     </footer>
 
     <script type="module" src="./main.ts"></script>

@@ -34,7 +34,7 @@
   {
     "slug": "rescue-marksman",
     "title": "Rescue Marksman",
-    "description": "Clear 10 rescue levels with 5 shots each: neutralize red targets while protecting civilians.",
+    "description": "First-person scoped rescue missions: clear 10 levels with 5 shots while protecting civilians.",
     "minutes": 4,
     "tags": ["aim", "levels", "mobile"],
     "thumbnail": "./thumbnails/rescue-marksman.svg"

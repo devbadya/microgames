@@ -2,7 +2,11 @@ import * as pc from "playcanvas";
 
 const SHOTS_PER_LEVEL = 5;
 const LEVEL_COUNT = 10;
-const ORTHO_HALF_HEIGHT = 4.8;
+const TARGET_Z = -13;
+const CAMERA_Z = 8;
+const AIM_LIMIT_X = 6.1;
+const AIM_LIMIT_Y = 2.65;
+const AIM_SENSITIVITY = 0.012;
 
 const COLORS = {
   bg: new pc.Color(0.035, 0.045, 0.085),
@@ -74,14 +78,14 @@ app.setCanvasResolution(pc.RESOLUTION_AUTO);
 
 const camera = new pc.Entity("camera");
 camera.addComponent("camera", {
-  projection: pc.PROJECTION_ORTHOGRAPHIC,
-  orthoHeight: ORTHO_HALF_HEIGHT,
+  projection: pc.PROJECTION_PERSPECTIVE,
+  fov: 32,
   clearColor: COLORS.bg,
   nearClip: 0.1,
   farClip: 100,
 });
-camera.setPosition(0, 0, 30);
-camera.lookAt(0, 0, 0);
+camera.setPosition(0, 0.2, CAMERA_Z);
+camera.lookAt(0, 0, TARGET_Z);
 app.root.addChild(camera);
 
 function addLight(name: string, color: pc.Color, intensity: number, euler: [number, number, number]): void {
@@ -133,8 +137,8 @@ function makeSphere(name: string, color: pc.Color, scale: [number, number, numbe
   return entity;
 }
 
-makeBox("skyline", COLORS.skyline, [15.5, 9.0, 0.18], [0, 0, -1.7], 0.72);
-makeBox("roofline", new pc.Color(0.08, 0.12, 0.20), [15.5, 0.24, 0.3], [0, -3.55, -0.45], 0.95);
+makeBox("skyline", COLORS.skyline, [15.5, 9.0, 0.18], [0, 0, TARGET_Z - 0.65], 0.72);
+makeBox("roofline", new pc.Color(0.08, 0.12, 0.20), [15.5, 0.24, 0.3], [0, -3.55, TARGET_Z - 0.25], 0.95);
 
 for (let i = 0; i < 36; i++) {
   const col = i % 9;
@@ -142,13 +146,13 @@ for (let i = 0; i < 36; i++) {
   const x = -6.4 + col * 1.6;
   const y = -2.2 + row * 1.1;
   const lit = (i + row) % 3 !== 0;
-  makeBox(`window-${i}`, lit ? COLORS.window : new pc.Color(0.10, 0.15, 0.23), [0.52, 0.32, 0.08], [x, y, -0.65], lit ? 0.42 : 0.25);
+  makeBox(`window-${i}`, lit ? COLORS.window : new pc.Color(0.10, 0.15, 0.23), [0.52, 0.32, 0.08], [x, y, TARGET_Z - 0.05], lit ? 0.42 : 0.25);
 }
 
 const crosshairParts = [
-  makeBox("crosshair-h", COLORS.crosshair, [0.62, 0.035, 0.08], [0, 0, 0.6], 0),
-  makeBox("crosshair-v", COLORS.crosshair, [0.035, 0.62, 0.08], [0, 0, 0.6], 0),
-  makeBox("crosshair-dot", COLORS.crosshair, [0.08, 0.08, 0.08], [0, 0, 0.62], 0),
+  makeBox("impact-h", COLORS.crosshair, [0.62, 0.035, 0.08], [0, 0, TARGET_Z + 0.7], 0),
+  makeBox("impact-v", COLORS.crosshair, [0.035, 0.62, 0.08], [0, 0, TARGET_Z + 0.7], 0),
+  makeBox("impact-dot", COLORS.crosshair, [0.08, 0.08, 0.08], [0, 0, TARGET_Z + 0.72], 0),
 ];
 
 let targets: Target[] = [];
@@ -156,6 +160,20 @@ let levelIndex = 0;
 let shots = SHOTS_PER_LEVEL;
 let state: LevelState = "intro";
 let flashTimer = 0;
+let aimX = 0;
+let aimY = 0;
+let pointerStart: { x: number; y: number } | null = null;
+let pointerLast: { x: number; y: number } | null = null;
+let pointerMoved = false;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function updateCameraAim(): void {
+  camera.setPosition(aimX * 0.08, 0.2 + aimY * 0.08, CAMERA_Z);
+  camera.lookAt(aimX, aimY, TARGET_Z);
+}
 
 function showOverlay(message: string): void {
   if (!overlayEl || !overlayMsg) return;
@@ -188,9 +206,9 @@ function createTarget(spec: TargetSpec): Target {
   const bodyColor = hostile ? COLORS.hostile : COLORS.civilian;
   const headColor = hostile ? COLORS.hostileHead : COLORS.civilianHead;
   const badgeColor = hostile ? new pc.Color(0.95, 0.95, 1.0) : COLORS.safe;
-  const body = makeBox(`${spec.kind}-body`, bodyColor, [0.46, 0.74, 0.22], [spec.x, spec.y - 0.18, 0.1]);
-  const head = makeSphere(`${spec.kind}-head`, headColor, [0.34, 0.34, 0.34], [spec.x, spec.y + 0.36, 0.16]);
-  const badge = makeBox(`${spec.kind}-badge`, badgeColor, hostile ? [0.26, 0.07, 0.08] : [0.18, 0.18, 0.08], [spec.x, spec.y - 0.14, 0.32], 0.9);
+  const body = makeBox(`${spec.kind}-body`, bodyColor, [0.46, 0.74, 0.22], [spec.x, spec.y - 0.18, TARGET_Z + 0.35]);
+  const head = makeSphere(`${spec.kind}-head`, headColor, [0.34, 0.34, 0.34], [spec.x, spec.y + 0.36, TARGET_Z + 0.42]);
+  const badge = makeBox(`${spec.kind}-badge`, badgeColor, hostile ? [0.26, 0.07, 0.08] : [0.18, 0.18, 0.08], [spec.x, spec.y - 0.14, TARGET_Z + 0.62], 0.9);
   if (hostile) badge.setEulerAngles(0, 0, 45);
   return {
     kind: spec.kind,
@@ -209,11 +227,14 @@ function loadLevel(index: number): void {
   levelIndex = index;
   shots = SHOTS_PER_LEVEL;
   state = "intro";
+  aimX = 0;
+  aimY = 0;
+  updateCameraAim();
   for (const spec of levels[levelIndex]!.targets) {
     targets.push(createTarget(spec));
   }
   updateHud();
-  showOverlay(`Level ${levelIndex + 1}: protect civilians, neutralize red targets.`);
+  showOverlay(`Level ${levelIndex + 1}: drag the scope to aim. Tap/Space to fire.`);
 }
 
 function showImpact(x: number, y: number, color: pc.Color): void {
@@ -262,18 +283,18 @@ function neutralize(target: Target): void {
   target.badge.enabled = false;
   target.body.setLocalScale(0.48, 0.16, 0.22);
   target.head.setLocalScale(0.18, 0.18, 0.18);
-  target.body.setPosition(target.x, target.y - 0.52, 0.1);
-  target.head.setPosition(target.x + 0.32, target.y - 0.50, 0.16);
+  target.body.setPosition(target.x, target.y - 0.52, TARGET_Z + 0.35);
+  target.head.setPosition(target.x + 0.32, target.y - 0.50, TARGET_Z + 0.42);
 }
 
-function handleShot(x: number, y: number): void {
+function handleShot(): void {
   if (state !== "playing") return;
   if (shots <= 0) return;
   shots -= 1;
 
-  const hit = nearestTarget(x, y);
+  const hit = nearestTarget(aimX, aimY);
   if (!hit) {
-    showImpact(x, y, COLORS.miss);
+    showImpact(aimX, aimY, COLORS.miss);
   } else if (hit.kind === "civilian") {
     showImpact(hit.x, hit.y, COLORS.miss);
     updateHud();
@@ -288,16 +309,6 @@ function handleShot(x: number, y: number): void {
   updateHud();
   if (remaining === 0) levelComplete();
   else if (shots === 0) fail("Out of shots.");
-}
-
-function screenToWorld(clientX: number, clientY: number): { x: number; y: number } {
-  const rect = canvas.getBoundingClientRect();
-  const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
-  const ny = 1 - ((clientY - rect.top) / rect.height) * 2;
-  const aspect = rect.width / rect.height;
-  const halfH = camera.camera!.orthoHeight;
-  const halfW = halfH * aspect;
-  return { x: nx * halfW, y: ny * halfH };
 }
 
 function continueFromOverlay(): void {
@@ -319,14 +330,55 @@ stage.addEventListener("pointerdown", (e: PointerEvent) => {
     continueFromOverlay();
     return;
   }
-  const p = screenToWorld(e.clientX, e.clientY);
-  handleShot(p.x, p.y);
+  pointerStart = { x: e.clientX, y: e.clientY };
+  pointerLast = pointerStart;
+  pointerMoved = false;
+  stage.setPointerCapture(e.pointerId);
+});
+
+stage.addEventListener("pointermove", (e: PointerEvent) => {
+  if (state !== "playing" || !pointerLast) return;
+  e.preventDefault();
+  const dx = e.clientX - pointerLast.x;
+  const dy = e.clientY - pointerLast.y;
+  if (Math.abs(e.clientX - (pointerStart?.x ?? e.clientX)) > 5 || Math.abs(e.clientY - (pointerStart?.y ?? e.clientY)) > 5) {
+    pointerMoved = true;
+  }
+  aimX = clamp(aimX + dx * AIM_SENSITIVITY, -AIM_LIMIT_X, AIM_LIMIT_X);
+  aimY = clamp(aimY - dy * AIM_SENSITIVITY, -AIM_LIMIT_Y, AIM_LIMIT_Y);
+  pointerLast = { x: e.clientX, y: e.clientY };
+  updateCameraAim();
+});
+
+stage.addEventListener("pointerup", (e: PointerEvent) => {
+  if (state !== "playing") return;
+  e.preventDefault();
+  pointerLast = null;
+  pointerStart = null;
+  if (!pointerMoved) handleShot();
 });
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
-    continueFromOverlay();
+    if (state === "playing") handleShot();
+    else continueFromOverlay();
+  } else if (state === "playing" && e.key === "ArrowLeft") {
+    e.preventDefault();
+    aimX = clamp(aimX - 0.25, -AIM_LIMIT_X, AIM_LIMIT_X);
+    updateCameraAim();
+  } else if (state === "playing" && e.key === "ArrowRight") {
+    e.preventDefault();
+    aimX = clamp(aimX + 0.25, -AIM_LIMIT_X, AIM_LIMIT_X);
+    updateCameraAim();
+  } else if (state === "playing" && e.key === "ArrowUp") {
+    e.preventDefault();
+    aimY = clamp(aimY + 0.25, -AIM_LIMIT_Y, AIM_LIMIT_Y);
+    updateCameraAim();
+  } else if (state === "playing" && e.key === "ArrowDown") {
+    e.preventDefault();
+    aimY = clamp(aimY - 0.25, -AIM_LIMIT_Y, AIM_LIMIT_Y);
+    updateCameraAim();
   }
 });
 
@@ -350,9 +402,9 @@ app.on("update", (dt: number) => {
   for (const target of targets) {
     if (!target.active) continue;
     const bob = Math.sin(performance.now() / 450 + target.x) * 0.025;
-    target.body.setPosition(target.x, target.y - 0.20 + bob, 0.1);
-    target.head.setPosition(target.x, target.y + 0.34 + bob, 0.16);
-    target.badge.setPosition(target.x, target.y - 0.16 + bob, 0.32);
+    target.body.setPosition(target.x, target.y - 0.20 + bob, TARGET_Z + 0.35);
+    target.head.setPosition(target.x, target.y + 0.34 + bob, TARGET_Z + 0.42);
+    target.badge.setPosition(target.x, target.y - 0.16 + bob, TARGET_Z + 0.62);
   }
 });
 
@@ -364,6 +416,7 @@ document.addEventListener(
   { passive: false },
 );
 
+updateCameraAim();
 fitToStage();
 loadLevel(0);
 app.start();
