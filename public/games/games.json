@@ -30,13 +30,5 @@
     "minutes": 3,
     "tags": ["runner", "swipe", "mobile"],
     "thumbnail": "./thumbnails/metro-rush.svg"
-  },
-  {
-    "slug": "rescue-marksman",
-    "title": "Rescue Marksman",
-    "description": "Rooftop overwatch prototype: vague intel, 3 subjects, observation clues, one shot that changes the story.",
-    "minutes": 4,
-    "tags": ["aim", "levels", "mobile"],
-    "thumbnail": "./thumbnails/rescue-marksman.svg"
   }
 ]
