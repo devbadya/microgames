@@ -31,7 +31,7 @@ const COLORS = {
 
 type MissionState = "intro" | "playing" | "won" | "lost";
 type ActorRole = "hostile" | "civilian";
-type MonsterSet = "big" | "blob" | "flying";
+type MonsterSet = "big" | "blob" | "flying" | "mech";
 
 interface MonsterDef {
   set: MonsterSet;
@@ -41,6 +41,7 @@ interface MonsterDef {
   walkAnim?: string;
   idleAnim?: string;
   hitAnim?: string;
+  deathAnim?: string;
 }
 
 interface ActorSpec {
@@ -91,11 +92,11 @@ interface Actor {
   boss: boolean;
   alive: boolean;
   revealed: boolean;
-  anim?: pc.AnimationComponent | null;
+  anim?: pc.AnimComponent | null;
   modelLoaded: boolean;
   meshMaterials: pc.StandardMaterial[];
   hitTimer: number;
-  motionState: "idle" | "walk";
+  motionState: "idle" | "walk" | "hit" | "death";
 }
 
 interface ModelPlacement {
@@ -126,21 +127,25 @@ const fireBtn = document.getElementById("fireBtn");
 const restartBtn = document.getElementById("restartBtn");
 
 const M = {
-  greenSpiky: { set: "blob", file: "GreenSpikyBlob.gltf", scale: 1.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  pinkBlob: { set: "blob", file: "PinkBlob.gltf", scale: 1.35, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  orc: { set: "big", file: "Orc.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  ninja: { set: "big", file: "Ninja.gltf", scale: 1.0, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  blueDemon: { set: "big", file: "BlueDemon.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  cactoro: { set: "big", file: "Cactoro.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  orcSkull: { set: "big", file: "Orc_Skull.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  yeti: { set: "big", file: "Yeti.gltf", scale: 1.55, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
-  hywirl: { set: "flying", file: "Hywirl.gltf", scale: 1.2, hover: 1.6, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact" },
-  goleling: { set: "flying", file: "Goleling.gltf", scale: 1.2, hover: 1.4, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact" },
-  cat: { set: "blob", file: "Cat.gltf", scale: 1.2, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  dog: { set: "blob", file: "Dog.gltf", scale: 1.2, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  chicken: { set: "blob", file: "Chicken.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  pigeon: { set: "blob", file: "Pigeon.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
-  bunny: { set: "big", file: "Bunny.gltf", scale: 0.9, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  greenSpiky: { set: "blob", file: "GreenSpikyBlob.gltf", scale: 0.55, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  pinkBlob: { set: "blob", file: "PinkBlob.gltf", scale: 0.55, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  orc: { set: "big", file: "Orc.gltf", scale: 0.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  ninja: { set: "big", file: "Ninja.gltf", scale: 0.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  blueDemon: { set: "big", file: "BlueDemon.gltf", scale: 0.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  cactoro: { set: "big", file: "Cactoro.gltf", scale: 0.42, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  orcSkull: { set: "big", file: "Orc_Skull.gltf", scale: 0.45, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  yeti: { set: "big", file: "Yeti.gltf", scale: 0.65, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  hywirl: { set: "flying", file: "Hywirl.gltf", scale: 0.45, hover: 1.6, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  goleling: { set: "flying", file: "Goleling.gltf", scale: 0.45, hover: 1.4, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  cat: { set: "blob", file: "Cat.gltf", scale: 0.5, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  dog: { set: "blob", file: "Dog.gltf", scale: 0.5, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  chicken: { set: "blob", file: "Chicken.gltf", scale: 0.45, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  pigeon: { set: "blob", file: "Pigeon.gltf", scale: 0.45, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve", deathAnim: "Death" },
+  bunny: { set: "big", file: "Bunny.gltf", scale: 0.36, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact", deathAnim: "Death" },
+  mike: { set: "mech", file: "Mike.gltf", scale: 0.4, walkAnim: "Walk_Holding", idleAnim: "Idle", hitAnim: "HitRecieve_1", deathAnim: "Death" },
+  stan: { set: "mech", file: "Stan.gltf", scale: 0.4, walkAnim: "Walk_Holding", idleAnim: "Idle", hitAnim: "HitRecieve_1", deathAnim: "Death" },
+  george: { set: "mech", file: "George.gltf", scale: 0.45, walkAnim: "Walk_Holding", idleAnim: "Idle", hitAnim: "HitRecieve_1", deathAnim: "Death" },
+  leela: { set: "mech", file: "Leela.gltf", scale: 0.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve_1", deathAnim: "Death" },
 } as const satisfies Record<string, MonsterDef>;
 
 const LEVELS: LevelSpec[] = [
@@ -157,14 +162,14 @@ const LEVELS: LevelSpec[] = [
     ],
   },
   {
-    name: "Market Street",
+    name: "Mech Street",
     shots: 5,
     time: 75,
-    intel: "Level 2: three Orc/Ninja hostiles are spread across the street. Civilians are close to the targets.",
+    intel: "Level 2: three armed mechs (Mike, Stan, Leela) are pacing the street. Civilians are close.",
     actors: [
-      { id: "hostile-a", role: "hostile", baseX: -6.1, z: -12.6, speed: 0.78, amplitude: 0.5, phase: 0.2, monster: M.orc },
-      { id: "hostile-b", role: "hostile", baseX: 0.2, z: -14.7, speed: 0.55, amplitude: 0.36, phase: 1.3, monster: M.ninja },
-      { id: "hostile-c", role: "hostile", baseX: 7.1, z: -8.8, speed: 0.7, amplitude: 0.42, phase: 2.4, monster: M.orc },
+      { id: "hostile-a", role: "hostile", baseX: -6.1, z: -12.6, speed: 0.78, amplitude: 0.5, phase: 0.2, monster: M.mike },
+      { id: "hostile-b", role: "hostile", baseX: 0.2, z: -14.7, speed: 0.55, amplitude: 0.36, phase: 1.3, monster: M.stan },
+      { id: "hostile-c", role: "hostile", baseX: 7.1, z: -8.8, speed: 0.7, amplitude: 0.42, phase: 2.4, monster: M.leela },
       { id: "civilian-a", role: "civilian", baseX: -3.8, z: -6.5, speed: 0.5, amplitude: 0.32, phase: 1.2, monster: M.bunny },
       { id: "civilian-b", role: "civilian", baseX: 5.5, z: -12.0, speed: 0.5, amplitude: 0.3, phase: 2.9, monster: M.chicken },
     ],
@@ -203,11 +208,11 @@ const LEVELS: LevelSpec[] = [
     name: "Boss Convoy",
     shots: 10,
     time: 95,
-    intel: "Final level: the Yeti boss survives 5 shots and is flanked by Orc Skull guards. You have 10 shots total.",
+    intel: "Final level: the Yeti boss survives 5 shots and is flanked by Orc Skull and George mech guards. You have 10 shots total.",
     actors: [
       { id: "boss", role: "hostile", baseX: 0.2, z: -12.8, speed: 0.45, amplitude: 0.32, phase: 0, hp: 5, boss: true, monster: M.yeti },
       { id: "guard-a", role: "hostile", baseX: -5.8, z: -9.8, speed: 0.8, amplitude: 0.48, phase: 1.2, monster: M.orcSkull },
-      { id: "guard-b", role: "hostile", baseX: 5.7, z: -9.4, speed: 0.76, amplitude: 0.48, phase: 2.4, monster: M.orcSkull },
+      { id: "guard-b", role: "hostile", baseX: 5.7, z: -9.4, speed: 0.76, amplitude: 0.48, phase: 2.4, monster: M.george },
       { id: "civilian-a", role: "civilian", baseX: -3.3, z: -6.9, speed: 0.42, amplitude: 0.24, phase: 0.8, monster: M.cat },
       { id: "civilian-b", role: "civilian", baseX: 3.2, z: -6.7, speed: 0.45, amplitude: 0.26, phase: 2.9, monster: M.dog },
     ],
@@ -493,18 +498,34 @@ function attachMonster(actor: Actor, asset: pc.Asset): void {
 
   const animations = container.animations ?? [];
   if (animations.length > 0) {
-    entity.addComponent("animation", { activate: true, loop: true, speed: 1 });
-    const animComponent = entity.animation as pc.AnimationComponent | null;
+    entity.addComponent("anim", { activate: true, speed: 1 });
+    const animComponent = entity.anim as pc.AnimComponent | null;
     if (animComponent) {
-      animComponent.assets = animations.map((a: pc.Asset) => a.id);
-      const startAnim = actor.monster.walkAnim ?? "Walk";
-      try {
-        animComponent.play(startAnim, 0.2);
-      } catch (err) {
-        console.warn(`Could not start animation ${startAnim} on ${actor.id}`, err);
+      let assigned = 0;
+      for (const animAsset of animations) {
+        const track = animAsset.resource as { name?: string } | null;
+        if (!track) continue;
+        const stateName = track.name ?? animAsset.name;
+        if (!stateName) continue;
+        try {
+          (animComponent as unknown as {
+            assignAnimation: (path: string, track: unknown, layer?: string, speed?: number, loop?: boolean) => void;
+          }).assignAnimation(stateName, track, undefined, 1, true);
+          assigned += 1;
+        } catch (err) {
+          console.warn(`Could not assign animation ${stateName} on ${actor.id}`, err);
+        }
       }
       actor.anim = animComponent;
-      actor.motionState = "walk";
+      if (assigned > 0) {
+        const startAnim = actor.monster.walkAnim ?? "Walk";
+        try {
+          animComponent.baseLayer?.play(startAnim);
+          actor.motionState = "walk";
+        } catch (err) {
+          console.warn(`Could not start animation ${startAnim} on ${actor.id}`, err);
+        }
+      }
     }
   }
 }
@@ -650,10 +671,12 @@ function fadeActorTint(actor: Actor, color: pc.Color, amount: number): void {
   }
 }
 
-function playActorAnim(actor: Actor, animName: string | undefined, blend = 0.15): boolean {
+function playActorAnim(actor: Actor, animName: string | undefined, _blend = 0.15): boolean {
   if (!animName || !actor.anim) return false;
+  const layer = actor.anim.baseLayer;
+  if (!layer) return false;
   try {
-    actor.anim.play(animName, blend);
+    layer.play(animName);
     return true;
   } catch (err) {
     console.warn(`Animation ${animName} failed on ${actor.id}`, err);
@@ -667,12 +690,11 @@ function neutralize(actor: Actor): void {
   fadeActorTint(actor, COLORS.neutralized, 0.7);
   actor.procedural.prop.enabled = false;
   if (actor.marker) actor.marker.enabled = false;
-  if (!playActorAnim(actor, "Death", 0.1)) {
+  const deathAnim = actor.monster.deathAnim ?? "Death";
+  if (!playActorAnim(actor, deathAnim)) {
     actor.root.setLocalEulerAngles(0, actor.root.getLocalEulerAngles().y, 78);
-  } else if (actor.anim) {
-    actor.anim.loop = false;
   }
-  actor.motionState = "idle";
+  actor.motionState = "death";
 }
 
 function fireShot(): void {
@@ -690,13 +712,12 @@ function fireShot(): void {
     setMissionText("Missed shot. Re-center the scope and watch movement patterns.");
   } else if (hit.role === "civilian") {
     fadeActorTint(hit, COLORS.neutralized, 0.7);
-    if (!playActorAnim(hit, "Death", 0.1)) {
+    if (!playActorAnim(hit, hit.monster.deathAnim ?? "Death")) {
       hit.procedural.body.render!.material = getMaterial(COLORS.neutralized, 0.5);
       hit.procedural.head.render!.material = getMaterial(COLORS.neutralized, 0.45);
-    } else if (hit.anim) {
-      hit.anim.loop = false;
     }
     hit.alive = false;
+    hit.motionState = "death";
     endMission("lost", "Civilian hit. Mission failed.");
     return;
   } else {
@@ -704,9 +725,10 @@ function fireShot(): void {
     if (hit.hp > 0) {
       fadeActorTint(hit, COLORS.hit, 0.45);
       hit.hitTimer = 0.55;
-      if (!playActorAnim(hit, hit.monster.hitAnim ?? "HitReact", 0.05)) {
+      if (!playActorAnim(hit, hit.monster.hitAnim ?? "HitReact")) {
         if (hit.procedural.body.render) hit.procedural.body.render.material = getMaterial(COLORS.hit, 0.92);
       }
+      hit.motionState = "hit";
       setMissionText(hit.boss ? `Boss hit. Armor holding: ${hit.hp}/${hit.maxHp} health left.` : `${hit.id} is hit but still moving.`);
     } else {
       neutralize(hit);

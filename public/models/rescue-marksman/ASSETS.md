@@ -64,6 +64,21 @@ Animation clips actually used by `games/rescue-marksman/main.ts`:
 - Blob set: `Walk`, `Idle`, `HitRecieve` (typo in source files), `Death`.
 - Flying set: `Flying_Idle`, `HitReact`, `Death`.
 
+## Quaternius Animated Mech Pack (March 2021)
+
+Source: https://quaternius.com/ (Animated Mech Pack).
+
+License: CC0 1.0 Universal (Public Domain Dedication). See `License.txt` shipped with the original pack.
+
+`monsters/mech/` (armed robots used as Level 2 hostiles and a boss-level guard):
+
+- `Mike.gltf`
+- `Stan.gltf`
+- `Leela.gltf`
+- `George.gltf`
+
+Mech clips actually used: `Idle`, `Walk`, `Walk_Holding`, `HitRecieve_1`, `Death` (the mechs ship richer animation sets including `Run`, `Run_Holding`, `Shoot`, `Jump`, `Yes`, `No`).
+
 ## Procedural Fallbacks
 
 The game also creates procedural buildings, weapon parts, props, and hit markers with PlayCanvas primitives. If a monster glTF fails to load, the actor falls back to a coloured box+sphere body so gameplay never breaks.

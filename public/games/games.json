@@ -34,7 +34,7 @@
   {
     "slug": "rescue-marksman",
     "title": "Rescue Marksman",
-    "description": "A 3D sniper rescue campaign: clear levels, protect civilians, and defeat a 5-shot boss.",
+    "description": "A 3D sniper rescue campaign: clear monster and mech hostiles, protect civilians, and defeat the Yeti boss.",
     "minutes": 4,
     "tags": ["3d", "sniper", "mobile"],
     "thumbnail": "./thumbnails/rescue-marksman.svg?v=2"
