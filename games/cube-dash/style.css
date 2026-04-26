@@ -37,6 +37,27 @@
   color: var(--text);
 }
 
+.settingsBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(110, 231, 255, 0.22);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(110, 231, 255, 0.12), rgba(167, 139, 250, 0.12));
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.42rem 0.75rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settingsBtn:hover,
+.settingsBtn:focus-visible,
+.settingsBtn[aria-expanded="true"] {
+  border-color: rgba(110, 231, 255, 0.48);
+  outline: none;
+}
+
 .hud {
   margin-left: auto;
   display: flex;
@@ -67,6 +88,87 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.iconSettingsPanel {
+  position: fixed;
+  top: calc(4.4rem + env(safe-area-inset-top));
+  right: 1rem;
+  z-index: 20;
+  width: min(320px, calc(100vw - 2rem));
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(7, 9, 15, 0.84);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55);
+  backdrop-filter: saturate(150%) blur(12px);
+}
+
+.iconSettingsPanel[hidden] {
+  display: none;
+}
+
+.settingGroup {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.settingLabel {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.colorInput {
+  width: 100%;
+  height: 2.7rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.2rem;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.swatches,
+.shapeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.swatch,
+.shapeBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.swatch {
+  min-height: 2.35rem;
+  background: var(--swatch);
+}
+
+.shapeBtn {
+  min-height: 2.35rem;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.swatch.is-active,
+.shapeBtn.is-active,
+.swatch:focus-visible,
+.shapeBtn:focus-visible {
+  border-color: rgba(110, 231, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(110, 231, 255, 0.13);
+  outline: none;
 }
 
 #app {
@@ -158,6 +260,16 @@ kbd {
   }
   .gameTitle {
     font-size: 0.95rem;
+  }
+  .settingsBtn {
+    font-size: 0.82rem;
+    padding: 0.36rem 0.62rem;
+  }
+  .iconSettingsPanel {
+    top: auto;
+    right: 0.75rem;
+    bottom: calc(4.1rem + env(safe-area-inset-bottom));
+    width: calc(100vw - 1.5rem);
   }
   .hud {
     gap: 0.8rem;

@@ -25,6 +25,7 @@ const COLORS = {
 };
 
 type ObstacleKind = "spike" | "block";
+type IconShape = "cube" | "diamond" | "orb" | "wide";
 
 interface Obstacle {
   kind: ObstacleKind;
@@ -45,6 +46,11 @@ interface Spark {
   entity: pc.Entity;
 }
 
+interface IconSettings {
+  color: string;
+  shape: IconShape;
+}
+
 const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const scoreEl = document.getElementById("score");
@@ -52,6 +58,9 @@ const bestEl = document.getElementById("best");
 const speedEl = document.getElementById("speed");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
+const iconSettingsBtn = document.getElementById("iconSettingsBtn") as HTMLButtonElement | null;
+const iconSettingsPanel = document.getElementById("iconSettingsPanel");
+const iconColorInput = document.getElementById("iconColor") as HTMLInputElement | null;
 
 const app = new pc.Application(canvas, {
   mouse: new pc.Mouse(canvas),
@@ -120,6 +129,22 @@ function makeBox(
   return entity;
 }
 
+function makeSphere(
+  name: string,
+  color: pc.Color,
+  scale: [number, number, number],
+  position: [number, number, number],
+  opacity = 1,
+): pc.Entity {
+  const entity = new pc.Entity(name);
+  entity.addComponent("render", { type: "sphere" });
+  entity.setLocalScale(...scale);
+  entity.setPosition(...position);
+  entity.render!.material = getMaterial(color, opacity);
+  app.root.addChild(entity);
+  return entity;
+}
+
 function showOverlay(message: string): void {
   if (!overlayEl || !overlayMsg) return;
   overlayMsg.textContent = message;
@@ -139,6 +164,52 @@ function getStoredBest(): number {
 function storeBest(value: number): void {
   window.localStorage.setItem("microgames.cubeDash.best", String(value));
 }
+
+const ICON_STORAGE_KEY = "microgames.cubeDash.icon";
+const DEFAULT_ICON_SETTINGS: IconSettings = {
+  color: "#a78bfa",
+  shape: "cube",
+};
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function isIconShape(value: unknown): value is IconShape {
+  return value === "cube" || value === "diamond" || value === "orb" || value === "wide";
+}
+
+function loadIconSettings(): IconSettings {
+  try {
+    const raw = window.localStorage.getItem(ICON_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<IconSettings>) : {};
+    return {
+      color: isHexColor(parsed.color) ? parsed.color : DEFAULT_ICON_SETTINGS.color,
+      shape: isIconShape(parsed.shape) ? parsed.shape : DEFAULT_ICON_SETTINGS.shape,
+    };
+  } catch {
+    return { ...DEFAULT_ICON_SETTINGS };
+  }
+}
+
+function saveIconSettings(settings: IconSettings): void {
+  window.localStorage.setItem(ICON_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function hexToColor(hex: string): pc.Color {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return new pc.Color(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+function liftColor(color: pc.Color, amount: number): pc.Color {
+  return new pc.Color(
+    color.r + (1 - color.r) * amount,
+    color.g + (1 - color.g) * amount,
+    color.b + (1 - color.b) * amount,
+  );
+}
+
+let iconSettings = loadIconSettings();
 
 let playerY = PLAYER_GROUND_Y;
 let playerVelocity = 0;
@@ -173,8 +244,10 @@ for (let i = 0; i < 8; i++) {
 makeBox("ground", COLORS.ground, [WORLD_WIDTH + 4, 0.95, 0.65], [0, GROUND_Y - 0.48, -0.15]);
 makeBox("groundTop", COLORS.groundTop, [WORLD_WIDTH + 4, 0.055, 0.12], [0, GROUND_Y + 0.03, 0.06], 0.85);
 
-const player = makeBox("player", COLORS.cube, [PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE], [PLAYER_X, playerY, 0.16]);
+const playerBox = makeBox("playerBox", COLORS.cube, [PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE], [PLAYER_X, playerY, 0.16]);
+const playerOrb = makeSphere("playerOrb", COLORS.cube, [PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE], [PLAYER_X, playerY, 0.16]);
 const playerFace = makeBox("playerFace", COLORS.cubeFace, [PLAYER_SIZE * 0.42, PLAYER_SIZE * 0.42, 0.08], [PLAYER_X, playerY, 0.56]);
+playerOrb.enabled = false;
 
 const sparks: Spark[] = Array.from({ length: 18 }, (_, i) => ({
   x: PLAYER_X,
@@ -282,11 +355,61 @@ function emitSpark(): void {
   spark.entity.render!.material = getMaterial(COLORS.spark, 0.75);
 }
 
+function shapeScale(shape: IconShape): [number, number, number] {
+  if (shape === "wide") return [PLAYER_SIZE * 1.18, PLAYER_SIZE * 0.64, PLAYER_SIZE * 0.78];
+  if (shape === "diamond") return [PLAYER_SIZE * 0.84, PLAYER_SIZE * 0.84, PLAYER_SIZE * 0.78];
+  if (shape === "orb") return [PLAYER_SIZE * 0.9, PLAYER_SIZE * 0.9, PLAYER_SIZE * 0.9];
+  return [PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE];
+}
+
+function applyIconSettings(): void {
+  const base = hexToColor(iconSettings.color);
+  const face = liftColor(base, 0.58);
+  playerBox.render!.material = getMaterial(base);
+  playerOrb.render!.material = getMaterial(base);
+  playerFace.render!.material = getMaterial(face, 0.92);
+  if (iconColorInput) iconColorInput.value = iconSettings.color;
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-shape]")) {
+    button.classList.toggle("is-active", button.dataset["shape"] === iconSettings.shape);
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-color]")) {
+    button.classList.toggle("is-active", button.dataset["color"]?.toLowerCase() === iconSettings.color.toLowerCase());
+  }
+  syncPlayer();
+}
+
+function setIconSettings(next: Partial<IconSettings>): void {
+  iconSettings = {
+    color: isHexColor(next.color) ? next.color : iconSettings.color,
+    shape: isIconShape(next.shape) ? next.shape : iconSettings.shape,
+  };
+  saveIconSettings(iconSettings);
+  applyIconSettings();
+}
+
 function syncPlayer(): void {
-  player.setPosition(PLAYER_X, playerY, 0.16);
-  player.setEulerAngles(0, 0, playerRotation);
-  playerFace.setPosition(PLAYER_X, playerY, 0.56);
-  playerFace.setEulerAngles(0, 0, playerRotation);
+  const shape = iconSettings.shape;
+  const scale = shapeScale(shape);
+  const rotationOffset = shape === "diamond" ? 45 : 0;
+  const rotation = playerRotation + rotationOffset;
+  const activePlayer = shape === "orb" ? playerOrb : playerBox;
+
+  playerBox.enabled = shape !== "orb";
+  playerOrb.enabled = shape === "orb";
+
+  activePlayer.setLocalScale(...scale);
+  activePlayer.setPosition(PLAYER_X, playerY, 0.16);
+  activePlayer.setEulerAngles(0, 0, rotation);
+
+  playerFace.enabled = shape !== "orb";
+  if (playerFace.enabled) {
+    const faceScale: [number, number, number] =
+      shape === "wide" ? [PLAYER_SIZE * 0.50, PLAYER_SIZE * 0.24, 0.08] : [PLAYER_SIZE * 0.42, PLAYER_SIZE * 0.42, 0.08];
+    playerFace.setLocalScale(...faceScale);
+    playerFace.setPosition(PLAYER_X, playerY, 0.56);
+    playerFace.setEulerAngles(0, 0, rotation);
+  }
 }
 
 function newGame(): void {
@@ -433,7 +556,46 @@ function fitToStage(): void {
 window.addEventListener("resize", fitToStage);
 new ResizeObserver(fitToStage).observe(stage);
 
+function toggleIconSettings(force?: boolean): void {
+  if (!iconSettingsBtn || !iconSettingsPanel) return;
+  const open = force ?? iconSettingsPanel.hidden;
+  iconSettingsPanel.hidden = !open;
+  iconSettingsBtn.setAttribute("aria-expanded", String(open));
+}
+
+function eventStartedInSettings(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest("#iconSettingsPanel, #iconSettingsBtn"));
+}
+
+iconSettingsBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleIconSettings();
+});
+
+iconColorInput?.addEventListener("input", () => {
+  setIconSettings({ color: iconColorInput.value });
+});
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-color]")) {
+  button.addEventListener("click", () => {
+    const color = button.dataset["color"];
+    if (isHexColor(color)) setIconSettings({ color });
+  });
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-shape]")) {
+  button.addEventListener("click", () => {
+    const shape = button.dataset["shape"];
+    if (isIconShape(shape)) setIconSettings({ shape });
+  });
+}
+
+document.addEventListener("pointerdown", (e: PointerEvent) => {
+  if (!eventStartedInSettings(e.target)) toggleIconSettings(false);
+});
+
 window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (eventStartedInSettings(e.target)) return;
   if (e.key === " " || e.key === "ArrowUp" || e.key === "Enter") {
     e.preventDefault();
     jump();
@@ -453,6 +615,7 @@ document.addEventListener(
   { passive: false },
 );
 
+applyIconSettings();
 resetObstacles();
 syncPlayer();
 updateHud();
