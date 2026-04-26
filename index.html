@@ -3,21 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>microgames</title>
-    <meta name="description" content="A collection of tiny web microgames." />
+    <title>microgames — tiny PlayCanvas games</title>
+    <meta name="description" content="A growing collection of tiny PlayCanvas games you can play in your browser." />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
   <body>
-    <header class="header">
+    <div class="bgGlow" aria-hidden="true"></div>
+
+    <header class="hero">
       <div class="container">
+        <span class="badge">made with PlayCanvas</span>
         <h1 class="title">microgames</h1>
-        <p class="subtitle">Tiny games you can play in a minute.</p>
+        <p class="subtitle">
+          A growing collection of tiny browser games. Pick one, play for a minute,
+          come back tomorrow for a new one.
+        </p>
       </div>
     </header>
 
     <main class="container">
       <section class="controls" aria-label="Filters">
-        <input id="search" class="input" type="search" placeholder="Search games…" autocomplete="off" />
+        <input
+          id="search"
+          class="input"
+          type="search"
+          placeholder="Search games…"
+          autocomplete="off"
+          aria-label="Search games"
+        />
       </section>
 
       <section>
@@ -28,12 +41,11 @@
 
     <footer class="footer">
       <div class="container footerInner">
-        <span>Built for GitHub Pages.</span>
-        <a class="link" href="./README.md">README</a>
+        <span>Built with PlayCanvas · deployed on GitHub Pages.</span>
+        <a class="link" href="https://github.com/devbadya/microgames" rel="noopener">Source</a>
       </div>
     </footer>
 
-    <script src="./assets/site.js" defer></script>
+    <script type="module" src="./assets/site.js"></script>
   </body>
 </html>
-

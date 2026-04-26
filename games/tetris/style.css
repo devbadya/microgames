@@ -1,0 +1,133 @@
+.gameBody {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.gameTopbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: saturate(140%) blur(8px);
+}
+
+.backLink {
+  border-bottom: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.backLink:hover {
+  color: var(--text);
+}
+
+.gameTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.hud {
+  margin-left: auto;
+  display: flex;
+  gap: 1.4rem;
+}
+
+.hudItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.hudLabel {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.hudValue {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.gameStage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#app {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 9, 15, 0.62);
+  backdrop-filter: blur(3px);
+}
+
+.overlayInner {
+  text-align: center;
+  padding: 1.4rem 1.6rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.overlayMsg {
+  margin: 0;
+  font-size: 1.45rem;
+  letter-spacing: -0.01em;
+}
+
+.overlayHint {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.gameHelp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.4rem;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: saturate(140%) blur(8px);
+}
+
+.gameHelp span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+  line-height: 1.4;
+}

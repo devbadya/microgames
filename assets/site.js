@@ -12,7 +12,7 @@ function normalize(s) {
 
 function renderCard(game) {
   const slug = normalize(game.slug).replace(/\s+/g, "-");
-  const title = String(game.title ?? slug || "Untitled");
+  const title = String(game.title ?? (slug || "Untitled"));
   const description = String(game.description ?? "");
   const tags = Array.isArray(game.tags) ? game.tags : [];
   const minutes = Number.isFinite(game.minutes) ? game.minutes : null;

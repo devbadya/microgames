@@ -1,0 +1,9 @@
+[
+  {
+    "slug": "tetris",
+    "title": "Tetris",
+    "description": "The classic block-stacking puzzle, rebuilt with the PlayCanvas engine.",
+    "minutes": 5,
+    "tags": ["puzzle", "playcanvas", "keyboard"]
+  }
+]

@@ -1,21 +1,53 @@
 # microgames
 
-Microgames collection for GitHub Pages.
+A growing collection of tiny browser games built with the [PlayCanvas](https://playcanvas.com/) engine, deployed on GitHub Pages.
 
-## Structure
+## Stack
 
-- `index.html`: homepage that lists all microgames
-- `games/games.json`: registry powering the homepage
-- `games/<slug>/`: one folder per microgame (each has its own `index.html`)
+- [pnpm](https://pnpm.io/) for package management
+- [Vite](https://vitejs.dev/) for dev server + multi-page builds
+- [PlayCanvas](https://github.com/playcanvas/engine) (engine-only) for the games
+- GitHub Actions for CI/CD to GitHub Pages
+
+## Develop
+
+```bash
+pnpm install
+pnpm dev      # local dev server
+pnpm build    # production build to ./dist
+pnpm preview  # preview the production build
+```
+
+## Repo layout
+
+```
+index.html              # landing page (lists games from games.json)
+404.html
+assets/                 # shared site styles + landing page logic
+public/
+  .nojekyll
+  games/
+    games.json          # registry of microgames shown on the landing page
+games/
+  tetris/               # one folder per microgame
+    index.html
+    main.js
+    style.css
+.github/workflows/
+  pages.yml             # builds with pnpm + deploys ./dist to GitHub Pages
+vite.config.js
+package.json
+```
 
 ## Add a new microgame
 
-1. Copy `games/click-countdown/` to `games/<your-game>/`
-2. Update the title/description inside `games/<your-game>/index.html`
-3. Add an entry to `games/games.json`
+1. Copy `games/tetris/` to `games/<your-game>/`.
+2. Update the title/description in your game's `index.html` and write your PlayCanvas code in `main.js`.
+3. Add an entry to `public/games/games.json`.
+4. Register the new HTML entry in `vite.config.js` under `build.rollupOptions.input`.
 
 ## GitHub Pages
 
-In your repo settings: **Settings → Pages → Build and deployment**
-- Source: **GitHub Actions**
+In your repo settings: **Settings → Pages → Build and deployment → Source: "GitHub Actions"**.
 
+Each push to `main` will run the workflow in `.github/workflows/pages.yml`, build the site with `pnpm build`, and publish `./dist`.

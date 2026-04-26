@@ -1,0 +1,18 @@
+{
+  "name": "microgames",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A collection of tiny PlayCanvas games on GitHub Pages.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "playcanvas": "^2.18.0"
+  }
+}
