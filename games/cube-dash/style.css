@@ -84,6 +84,28 @@
   letter-spacing: -0.01em;
 }
 
+.hudProgress {
+  align-items: stretch;
+  min-width: 5.5rem;
+}
+
+.progressBar {
+  margin-top: 0.32rem;
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progressFill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #facc15, #fb7185 60%, #6ee7ff);
+  transition: width 0.12s linear;
+}
+
 .gameStage {
   position: relative;
   flex: 1 1 auto;

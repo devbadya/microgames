@@ -8,8 +8,9 @@ const GROUND_Y = -3.05;
 const PLAYER_GROUND_Y = GROUND_Y + PLAYER_SIZE / 2;
 const GRAVITY = -18.0;
 const JUMP_VELOCITY = 9.25;
-const BASE_SPEED = 4.35;
-const MAX_SPEED_MULT = 1.85;
+const BASE_SPEED = 3.55;
+const MAX_SPEED_MULT = 1.4;
+const LEVEL_LENGTH = 220;
 
 const COLORS = {
   bg: new pc.Color(0.035, 0.045, 0.085),
@@ -22,10 +23,42 @@ const COLORS = {
   block: new pc.Color(0.38, 0.84, 1.0),
   blockFace: new pc.Color(0.67, 0.94, 1.0),
   spark: new pc.Color(0.80, 0.96, 1.0),
+  pad: new pc.Color(1.0, 0.85, 0.18),
+  padGlow: new pc.Color(1.0, 0.95, 0.55),
+  orb: new pc.Color(1.0, 0.78, 0.18),
+  orbGlow: new pc.Color(1.0, 0.92, 0.5),
 };
 
-type ObstacleKind = "spike" | "block";
+type ObstacleKind = "spike" | "block" | "pad" | "orb";
 type IconShape = "cube" | "diamond" | "orb" | "wide";
+
+interface PatternStep {
+  kind: ObstacleKind;
+  gap: number;
+}
+
+const LEVEL_PATTERN: PatternStep[] = [
+  { kind: "spike", gap: 5.5 },
+  { kind: "spike", gap: 5.5 },
+  { kind: "spike", gap: 5.5 },
+  { kind: "spike", gap: 4.2 },
+  { kind: "block", gap: 5.5 },
+  { kind: "spike", gap: 5.0 },
+  { kind: "pad", gap: 5.0 },
+  { kind: "orb", gap: 4.6 },
+  { kind: "spike", gap: 5.5 },
+  { kind: "spike", gap: 3.4 },
+  { kind: "spike", gap: 5.5 },
+  { kind: "block", gap: 4.6 },
+  { kind: "spike", gap: 4.6 },
+  { kind: "pad", gap: 5.4 },
+  { kind: "block", gap: 5.0 },
+  { kind: "orb", gap: 4.6 },
+  { kind: "spike", gap: 4.0 },
+  { kind: "spike", gap: 3.2 },
+  { kind: "spike", gap: 3.2 },
+  { kind: "spike", gap: 5.5 },
+];
 
 interface Obstacle {
   kind: ObstacleKind;
@@ -34,8 +67,10 @@ interface Obstacle {
   w: number;
   h: number;
   passed: boolean;
+  used: boolean;
   entity: pc.Entity;
   face?: pc.Entity;
+  glow?: pc.Entity;
 }
 
 interface Spark {
@@ -55,7 +90,8 @@ const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const scoreEl = document.getElementById("score");
 const bestEl = document.getElementById("best");
-const speedEl = document.getElementById("speed");
+const progressEl = document.getElementById("progress");
+const progressFillEl = document.getElementById("progressFill");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
 const iconSettingsBtn = document.getElementById("iconSettingsBtn") as HTMLButtonElement | null;
@@ -221,11 +257,15 @@ let score = 0;
 let best = getStoredBest();
 let speedMultiplier = 1;
 let pulse = 0;
+let distance = 0;
+let patternIndex = 0;
 
 function updateHud(): void {
   if (scoreEl) scoreEl.textContent = String(score);
   if (bestEl) bestEl.textContent = String(best);
-  if (speedEl) speedEl.textContent = `${speedMultiplier.toFixed(1)}×`;
+  const pct = Math.min(100, Math.floor((distance / LEVEL_LENGTH) * 100));
+  if (progressEl) progressEl.textContent = `${pct}%`;
+  if (progressFillEl) progressFillEl.style.width = `${pct}%`;
 }
 
 const bgPanel = makeBox("bgPanel", new pc.Color(0.045, 0.07, 0.13), [WORLD_WIDTH + 3, WORLD_HEIGHT + 2, 0.16], [0, 0, -1.9], 0.72);
@@ -259,38 +299,43 @@ const sparks: Spark[] = Array.from({ length: 18 }, (_, i) => ({
 
 const obstacles: Obstacle[] = [];
 
-function createObstacle(kind: ObstacleKind, x: number): Obstacle {
-  if (kind === "spike") {
-    const spike = makeBox("spike", COLORS.spike, [0.58, 0.58, 0.3], [x, GROUND_Y + 0.33, 0.1]);
-    spike.setEulerAngles(0, 0, 45);
-    return {
-      kind,
-      x,
-      y: GROUND_Y + 0.31,
-      w: 0.48,
-      h: 0.56,
-      passed: false,
-      entity: spike,
-    };
-  }
+const ORB_Y = GROUND_Y + 1.95;
 
-  const block = makeBox("block", COLORS.block, [0.74, 0.74, 0.34], [x, GROUND_Y + 0.39, 0.08]);
-  const face = makeBox("blockFace", COLORS.blockFace, [0.38, 0.38, 0.08], [x, GROUND_Y + 0.39, 0.36], 0.82);
-  return {
+function createObstacle(kind: ObstacleKind, x: number): Obstacle {
+  const obstacle: Obstacle = {
     kind,
     x,
-    y: GROUND_Y + 0.37,
-    w: 0.68,
-    h: 0.70,
+    y: GROUND_Y,
+    w: 0.5,
+    h: 0.5,
     passed: false,
-    entity: block,
-    face,
+    used: false,
+    entity: makeBox("obstacle", COLORS.spike, [0.58, 0.58, 0.3], [x, GROUND_Y, 0.1]),
   };
+  setObstacleKind(obstacle, kind);
+  syncObstacle(obstacle);
+  return obstacle;
+}
+
+function ensureFace(obstacle: Obstacle): pc.Entity {
+  if (!obstacle.face) {
+    obstacle.face = makeBox("blockFace", COLORS.blockFace, [0.38, 0.38, 0.08], [obstacle.x, obstacle.y, 0.36], 0.82);
+  }
+  return obstacle.face;
+}
+
+function ensureGlow(obstacle: Obstacle): pc.Entity {
+  if (!obstacle.glow) {
+    obstacle.glow = makeSphere("obstacleGlow", COLORS.orbGlow, [0.55, 0.55, 0.05], [obstacle.x, ORB_Y, -0.05], 0.45);
+  }
+  return obstacle.glow;
 }
 
 function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
   obstacle.kind = kind;
   obstacle.passed = false;
+  obstacle.used = false;
+
   if (kind === "spike") {
     obstacle.w = 0.48;
     obstacle.h = 0.56;
@@ -299,38 +344,69 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     obstacle.entity.setEulerAngles(0, 0, 45);
     obstacle.entity.render!.material = getMaterial(COLORS.spike);
     if (obstacle.face) obstacle.face.enabled = false;
-  } else {
+    if (obstacle.glow) obstacle.glow.enabled = false;
+  } else if (kind === "block") {
     obstacle.w = 0.68;
     obstacle.h = 0.70;
     obstacle.y = GROUND_Y + 0.37;
     obstacle.entity.setLocalScale(0.74, 0.74, 0.34);
     obstacle.entity.setEulerAngles(0, 0, 0);
     obstacle.entity.render!.material = getMaterial(COLORS.block);
-    if (!obstacle.face) {
-      obstacle.face = makeBox("blockFace", COLORS.blockFace, [0.38, 0.38, 0.08], [obstacle.x, obstacle.y, 0.36], 0.82);
-    }
-    obstacle.face.enabled = true;
+    const face = ensureFace(obstacle);
+    face.enabled = true;
+    face.render!.material = getMaterial(COLORS.blockFace, 0.82);
+    if (obstacle.glow) obstacle.glow.enabled = false;
+  } else if (kind === "pad") {
+    obstacle.w = 1.45;
+    obstacle.h = 0.22;
+    obstacle.y = GROUND_Y + 0.11;
+    obstacle.entity.setLocalScale(1.55, 0.22, 0.38);
+    obstacle.entity.setEulerAngles(0, 0, 0);
+    obstacle.entity.render!.material = getMaterial(COLORS.pad);
+    const face = ensureFace(obstacle);
+    face.enabled = true;
+    face.setLocalScale(1.05, 0.06, 0.06);
+    face.render!.material = getMaterial(COLORS.padGlow, 0.95);
+    if (obstacle.glow) obstacle.glow.enabled = false;
+  } else {
+    obstacle.w = 0.85;
+    obstacle.h = 0.85;
+    obstacle.y = ORB_Y;
+    obstacle.entity.setLocalScale(0.6, 0.6, 0.18);
+    obstacle.entity.setEulerAngles(0, 0, 45);
+    obstacle.entity.render!.material = getMaterial(COLORS.orb);
+    if (obstacle.face) obstacle.face.enabled = false;
+    const glow = ensureGlow(obstacle);
+    glow.enabled = true;
+    glow.render!.material = getMaterial(COLORS.orbGlow, 0.45);
   }
 }
 
 function syncObstacle(obstacle: Obstacle): void {
-  obstacle.entity.setPosition(obstacle.x, obstacle.y, 0.1);
+  obstacle.entity.setPosition(obstacle.x, obstacle.y, obstacle.kind === "orb" ? 0.05 : 0.1);
   if (obstacle.face?.enabled) {
-    obstacle.face.setPosition(obstacle.x, obstacle.y, 0.36);
+    if (obstacle.kind === "pad") {
+      obstacle.face.setPosition(obstacle.x, obstacle.y + 0.13, 0.18);
+    } else {
+      obstacle.face.setPosition(obstacle.x, obstacle.y, 0.36);
+    }
+  }
+  if (obstacle.glow?.enabled) {
+    obstacle.glow.setPosition(obstacle.x, obstacle.y, -0.05);
   }
 }
 
-function nextKind(index: number): ObstacleKind {
-  const pattern: ObstacleKind[] = ["spike", "spike", "block", "spike", "block", "spike"];
-  return pattern[index % pattern.length]!;
-}
-
 function resetObstacles(): void {
-  const start = 6.0;
-  for (let i = 0; i < 12; i++) {
-    const obstacle = obstacles[i] ?? createObstacle(nextKind(i), start + i * 2.45);
-    obstacle.x = start + i * 2.45;
-    setObstacleKind(obstacle, nextKind(i));
+  patternIndex = 0;
+  let cursor = 6.5;
+  const count = 14;
+  for (let i = 0; i < count; i++) {
+    const step = LEVEL_PATTERN[patternIndex % LEVEL_PATTERN.length]!;
+    patternIndex += 1;
+    cursor += step.gap;
+    const obstacle = obstacles[i] ?? createObstacle(step.kind, cursor);
+    obstacle.x = cursor;
+    setObstacleKind(obstacle, step.kind);
     syncObstacle(obstacle);
     if (!obstacles[i]) obstacles.push(obstacle);
   }
@@ -338,9 +414,10 @@ function resetObstacles(): void {
 
 function recycleObstacle(obstacle: Obstacle): void {
   const rightMost = Math.max(...obstacles.map((o) => o.x));
-  const gap = 2.05 + Math.random() * 1.15;
-  obstacle.x = rightMost + gap;
-  setObstacleKind(obstacle, Math.random() > 0.34 ? "spike" : "block");
+  const step = LEVEL_PATTERN[patternIndex % LEVEL_PATTERN.length]!;
+  patternIndex += 1;
+  obstacle.x = rightMost + step.gap;
+  setObstacleKind(obstacle, step.kind);
   syncObstacle(obstacle);
 }
 
@@ -421,10 +498,41 @@ function newGame(): void {
   gameOver = false;
   score = 0;
   speedMultiplier = 1;
+  distance = 0;
   resetObstacles();
   hideOverlay();
   updateHud();
   syncPlayer();
+}
+
+function rectsOverlapXY(ax: number, ay: number, aw: number, ah: number, bx: number, by: number, bw: number, bh: number): boolean {
+  return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
+}
+
+function tryOrbJump(): boolean {
+  for (const obstacle of obstacles) {
+    if (obstacle.kind !== "orb" || obstacle.used) continue;
+    if (
+      rectsOverlapXY(
+        PLAYER_X,
+        playerY,
+        PLAYER_SIZE * 1.1,
+        PLAYER_SIZE * 1.1,
+        obstacle.x,
+        obstacle.y,
+        obstacle.w,
+        obstacle.h,
+      )
+    ) {
+      obstacle.used = true;
+      playerVelocity = JUMP_VELOCITY * 0.95;
+      grounded = false;
+      if (obstacle.glow) obstacle.glow.render!.material = getMaterial(COLORS.orbGlow, 0.18);
+      obstacle.entity.render!.material = getMaterial(COLORS.orb, 0.55);
+      return true;
+    }
+  }
+  return false;
 }
 
 function jump(): void {
@@ -432,9 +540,12 @@ function jump(): void {
     newGame();
     return;
   }
-  if (!grounded) return;
-  playerVelocity = JUMP_VELOCITY;
-  grounded = false;
+  if (grounded) {
+    playerVelocity = JUMP_VELOCITY;
+    grounded = false;
+    return;
+  }
+  tryOrbJump();
 }
 
 function endGame(): void {
@@ -446,31 +557,41 @@ function endGame(): void {
   showOverlay(score === 0 ? "Try again — tap to restart" : `${score} point${score === 1 ? "" : "s"} — tap to restart`);
 }
 
-function rectsOverlap(
-  ax: number,
-  ay: number,
-  aw: number,
-  ah: number,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number,
-): boolean {
-  return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
-}
-
 function hitsObstacle(obstacle: Obstacle): boolean {
-  const shrink = obstacle.kind === "spike" ? 0.72 : 0.88;
-  return rectsOverlap(
+  if (obstacle.kind === "pad" || obstacle.kind === "orb") return false;
+  const shrink = obstacle.kind === "spike" ? 0.6 : 0.86;
+  return rectsOverlapXY(
     PLAYER_X,
     playerY,
-    PLAYER_SIZE * 0.72,
-    PLAYER_SIZE * 0.72,
+    PLAYER_SIZE * 0.7,
+    PLAYER_SIZE * 0.7,
     obstacle.x,
     obstacle.y,
     obstacle.w * shrink,
     obstacle.h * shrink,
   );
+}
+
+function tryActivatePad(obstacle: Obstacle): void {
+  if (obstacle.kind !== "pad" || obstacle.used) return;
+  if (
+    rectsOverlapXY(
+      PLAYER_X,
+      playerY,
+      PLAYER_SIZE * 1.1,
+      PLAYER_SIZE * 1.2,
+      obstacle.x,
+      obstacle.y + 0.25,
+      obstacle.w,
+      0.8,
+    )
+  ) {
+    obstacle.used = true;
+    playerVelocity = JUMP_VELOCITY * 1.4;
+    grounded = false;
+    obstacle.entity.render!.material = getMaterial(COLORS.pad, 0.45);
+    if (obstacle.face) obstacle.face.render!.material = getMaterial(COLORS.padGlow, 0.4);
+  }
 }
 
 function updateBackground(dt: number, speed: number): void {
@@ -507,7 +628,8 @@ app.on("update", (dt: number) => {
   updateSparks(dt);
 
   if (running && !gameOver) {
-    speedMultiplier = Math.min(MAX_SPEED_MULT, 1 + score * 0.035);
+    speedMultiplier = Math.min(MAX_SPEED_MULT, 1 + score * 0.012);
+    distance += speed * dt;
     playerVelocity += GRAVITY * dt;
     playerY += playerVelocity * dt;
 
@@ -523,18 +645,30 @@ app.on("update", (dt: number) => {
 
     for (const obstacle of obstacles) {
       obstacle.x -= speed * dt;
+
+      if (obstacle.kind === "orb" && !obstacle.used) {
+        const bob = Math.sin(pulse * 4 + obstacle.x * 0.3) * 0.08;
+        obstacle.y = ORB_Y + bob;
+        obstacle.entity.setEulerAngles(0, 0, 45 + pulse * 90);
+      }
+
       syncObstacle(obstacle);
 
       if (!obstacle.passed && obstacle.x < PLAYER_X - 0.45) {
         obstacle.passed = true;
-        score += 1;
-        best = Math.max(best, score);
-        updateHud();
+        if (obstacle.kind === "spike" || obstacle.kind === "block") {
+          score += 1;
+          best = Math.max(best, score);
+        }
       }
+
+      tryActivatePad(obstacle);
 
       if (hitsObstacle(obstacle)) endGame();
       if (obstacle.x < -WORLD_WIDTH / 2 - 2) recycleObstacle(obstacle);
     }
+
+    updateHud();
   } else {
     playerRotation += Math.sin(pulse * 2.5) * dt * 4;
   }

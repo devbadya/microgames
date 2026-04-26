@@ -32,9 +32,10 @@
           <span class="hudLabel">Best</span>
           <span id="best" class="hudValue">0</span>
         </div>
-        <div class="hudItem">
-          <span class="hudLabel">Speed</span>
-          <span id="speed" class="hudValue">1.0×</span>
+        <div class="hudItem hudProgress">
+          <span class="hudLabel">Progress</span>
+          <span id="progress" class="hudValue">0%</span>
+          <span class="progressBar" aria-hidden="true"><span id="progressFill" class="progressFill"></span></span>
         </div>
       </div>
     </header>
@@ -68,7 +69,9 @@
       <div id="overlay" class="overlay">
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Tap to start</p>
-          <p class="overlayHint">Tap, click, or press Space to jump.</p>
+          <p class="overlayHint">
+            Tap or Space to jump. Touch yellow pads on the ground for a high boost, tap on yellow orbs in mid-air for a second jump.
+          </p>
         </div>
       </div>
     </main>
