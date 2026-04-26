@@ -30,5 +30,13 @@
     "minutes": 3,
     "tags": ["runner", "swipe", "mobile"],
     "thumbnail": "./thumbnails/metro-rush.svg"
+  },
+  {
+    "slug": "rescue-marksman",
+    "title": "Rescue Marksman",
+    "description": "Clear 10 rescue levels with 5 shots each: neutralize red targets while protecting civilians.",
+    "minutes": 4,
+    "tags": ["aim", "levels", "mobile"],
+    "thumbnail": "./thumbnails/rescue-marksman.svg"
   }
 ]

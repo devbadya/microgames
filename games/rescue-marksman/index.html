@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#07090f" />
+    <title>Rescue Marksman — microgames</title>
+    <meta name="description" content="A 10-level rescue marksman game with 5 shots per level." />
+    <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
+    <link rel="apple-touch-icon" href="../../icon.svg" />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="gameBody">
+    <div class="bgGlow" aria-hidden="true"></div>
+
+    <header class="gameTopbar">
+      <a class="link backLink" href="../../">← All games</a>
+      <h1 class="gameTitle">Rescue Marksman</h1>
+      <div class="hud" aria-label="Game stats">
+        <div class="hudItem">
+          <span class="hudLabel">Level</span>
+          <span id="level" class="hudValue">1/10</span>
+        </div>
+        <div class="hudItem">
+          <span class="hudLabel">Shots</span>
+          <span id="shots" class="hudValue">5</span>
+        </div>
+        <div class="hudItem">
+          <span class="hudLabel">Targets</span>
+          <span id="targets" class="hudValue">0</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="gameStage" id="stage">
+      <canvas id="app"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="overlayInner">
+          <p id="overlayMsg" class="overlayMsg">Tap to start</p>
+          <p class="overlayHint">Neutralize red targets. Do not hit blue civilians. 5 shots per level.</p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="gameHelp">
+      <span><kbd>Tap / Click</kbd> shoot</span>
+      <span><kbd>Red</kbd> target</span>
+      <span><kbd>Blue</kbd> civilian</span>
+      <span><kbd>5 shots</kbd> per level</span>
+    </footer>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
