@@ -115,7 +115,7 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1rem;
   padding-bottom: 3rem;
 }
@@ -124,34 +124,85 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
   border: 1px solid var(--border);
   border-radius: 18px;
-  padding: 1.05rem;
   box-shadow: 0 18px 60px var(--shadow);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
   overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.card::before {
+.card::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
+  border-radius: inherit;
   background: radial-gradient(160% 80% at 50% -30%, rgba(110, 231, 255, 0.16), transparent 55%);
   opacity: 0;
   transition: opacity 160ms ease;
 }
 
-.card:hover {
+.card:hover,
+.card:focus-visible {
   transform: translateY(-2px);
-  border-color: rgba(110, 231, 255, 0.28);
+  border-color: rgba(110, 231, 255, 0.32);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.45);
 }
 
-.card:hover::before {
+.card:hover::after,
+.card:focus-visible::after {
   opacity: 1;
+}
+
+.card:focus-visible {
+  outline: 2px solid rgba(110, 231, 255, 0.6);
+  outline-offset: 3px;
+}
+
+.card:active {
+  transform: translateY(0);
+}
+
+.cardThumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: #0a1020;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.cardImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardThumb--placeholder {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.18), rgba(167, 139, 250, 0.18));
+}
+
+.cardThumb--placeholder::before {
+  content: attr(data-initial);
+  font-size: 3.2rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: -0.02em;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.95rem 1.05rem 1.05rem;
+  flex: 1 1 auto;
 }
 
 .cardTitle {
@@ -164,14 +215,14 @@ body {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
-  font-size: 0.95rem;
+  font-size: 0.94rem;
 }
 
 .chipRow {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: auto;
+  margin-top: 0.15rem;
 }
 
 .chip {
@@ -186,35 +237,26 @@ body {
   background: rgba(15, 22, 34, 0.55);
 }
 
-.cardLink {
+.cardCta {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 14px;
-  border: 1px solid rgba(110, 231, 255, 0.22);
-  background: linear-gradient(90deg, rgba(110, 231, 255, 0.14), rgba(167, 139, 250, 0.12));
-  color: var(--text);
-  text-decoration: none;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+  color: #c7f1ff;
   font-weight: 500;
+  font-size: 0.95rem;
   letter-spacing: 0.01em;
 }
 
-.cardLink::after {
+.cardCta::after {
   content: "→";
-  transform: translateX(0);
   transition: transform 160ms ease;
 }
 
-.card:hover .cardLink::after {
+.card:hover .cardCta::after,
+.card:focus-visible .cardCta::after {
   transform: translateX(3px);
-}
-
-.cardLink:focus-visible {
-  outline: 2px solid rgba(110, 231, 255, 0.6);
-  outline-offset: 2px;
 }
 
 .footer {

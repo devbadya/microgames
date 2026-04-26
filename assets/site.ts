@@ -4,7 +4,12 @@ interface Game {
   description?: string;
   tags?: string[];
   minutes?: number;
+  thumbnail?: string;
 }
+
+type GameCard = HTMLAnchorElement & {
+  dataset: DOMStringMap & { search: string };
+};
 
 async function loadGames(): Promise<Game[]> {
   const res = await fetch("./games/games.json", { cache: "no-store" });
@@ -18,10 +23,6 @@ function normalize(s: unknown): string {
   return String(s ?? "").trim().toLowerCase();
 }
 
-interface GameCard extends HTMLElement {
-  dataset: DOMStringMap & { search: string };
-}
-
 function renderCard(game: Game): GameCard {
   const slug = normalize(game.slug).replace(/\s+/g, "-");
   const title = String(game.title ?? (slug || "Untitled"));
@@ -29,10 +30,31 @@ function renderCard(game: Game): GameCard {
   const tags = Array.isArray(game.tags) ? game.tags : [];
   const minutes =
     typeof game.minutes === "number" && Number.isFinite(game.minutes) ? game.minutes : null;
+  const thumbnail = typeof game.thumbnail === "string" ? game.thumbnail : null;
   const href = `./games/${encodeURIComponent(slug)}/`;
 
-  const card = document.createElement("article");
+  const card = document.createElement("a");
   card.className = "card";
+  card.href = href;
+  card.setAttribute("aria-label", `Play ${title}`);
+
+  const thumb = document.createElement("div");
+  thumb.className = "cardThumb";
+  if (thumbnail) {
+    const img = document.createElement("img");
+    img.className = "cardImg";
+    img.src = thumbnail;
+    img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
+    thumb.appendChild(img);
+  } else {
+    thumb.classList.add("cardThumb--placeholder");
+    thumb.dataset["initial"] = (title.charAt(0) || "·").toUpperCase();
+  }
+
+  const body = document.createElement("div");
+  body.className = "cardBody";
 
   const h3 = document.createElement("h3");
   h3.className = "cardTitle";
@@ -57,14 +79,14 @@ function renderCard(game: Game): GameCard {
     chipRow.appendChild(chip);
   }
 
-  const a = document.createElement("a");
-  a.className = "cardLink";
-  a.href = href;
-  a.setAttribute("aria-label", `Play ${title}`);
-  a.textContent = "Play";
+  const cta = document.createElement("span");
+  cta.className = "cardCta";
+  cta.textContent = "Play";
 
-  card.append(h3, p, chipRow, a);
-  card.dataset.search =
+  body.append(h3, p, chipRow, cta);
+  card.append(thumb, body);
+
+  card.dataset["search"] =
     `${normalize(title)} ${normalize(description)} ${tags.map(normalize).join(" ")}`.trim();
   return card as GameCard;
 }

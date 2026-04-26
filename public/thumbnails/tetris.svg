@@ -1,0 +1,79 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 300"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Tetris preview"
+>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1828" />
+      <stop offset="100%" stop-color="#070a13" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.85" cy="0.05" r="0.75">
+      <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.1" cy="0.95" r="0.7">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="480" height="300" fill="url(#bg)" />
+  <rect width="480" height="300" fill="url(#glowA)" />
+  <rect width="480" height="300" fill="url(#glowB)" />
+
+  <g stroke="rgba(255,255,255,0.045)" stroke-width="1">
+    <line x1="60" y1="0" x2="60" y2="300" />
+    <line x1="120" y1="0" x2="120" y2="300" />
+    <line x1="180" y1="0" x2="180" y2="300" />
+    <line x1="240" y1="0" x2="240" y2="300" />
+    <line x1="300" y1="0" x2="300" y2="300" />
+    <line x1="360" y1="0" x2="360" y2="300" />
+    <line x1="420" y1="0" x2="420" y2="300" />
+    <line x1="0" y1="60" x2="480" y2="60" />
+    <line x1="0" y1="120" x2="480" y2="120" />
+    <line x1="0" y1="180" x2="480" y2="180" />
+    <line x1="0" y1="240" x2="480" y2="240" />
+  </g>
+
+  <g fill="#66dbf2">
+    <rect x="74" y="48" width="36" height="36" rx="6" />
+    <rect x="112" y="48" width="36" height="36" rx="6" />
+    <rect x="150" y="48" width="36" height="36" rx="6" />
+    <rect x="188" y="48" width="36" height="36" rx="6" />
+  </g>
+
+  <g fill="#f5d65a">
+    <rect x="324" y="92" width="36" height="36" rx="6" />
+    <rect x="362" y="92" width="36" height="36" rx="6" />
+    <rect x="324" y="130" width="36" height="36" rx="6" />
+    <rect x="362" y="130" width="36" height="36" rx="6" />
+  </g>
+
+  <g fill="#c674eb">
+    <rect x="44" y="178" width="36" height="36" rx="6" />
+    <rect x="82" y="178" width="36" height="36" rx="6" />
+    <rect x="120" y="178" width="36" height="36" rx="6" />
+    <rect x="82" y="216" width="36" height="36" rx="6" />
+  </g>
+
+  <g fill="#fbab66">
+    <rect x="180" y="216" width="36" height="36" rx="6" />
+    <rect x="218" y="216" width="36" height="36" rx="6" />
+    <rect x="256" y="216" width="36" height="36" rx="6" />
+    <rect x="256" y="178" width="36" height="36" rx="6" />
+  </g>
+
+  <g fill="#f57575">
+    <rect x="318" y="216" width="36" height="36" rx="6" />
+    <rect x="356" y="216" width="36" height="36" rx="6" />
+    <rect x="356" y="178" width="36" height="36" rx="6" />
+    <rect x="394" y="178" width="36" height="36" rx="6" />
+  </g>
+
+  <g fill="rgba(255,255,255,0.05)">
+    <rect x="0" y="248" width="480" height="52" />
+  </g>
+</svg>
