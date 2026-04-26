@@ -4,8 +4,8 @@ const SHOTS_PER_MISSION = 5;
 const MISSION_TIME = 75;
 const LOOK_SENSITIVITY = 0.0032;
 const YAW_LIMIT = 0.48;
-const PITCH_MIN = 0.08;
-const PITCH_MAX = 0.72;
+const PITCH_MIN = -0.72;
+const PITCH_MAX = -0.08;
 const CAMERA_HEIGHT = 8.2;
 const CAMERA_Z = 15.6;
 const MODEL_BASE = "../../models/rescue-marksman/";
@@ -176,7 +176,7 @@ let state: MissionState = "intro";
 let shots = SHOTS_PER_MISSION;
 let missionTime = MISSION_TIME;
 let yaw = 0;
-let pitch = 0.33;
+let pitch = -0.33;
 let shotFlashTimer = 0;
 let pointerStart: { x: number; y: number } | null = null;
 let pointerLast: { x: number; y: number } | null = null;
@@ -198,8 +198,7 @@ function updateCameraAim(): void {
 }
 
 function cameraForward(): pc.Vec3 {
-  const cp = Math.cos(pitch);
-  return new pc.Vec3(Math.sin(yaw) * cp, -Math.sin(pitch), -Math.cos(yaw) * cp).normalize();
+  return camera.forward.clone().normalize();
 }
 
 function updateHud(): void {
@@ -378,7 +377,7 @@ function startMission(): void {
   shots = SHOTS_PER_MISSION;
   missionTime = MISSION_TIME;
   yaw = 0;
-  pitch = 0.33;
+  pitch = -0.33;
   shotFlashTimer = 0;
   resetActors();
   updateCameraAim();
@@ -456,7 +455,7 @@ function handleAimMove(e: PointerEvent): void {
   const dx = e.clientX - pointerLast.x;
   const dy = e.clientY - pointerLast.y;
   yaw -= dx * LOOK_SENSITIVITY;
-  pitch += dy * LOOK_SENSITIVITY;
+  pitch -= dy * LOOK_SENSITIVITY;
   pointerLast = { x: e.clientX, y: e.clientY };
   updateCameraAim();
 }
@@ -494,8 +493,8 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   if (state !== "playing") return;
   if (key === "arrowleft" || key === "a") yaw += 0.035;
   if (key === "arrowright" || key === "d") yaw -= 0.035;
-  if (key === "arrowup" || key === "w") pitch -= 0.035;
-  if (key === "arrowdown" || key === "s") pitch += 0.035;
+  if (key === "arrowup" || key === "w") pitch += 0.035;
+  if (key === "arrowdown" || key === "s") pitch -= 0.035;
   updateCameraAim();
 });
 
