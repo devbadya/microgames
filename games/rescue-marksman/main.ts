@@ -31,23 +31,71 @@ const COLORS = {
 
 type MissionState = "intro" | "playing" | "won" | "lost";
 type ActorRole = "hostile" | "civilian";
+type MonsterSet = "big" | "blob" | "flying";
+
+interface MonsterDef {
+  set: MonsterSet;
+  file: string;
+  scale: number;
+  hover?: number;
+  walkAnim?: string;
+  idleAnim?: string;
+  hitAnim?: string;
+}
+
+interface ActorSpec {
+  id: string;
+  role: ActorRole;
+  baseX: number;
+  z: number;
+  speed: number;
+  amplitude: number;
+  phase: number;
+  hp?: number;
+  boss?: boolean;
+  monster: MonsterDef;
+}
+
+interface LevelSpec {
+  name: string;
+  shots: number;
+  time: number;
+  intel: string;
+  actors: ActorSpec[];
+}
+
+interface ProceduralBody {
+  body: pc.Entity;
+  head: pc.Entity;
+  prop: pc.Entity;
+  armor?: pc.Entity;
+}
 
 interface Actor {
   role: ActorRole;
   id: string;
   root: pc.Entity;
-  body: pc.Entity;
-  head: pc.Entity;
-  prop: pc.Entity;
+  visual: pc.Entity;
+  procedural: ProceduralBody;
+  marker?: pc.Entity;
+  monster: MonsterDef;
   baseX: number;
   z: number;
   y: number;
   radius: number;
+  hp: number;
+  maxHp: number;
   speed: number;
   amplitude: number;
   phase: number;
+  boss: boolean;
   alive: boolean;
   revealed: boolean;
+  anim?: pc.AnimationComponent | null;
+  modelLoaded: boolean;
+  meshMaterials: pc.StandardMaterial[];
+  hitTimer: number;
+  motionState: "idle" | "walk";
 }
 
 interface ModelPlacement {
@@ -58,10 +106,15 @@ interface ModelPlacement {
   rotation?: [number, number, number];
 }
 
-type ContainerAsset = pc.Asset & { resource: pc.ContainerResource };
+interface MonsterContainerResource extends pc.ContainerResource {
+  animations?: pc.Asset[];
+}
+
+type ContainerAsset = pc.Asset & { resource: MonsterContainerResource };
 
 const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
+const levelEl = document.getElementById("level");
 const shotsEl = document.getElementById("shots");
 const hostilesEl = document.getElementById("hostiles");
 const civiliansEl = document.getElementById("civilians");
@@ -71,6 +124,95 @@ const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
 const fireBtn = document.getElementById("fireBtn");
 const restartBtn = document.getElementById("restartBtn");
+
+const M = {
+  greenSpiky: { set: "blob", file: "GreenSpikyBlob.gltf", scale: 1.4, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  pinkBlob: { set: "blob", file: "PinkBlob.gltf", scale: 1.35, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  orc: { set: "big", file: "Orc.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  ninja: { set: "big", file: "Ninja.gltf", scale: 1.0, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  blueDemon: { set: "big", file: "BlueDemon.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  cactoro: { set: "big", file: "Cactoro.gltf", scale: 1.05, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  orcSkull: { set: "big", file: "Orc_Skull.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  yeti: { set: "big", file: "Yeti.gltf", scale: 1.55, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+  hywirl: { set: "flying", file: "Hywirl.gltf", scale: 1.2, hover: 1.6, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact" },
+  goleling: { set: "flying", file: "Goleling.gltf", scale: 1.2, hover: 1.4, walkAnim: "Flying_Idle", idleAnim: "Flying_Idle", hitAnim: "HitReact" },
+  cat: { set: "blob", file: "Cat.gltf", scale: 1.2, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  dog: { set: "blob", file: "Dog.gltf", scale: 1.2, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  chicken: { set: "blob", file: "Chicken.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  pigeon: { set: "blob", file: "Pigeon.gltf", scale: 1.1, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitRecieve" },
+  bunny: { set: "big", file: "Bunny.gltf", scale: 0.9, walkAnim: "Walk", idleAnim: "Idle", hitAnim: "HitReact" },
+} as const satisfies Record<string, MonsterDef>;
+
+const LEVELS: LevelSpec[] = [
+  {
+    name: "Rooftop Checkpoint",
+    shots: 5,
+    time: 70,
+    intel: "Level 1: two red blob hostiles are moving near civilians. Take clean shots only.",
+    actors: [
+      { id: "hostile-a", role: "hostile", baseX: -4.8, z: -11.8, speed: 0.8, amplitude: 0.46, phase: 0, monster: M.greenSpiky },
+      { id: "hostile-b", role: "hostile", baseX: 5.8, z: -8.8, speed: 0.64, amplitude: 0.38, phase: 2.0, monster: M.pinkBlob },
+      { id: "civilian-a", role: "civilian", baseX: -6.8, z: -6.8, speed: 0.45, amplitude: 0.28, phase: 0.8, monster: M.cat },
+      { id: "civilian-b", role: "civilian", baseX: 4.8, z: -12.0, speed: 0.5, amplitude: 0.3, phase: 2.9, monster: M.dog },
+    ],
+  },
+  {
+    name: "Market Street",
+    shots: 5,
+    time: 75,
+    intel: "Level 2: three Orc/Ninja hostiles are spread across the street. Civilians are close to the targets.",
+    actors: [
+      { id: "hostile-a", role: "hostile", baseX: -6.1, z: -12.6, speed: 0.78, amplitude: 0.5, phase: 0.2, monster: M.orc },
+      { id: "hostile-b", role: "hostile", baseX: 0.2, z: -14.7, speed: 0.55, amplitude: 0.36, phase: 1.3, monster: M.ninja },
+      { id: "hostile-c", role: "hostile", baseX: 7.1, z: -8.8, speed: 0.7, amplitude: 0.42, phase: 2.4, monster: M.orc },
+      { id: "civilian-a", role: "civilian", baseX: -3.8, z: -6.5, speed: 0.5, amplitude: 0.32, phase: 1.2, monster: M.bunny },
+      { id: "civilian-b", role: "civilian", baseX: 5.5, z: -12.0, speed: 0.5, amplitude: 0.3, phase: 2.9, monster: M.chicken },
+    ],
+  },
+  {
+    name: "Crossfire Avenue",
+    shots: 6,
+    time: 80,
+    intel: "Level 3: four flying suspects, more movement, and only a few extra rounds.",
+    actors: [
+      { id: "hostile-a", role: "hostile", baseX: -7.2, z: -15.0, speed: 0.85, amplitude: 0.54, phase: 0.1, monster: M.hywirl },
+      { id: "hostile-b", role: "hostile", baseX: -1.9, z: -8.0, speed: 0.68, amplitude: 0.45, phase: 1.1, monster: M.goleling },
+      { id: "hostile-c", role: "hostile", baseX: 3.7, z: -14.4, speed: 0.62, amplitude: 0.42, phase: 2.1, monster: M.hywirl },
+      { id: "hostile-d", role: "hostile", baseX: 8.0, z: -5.8, speed: 0.74, amplitude: 0.42, phase: 3.0, monster: M.goleling },
+      { id: "civilian-a", role: "civilian", baseX: -5.0, z: -6.2, speed: 0.48, amplitude: 0.32, phase: 0.8, monster: M.pigeon },
+      { id: "civilian-b", role: "civilian", baseX: 1.6, z: -11.0, speed: 0.43, amplitude: 0.26, phase: 2.3, monster: M.cat },
+      { id: "civilian-c", role: "civilian", baseX: 6.0, z: -13.4, speed: 0.52, amplitude: 0.3, phase: 3.4, monster: M.chicken },
+    ],
+  },
+  {
+    name: "Night Evacuation",
+    shots: 6,
+    time: 82,
+    intel: "Level 4: BlueDemons and Cactoros use civilians as cover. Wait for separation before firing.",
+    actors: [
+      { id: "hostile-a", role: "hostile", baseX: -6.8, z: -7.7, speed: 0.95, amplitude: 0.62, phase: 0.5, monster: M.blueDemon },
+      { id: "hostile-b", role: "hostile", baseX: -0.8, z: -14.8, speed: 0.76, amplitude: 0.46, phase: 1.4, monster: M.cactoro },
+      { id: "hostile-c", role: "hostile", baseX: 4.0, z: -6.4, speed: 0.8, amplitude: 0.54, phase: 2.7, monster: M.blueDemon },
+      { id: "hostile-d", role: "hostile", baseX: 7.8, z: -13.2, speed: 0.7, amplitude: 0.42, phase: 3.5, monster: M.cactoro },
+      { id: "civilian-a", role: "civilian", baseX: -4.9, z: -7.4, speed: 0.56, amplitude: 0.35, phase: 1.6, monster: M.dog },
+      { id: "civilian-b", role: "civilian", baseX: 2.9, z: -6.8, speed: 0.5, amplitude: 0.28, phase: 2.0, monster: M.bunny },
+      { id: "civilian-c", role: "civilian", baseX: 6.0, z: -12.7, speed: 0.48, amplitude: 0.32, phase: 3.1, monster: M.pigeon },
+    ],
+  },
+  {
+    name: "Boss Convoy",
+    shots: 10,
+    time: 95,
+    intel: "Final level: the Yeti boss survives 5 shots and is flanked by Orc Skull guards. You have 10 shots total.",
+    actors: [
+      { id: "boss", role: "hostile", baseX: 0.2, z: -12.8, speed: 0.45, amplitude: 0.32, phase: 0, hp: 5, boss: true, monster: M.yeti },
+      { id: "guard-a", role: "hostile", baseX: -5.8, z: -9.8, speed: 0.8, amplitude: 0.48, phase: 1.2, monster: M.orcSkull },
+      { id: "guard-b", role: "hostile", baseX: 5.7, z: -9.4, speed: 0.76, amplitude: 0.48, phase: 2.4, monster: M.orcSkull },
+      { id: "civilian-a", role: "civilian", baseX: -3.3, z: -6.9, speed: 0.42, amplitude: 0.24, phase: 0.8, monster: M.cat },
+      { id: "civilian-b", role: "civilian", baseX: 3.2, z: -6.7, speed: 0.45, amplitude: 0.26, phase: 2.9, monster: M.dog },
+    ],
+  },
+];
 
 const app = new pc.Application(canvas, {
   mouse: new pc.Mouse(canvas),
@@ -175,6 +317,7 @@ function hideOverlay(): void {
 let state: MissionState = "intro";
 let shots = SHOTS_PER_MISSION;
 let missionTime = MISSION_TIME;
+let currentLevelIndex = 0;
 let yaw = 0;
 let pitch = -0.33;
 let shotFlashTimer = 0;
@@ -204,6 +347,7 @@ function cameraForward(): pc.Vec3 {
 function updateHud(): void {
   const hostiles = actors.filter((actor) => actor.role === "hostile" && actor.alive).length;
   const civilians = actors.filter((actor) => actor.role === "civilian" && actor.alive).length;
+  setText(levelEl, `${currentLevelIndex + 1}/${LEVELS.length}`);
   setText(shotsEl, String(shots));
   setText(hostilesEl, String(hostiles));
   setText(civiliansEl, String(civilians));
@@ -287,54 +431,154 @@ function createCityBiome(): void {
   for (const placement of placements) loadModel(placement);
 }
 
-function createActor(
-  id: string,
-  role: ActorRole,
-  baseX: number,
-  z: number,
-  speed: number,
-  amplitude: number,
-  phase: number,
-): Actor {
-  const root = new pc.Entity(`${id}-root`);
-  root.setPosition(baseX, 0, z);
-  app.root.addChild(root);
-  const bodyColor = role === "hostile" ? COLORS.hostile : COLORS.civilian;
-  const body = makeBox(`${id}-body`, bodyColor, [0.56, 1.05, 0.38], [0, 0.76, 0], 1, root);
-  const head = makeSphere(`${id}-head`, COLORS.skin, [0.34, 0.34, 0.34], [0, 1.48, 0], 1, root);
+function buildProceduralBody(root: pc.Entity, spec: ActorSpec): ProceduralBody {
+  const isBoss = spec.boss === true;
+  const bodyColor = spec.role === "hostile" ? (isBoss ? new pc.Color(0.52, 0.04, 0.10) : COLORS.hostile) : COLORS.civilian;
+  const bodyScale: [number, number, number] = isBoss ? [0.86, 1.55, 0.58] : [0.56, 1.05, 0.38];
+  const bodyY = isBoss ? 1.0 : 0.76;
+  const headY = isBoss ? 1.9 : 1.48;
+  const body = makeBox(`${spec.id}-body`, bodyColor, bodyScale, [0, bodyY, 0], 1, root);
+  const head = makeSphere(`${spec.id}-head`, COLORS.skin, isBoss ? [0.44, 0.44, 0.44] : [0.34, 0.34, 0.34], [0, headY, 0], 1, root);
   const prop =
-    role === "hostile"
-      ? makeBox(`${id}-weapon`, COLORS.weapon, [0.72, 0.11, 0.13], [0.42, 0.93, -0.15], 1, root)
-      : makeBox(`${id}-rescue-marker`, new pc.Color(0.15, 0.82, 0.42), [0.24, 0.24, 0.08], [0, 0.94, -0.21], 1, root);
+    spec.role === "hostile"
+      ? makeBox(`${spec.id}-weapon`, COLORS.weapon, isBoss ? [1.0, 0.14, 0.16] : [0.72, 0.11, 0.13], [0.42, isBoss ? 1.16 : 0.93, -0.15], 1, root)
+      : makeBox(`${spec.id}-rescue-marker`, new pc.Color(0.15, 0.82, 0.42), [0.24, 0.24, 0.08], [0, 0.94, -0.21], 1, root);
+  const armor = isBoss ? makeBox(`${spec.id}-armor`, new pc.Color(0.12, 0.02, 0.04), [0.56, 0.38, 0.06], [0, 1.12, -0.32], 1, root) : undefined;
+  return { body, head, prop, armor };
+}
 
-  return {
-    role,
-    id,
+function tintMonster(entity: pc.Entity, role: ActorRole, isBoss: boolean): pc.StandardMaterial[] {
+  const tint = role === "civilian"
+    ? new pc.Color(0.78, 0.92, 1.0)
+    : isBoss
+      ? new pc.Color(1.0, 0.55, 0.55)
+      : new pc.Color(1.0, 0.78, 0.78);
+  const collected: pc.StandardMaterial[] = [];
+  const renders = entity.findComponents("render") as pc.RenderComponent[];
+  for (const render of renders) {
+    if (!render.meshInstances) continue;
+    for (const meshInstance of render.meshInstances) {
+      const original = meshInstance.material as pc.StandardMaterial | undefined;
+      if (!original) continue;
+      const cloned = original.clone() as pc.StandardMaterial;
+      cloned.diffuse = new pc.Color(
+        Math.min(1, cloned.diffuse.r * tint.r),
+        Math.min(1, cloned.diffuse.g * tint.g),
+        Math.min(1, cloned.diffuse.b * tint.b),
+      );
+      cloned.update();
+      meshInstance.material = cloned;
+      collected.push(cloned);
+    }
+  }
+  return collected;
+}
+
+function attachMonster(actor: Actor, asset: pc.Asset): void {
+  const container = (asset as ContainerAsset).resource;
+  const entity = container.instantiateRenderEntity({ castShadows: false });
+  entity.name = `${actor.id}-monster`;
+  entity.setLocalScale(actor.monster.scale, actor.monster.scale, actor.monster.scale);
+  entity.setLocalPosition(0, actor.monster.hover ?? 0, 0);
+  actor.root.addChild(entity);
+
+  for (const child of actor.procedural.body.children.slice()) child.destroy();
+  actor.procedural.body.enabled = false;
+  actor.procedural.head.enabled = false;
+  actor.procedural.prop.enabled = false;
+  if (actor.procedural.armor) actor.procedural.armor.enabled = false;
+  actor.visual = entity;
+  actor.modelLoaded = true;
+  actor.meshMaterials = tintMonster(entity, actor.role, actor.boss);
+
+  const animations = container.animations ?? [];
+  if (animations.length > 0) {
+    entity.addComponent("animation", { activate: true, loop: true, speed: 1 });
+    const animComponent = entity.animation as pc.AnimationComponent | null;
+    if (animComponent) {
+      animComponent.assets = animations.map((a: pc.Asset) => a.id);
+      const startAnim = actor.monster.walkAnim ?? "Walk";
+      try {
+        animComponent.play(startAnim, 0.2);
+      } catch (err) {
+        console.warn(`Could not start animation ${startAnim} on ${actor.id}`, err);
+      }
+      actor.anim = animComponent;
+      actor.motionState = "walk";
+    }
+  }
+}
+
+function loadMonsterFor(actor: Actor): void {
+  const url = `${MODEL_BASE}monsters/${actor.monster.set}/${actor.monster.file}`;
+  app.assets.loadFromUrl(url, "container", (err: string | null, asset?: pc.Asset) => {
+    if (err || !asset?.resource) {
+      console.warn(`Could not load monster ${actor.monster.file}`, err);
+      return;
+    }
+    if (!actor.root || actor.root.parent === null) return;
+    attachMonster(actor, asset);
+  });
+}
+
+function createActor(spec: ActorSpec): Actor {
+  const root = new pc.Entity(`${spec.id}-root`);
+  root.setPosition(spec.baseX, 0, spec.z);
+  app.root.addChild(root);
+  const isBoss = spec.boss === true;
+  const procedural = buildProceduralBody(root, spec);
+  const hp = spec.hp ?? (isBoss ? 5 : 1);
+  const isFlyer = spec.monster.set === "flying";
+  const aimHeight = isFlyer
+    ? (spec.monster.hover ?? 1.4) + 0.4
+    : isBoss
+      ? 1.4
+      : spec.role === "hostile"
+        ? 0.85
+        : 0.7;
+
+  let marker: pc.Entity | undefined;
+  if (spec.role === "civilian") {
+    marker = makeBox(`${spec.id}-marker`, new pc.Color(0.18, 0.7, 1.0), [1.1, 0.04, 1.1], [0, 0.04, 0], 0.55, root);
+  } else if (isBoss) {
+    marker = makeBox(`${spec.id}-marker`, new pc.Color(0.85, 0.10, 0.18), [1.6, 0.04, 1.6], [0, 0.04, 0], 0.7, root);
+  }
+
+  const actor: Actor = {
+    role: spec.role,
+    id: spec.id,
     root,
-    body,
-    head,
-    prop,
-    baseX,
-    z,
-    y: 1.0,
-    radius: role === "hostile" ? 0.52 : 0.48,
-    speed,
-    amplitude,
-    phase,
+    visual: root,
+    procedural,
+    marker,
+    monster: spec.monster,
+    baseX: spec.baseX,
+    z: spec.z,
+    y: aimHeight,
+    radius: isBoss ? 1.1 : spec.role === "hostile" ? 0.7 : 0.6,
+    hp,
+    maxHp: hp,
+    speed: spec.speed,
+    amplitude: spec.amplitude,
+    phase: spec.phase,
+    boss: isBoss,
     alive: true,
     revealed: false,
+    anim: null,
+    modelLoaded: false,
+    meshMaterials: [],
+    hitTimer: 0,
+    motionState: "walk",
   };
+
+  loadMonsterFor(actor);
+  return actor;
 }
 
 function resetActors(): void {
   for (const actor of actors) actor.root.destroy();
   actors.length = 0;
-  actors.push(createActor("hostile-a", "hostile", -4.8, -11.8, 0.8, 0.46, 0));
-  actors.push(createActor("hostile-b", "hostile", 2.2, -14.7, 0.55, 0.36, 1.3));
-  actors.push(createActor("hostile-c", "hostile", 7.1, -8.8, 0.7, 0.42, 2.4));
-  actors.push(createActor("hostile-d", "hostile", -0.8, -5.7, 0.62, 0.34, 3.5));
-  actors.push(createActor("civilian-a", "civilian", -6.8, -6.8, 0.45, 0.28, 0.8));
-  actors.push(createActor("civilian-b", "civilian", 5.5, -12.0, 0.5, 0.3, 2.9));
+  for (const spec of LEVELS[currentLevelIndex].actors) actors.push(createActor(spec));
 }
 
 function actorCenter(actor: Actor): pc.Vec3 {
@@ -373,25 +617,62 @@ function endMission(next: MissionState, message: string): void {
 }
 
 function startMission(): void {
+  if (state === "won") {
+    currentLevelIndex = currentLevelIndex < LEVELS.length - 1 ? currentLevelIndex + 1 : 0;
+  }
+  const level = LEVELS[currentLevelIndex];
   state = "playing";
-  shots = SHOTS_PER_MISSION;
-  missionTime = MISSION_TIME;
+  shots = level.shots;
+  missionTime = level.time;
   yaw = 0;
   pitch = -0.33;
   shotFlashTimer = 0;
   resetActors();
   updateCameraAim();
   updateHud();
-  setMissionText("Red jackets are armed. Blue civilians must survive. Wait for a clear shot.");
+  setMissionText(level.intel);
   hideOverlay();
+}
+
+function fadeActorTint(actor: Actor, color: pc.Color, amount: number): void {
+  if (actor.meshMaterials.length === 0) {
+    if (actor.procedural.body.render) actor.procedural.body.render.material = getMaterial(color, 0.55);
+    if (actor.procedural.head.render) actor.procedural.head.render.material = getMaterial(color, 0.45);
+    return;
+  }
+  for (const material of actor.meshMaterials) {
+    material.diffuse = new pc.Color(
+      pc.math.lerp(material.diffuse.r, color.r, amount),
+      pc.math.lerp(material.diffuse.g, color.g, amount),
+      pc.math.lerp(material.diffuse.b, color.b, amount),
+    );
+    material.update();
+  }
+}
+
+function playActorAnim(actor: Actor, animName: string | undefined, blend = 0.15): boolean {
+  if (!animName || !actor.anim) return false;
+  try {
+    actor.anim.play(animName, blend);
+    return true;
+  } catch (err) {
+    console.warn(`Animation ${animName} failed on ${actor.id}`, err);
+    return false;
+  }
 }
 
 function neutralize(actor: Actor): void {
   actor.alive = false;
-  actor.body.render!.material = getMaterial(COLORS.neutralized, 0.55);
-  actor.head.render!.material = getMaterial(COLORS.neutralized, 0.45);
-  actor.prop.enabled = false;
-  actor.root.setLocalEulerAngles(0, actor.root.getLocalEulerAngles().y, 78);
+  actor.hitTimer = 0;
+  fadeActorTint(actor, COLORS.neutralized, 0.7);
+  actor.procedural.prop.enabled = false;
+  if (actor.marker) actor.marker.enabled = false;
+  if (!playActorAnim(actor, "Death", 0.1)) {
+    actor.root.setLocalEulerAngles(0, actor.root.getLocalEulerAngles().y, 78);
+  } else if (actor.anim) {
+    actor.anim.loop = false;
+  }
+  actor.motionState = "idle";
 }
 
 function fireShot(): void {
@@ -408,16 +689,35 @@ function fireShot(): void {
   if (!hit) {
     setMissionText("Missed shot. Re-center the scope and watch movement patterns.");
   } else if (hit.role === "civilian") {
-    hit.body.render!.material = getMaterial(COLORS.neutralized, 0.5);
-    hit.head.render!.material = getMaterial(COLORS.neutralized, 0.45);
+    fadeActorTint(hit, COLORS.neutralized, 0.7);
+    if (!playActorAnim(hit, "Death", 0.1)) {
+      hit.procedural.body.render!.material = getMaterial(COLORS.neutralized, 0.5);
+      hit.procedural.head.render!.material = getMaterial(COLORS.neutralized, 0.45);
+    } else if (hit.anim) {
+      hit.anim.loop = false;
+    }
+    hit.alive = false;
     endMission("lost", "Civilian hit. Mission failed.");
     return;
   } else {
-    neutralize(hit);
+    hit.hp -= 1;
+    if (hit.hp > 0) {
+      fadeActorTint(hit, COLORS.hit, 0.45);
+      hit.hitTimer = 0.55;
+      if (!playActorAnim(hit, hit.monster.hitAnim ?? "HitReact", 0.05)) {
+        if (hit.procedural.body.render) hit.procedural.body.render.material = getMaterial(COLORS.hit, 0.92);
+      }
+      setMissionText(hit.boss ? `Boss hit. Armor holding: ${hit.hp}/${hit.maxHp} health left.` : `${hit.id} is hit but still moving.`);
+    } else {
+      neutralize(hit);
+    }
     const remaining = actors.filter((actor) => actor.role === "hostile" && actor.alive).length;
-    setMissionText(remaining === 0 ? "All bad actors are down. Civilians are safe." : `${remaining} bad actor${remaining === 1 ? "" : "s"} still active.`);
+    if (hit.hp <= 0) {
+      setMissionText(remaining === 0 ? "All bad actors are down. Civilians are safe." : `${remaining} bad actor${remaining === 1 ? "" : "s"} still active.`);
+    }
     if (remaining === 0) {
-      endMission("won", "Mission complete. Bad actors neutralized.");
+      const isFinalLevel = currentLevelIndex === LEVELS.length - 1;
+      endMission("won", isFinalLevel ? "Campaign complete. Boss neutralized." : `Level ${currentLevelIndex + 1} clear. Tap for level ${currentLevelIndex + 2}.`);
       return;
     }
   }
@@ -433,14 +733,38 @@ function updateActors(dt: number): void {
   const time = performance.now() / 1000;
   for (const actor of actors) {
     if (!actor.alive) continue;
-    const x = actor.baseX + Math.sin(time * actor.speed + actor.phase) * actor.amplitude;
-    actor.root.setPosition(x, 0, actor.z);
-    actor.root.lookAt(camera.getPosition().x, 0.7, camera.getPosition().z);
+    const phaseValue = time * actor.speed + actor.phase;
+    const x = actor.baseX + Math.sin(phaseValue) * actor.amplitude;
+    const baseY = actor.monster.hover ?? 0;
+    const hoverY = actor.monster.hover ? Math.sin(phaseValue * 1.3) * 0.18 : 0;
+    actor.root.setPosition(x, baseY + hoverY, actor.z);
+    actor.root.lookAt(camera.getPosition().x, baseY + 0.7, camera.getPosition().z);
+
+    if (actor.hitTimer > 0) {
+      actor.hitTimer = Math.max(0, actor.hitTimer - dt);
+      if (actor.hitTimer === 0 && actor.alive) {
+        playActorAnim(actor, actor.monster.walkAnim ?? "Walk", 0.2);
+        actor.motionState = "walk";
+      }
+    } else if (actor.anim && actor.modelLoaded) {
+      const moving = Math.abs(Math.cos(phaseValue) * actor.amplitude * actor.speed) > 0.18;
+      const desired: "idle" | "walk" = moving ? "walk" : "idle";
+      if (desired !== actor.motionState) {
+        const animName = desired === "walk" ? actor.monster.walkAnim : actor.monster.idleAnim;
+        if (playActorAnim(actor, animName, 0.25)) actor.motionState = desired;
+      }
+    }
 
     const aimDistance = actorCenter(actor).distance(camera.getPosition().clone().add(cameraForward().mulScalar(23)));
     if (!actor.revealed && aimDistance < 3.4) {
       actor.revealed = true;
-      setMissionText(actor.role === "hostile" ? `${actor.id}: weapon spotted. Red jacket confirmed hostile.` : `${actor.id}: blue civilian, do not fire.`);
+      setMissionText(
+        actor.role === "hostile"
+          ? actor.boss
+            ? `${actor.id}: Yeti boss confirmed. Requires ${actor.maxHp} direct hits.`
+            : `${actor.id}: hostile creature confirmed.`
+          : `${actor.id}: friendly creature, do not fire.`,
+      );
     }
   }
 
@@ -536,5 +860,5 @@ resetActors();
 updateCameraAim();
 updateHud();
 fitToStage();
-showOverlay("Rescue Marksman: protect civilians and eliminate red bad actors.");
+showOverlay("Rescue Marksman: tap to start. Eliminate red-tinted monsters and protect blue-tinted critters.");
 app.start();

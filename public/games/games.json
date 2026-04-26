@@ -34,7 +34,7 @@
   {
     "slug": "rescue-marksman",
     "title": "Rescue Marksman",
-    "description": "A 3D sniper rescue mission: scan a city biome, eliminate bad actors, and protect civilians.",
+    "description": "A 3D sniper rescue campaign: clear levels, protect civilians, and defeat a 5-shot boss.",
     "minutes": 4,
     "tags": ["3d", "sniper", "mobile"],
     "thumbnail": "./thumbnails/rescue-marksman.svg"

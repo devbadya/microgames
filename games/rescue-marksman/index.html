@@ -10,7 +10,7 @@
     <title>Rescue Marksman — microgames</title>
     <meta
       name="description"
-      content="A 3D sniper rescue game with a city biome, bad actors, civilians, and limited shots."
+      content="A 3D sniper rescue game with levels, a city biome, bad actors, civilians, and a final boss."
     />
     <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
     <link rel="apple-touch-icon" href="../../icon.svg" />
@@ -24,6 +24,10 @@
       <a class="link backLink" href="../../">← All games</a>
       <h1 class="gameTitle">Rescue Marksman</h1>
       <div class="hud" aria-label="Game stats">
+        <div class="hudItem">
+          <span class="hudLabel">Level</span>
+          <span id="level" class="hudValue">1/5</span>
+        </div>
         <div class="hudItem">
           <span class="hudLabel">Shots</span>
           <span id="shots" class="hudValue">5</span>
@@ -53,13 +57,13 @@
       </div>
       <div class="missionPanel" aria-live="polite">
         <strong>Intel</strong>
-        <span id="intelText">Red jackets are armed. Blue civilians must survive.</span>
+        <span id="intelText">Clear all levels. The final boss takes 5 shots and gives you 10 shots.</span>
       </div>
       <div id="overlay" class="overlay">
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Tap to start</p>
           <p class="overlayHint">
-            You are on a high roof. Aim carefully, eliminate bad actors, and protect civilians.
+            Clear 5 levels from the high roof. The final boss survives 5 shots, but you get 10 shots.
           </p>
         </div>
       </div>
@@ -72,6 +76,7 @@
       <span><kbd>Enter</kbd> restart</span>
       <span><kbd>Red</kbd> bad actor</span>
       <span><kbd>Blue</kbd> civilian</span>
+      <span><kbd>Level 5</kbd> boss</span>
     </footer>
 
     <nav class="touchControls" id="touchControls" aria-label="Touch controls">
