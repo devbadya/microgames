@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>microgames</title>
+    <meta name="description" content="A collection of tiny web microgames." />
+    <link rel="stylesheet" href="./assets/style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <h1 class="title">microgames</h1>
+        <p class="subtitle">Tiny games you can play in a minute.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="controls" aria-label="Filters">
+        <input id="search" class="input" type="search" placeholder="Search games…" autocomplete="off" />
+      </section>
+
+      <section>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+        <div id="grid" class="grid" aria-label="Games list"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footerInner">
+        <span>Built for GitHub Pages.</span>
+        <a class="link" href="./README.md">README</a>
+      </div>
+    </footer>
+
+    <script src="./assets/site.js" defer></script>
+  </body>
+</html>
+

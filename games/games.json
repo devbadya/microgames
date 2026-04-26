@@ -1,0 +1,10 @@
+[
+  {
+    "slug": "click-countdown",
+    "title": "Click Countdown",
+    "description": "Click as many times as you can before the timer hits zero.",
+    "minutes": 1,
+    "tags": ["reaction", "score", "mouse"]
+  }
+]
+

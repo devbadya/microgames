@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Click Countdown</title>
+    <meta name="description" content="Click as many times as you can before the timer hits zero." />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <style>
+      .gameWrap {
+        padding: 2.5rem 0 3rem;
+      }
+      .gamePanel {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 1.25rem;
+        box-shadow: 0 18px 60px var(--shadow);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .big {
+        font-size: clamp(2.2rem, 5vw, 3.1rem);
+        margin: 0.75rem 0 0;
+        letter-spacing: -0.03em;
+      }
+      .btn {
+        width: 100%;
+        border: 1px solid rgba(110, 231, 255, 0.22);
+        background: linear-gradient(90deg, rgba(110, 231, 255, 0.14), rgba(167, 139, 250, 0.12));
+        color: var(--text);
+        border-radius: 18px;
+        padding: 1rem 1.1rem;
+        font-size: 1.1rem;
+        cursor: pointer;
+        margin-top: 1rem;
+      }
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .meta {
+        color: var(--muted);
+      }
+      .topLinks {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <div class="row">
+          <div>
+            <h1 class="title" style="margin: 0">Click Countdown</h1>
+            <p class="subtitle" style="margin-top: 0.5rem">
+              Click the button as fast as you can for 10 seconds.
+            </p>
+          </div>
+          <nav class="topLinks" aria-label="Navigation">
+            <a class="link" href="../../">All games</a>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="container gameWrap">
+      <section class="gamePanel" aria-label="Game">
+        <div class="row" aria-label="Stats">
+          <div>
+            <div class="meta">Time left</div>
+            <div id="time" class="big">10.0s</div>
+          </div>
+          <div>
+            <div class="meta">Score</div>
+            <div id="score" class="big">0</div>
+          </div>
+        </div>
+
+        <button id="clickBtn" class="btn" type="button">Start</button>
+        <p id="hint" class="meta" style="margin: 0.85rem 0 0">
+          Tip: press space/enter too (keyboard works).
+        </p>
+      </section>
+    </main>
+
+    <script src="./game.js" defer></script>
+  </body>
+</html>
+
