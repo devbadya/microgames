@@ -6,5 +6,13 @@
     "minutes": 5,
     "tags": ["puzzle", "playcanvas", "keyboard"],
     "thumbnail": "./thumbnails/tetris.svg"
+  },
+  {
+    "slug": "sky-hopper",
+    "title": "Sky Hopper",
+    "description": "Tap to flap through glowing gates in a tiny arcade side scroller.",
+    "minutes": 2,
+    "tags": ["arcade", "tap", "mobile"],
+    "thumbnail": "./thumbnails/sky-hopper.svg"
   }
 ]

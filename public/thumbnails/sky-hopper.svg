@@ -1,0 +1,65 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 270"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Sky Hopper preview"
+>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d2237" />
+      <stop offset="58%" stop-color="#0b1020" />
+      <stop offset="100%" stop-color="#0b0714" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.2" cy="0.2" r="0.8">
+      <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.95" cy="0.1" r="0.8">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000" flood-opacity="0.32" />
+    </filter>
+  </defs>
+
+  <rect width="480" height="270" fill="url(#bg)" />
+  <rect width="480" height="270" fill="url(#glowA)" />
+  <rect width="480" height="270" fill="url(#glowB)" />
+
+  <g fill="rgba(255,255,255,0.1)">
+    <circle cx="72" cy="58" r="3" />
+    <circle cx="136" cy="104" r="2" />
+    <circle cx="246" cy="52" r="2.5" />
+    <circle cx="410" cy="78" r="2.5" />
+    <circle cx="334" cy="124" r="2" />
+  </g>
+
+  <g opacity="0.18" fill="#d7e5ff">
+    <rect x="34" y="88" width="92" height="18" rx="9" />
+    <rect x="88" y="132" width="120" height="20" rx="10" />
+    <rect x="284" y="56" width="102" height="18" rx="9" />
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="348" y="-10" width="54" height="104" rx="12" fill="#62dec7" />
+    <rect x="338" y="84" width="74" height="18" rx="9" fill="#8bf6e3" />
+    <rect x="348" y="174" width="54" height="116" rx="12" fill="#62dec7" />
+    <rect x="338" y="164" width="74" height="18" rx="9" fill="#8bf6e3" />
+
+    <rect x="420" y="-22" width="54" height="136" rx="12" fill="#62dec7" opacity="0.65" />
+    <rect x="410" y="104" width="74" height="18" rx="9" fill="#8bf6e3" opacity="0.65" />
+    <rect x="420" y="200" width="54" height="96" rx="12" fill="#62dec7" opacity="0.65" />
+    <rect x="410" y="190" width="74" height="18" rx="9" fill="#8bf6e3" opacity="0.65" />
+  </g>
+
+  <g filter="url(#softShadow)">
+    <circle cx="145" cy="134" r="28" fill="#f6c655" />
+    <ellipse cx="132" cy="144" rx="24" ry="9" fill="#ff8f69" transform="rotate(-16 132 144)" />
+    <path d="M171 126 L205 138 L171 150 Z" fill="#ffdd69" />
+    <circle cx="154" cy="124" r="4" fill="#101827" />
+  </g>
+
+  <rect x="0" y="236" width="480" height="34" fill="rgba(255,255,255,0.055)" />
+</svg>
