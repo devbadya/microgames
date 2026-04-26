@@ -81,6 +81,10 @@
   backdrop-filter: blur(3px);
 }
 
+.overlay[hidden] {
+  display: none;
+}
+
 .overlayInner {
   text-align: center;
   padding: 1.4rem 1.6rem;

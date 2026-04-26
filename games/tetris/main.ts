@@ -351,13 +351,13 @@ function settle(): void {
 
 function endGame(): void {
   gameOver = true;
-  showOverlay("Game over — press R to restart");
+  showOverlay("Game over — press Enter to restart");
   updateHud();
 }
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   const k = e.key;
-  if (k === "r" || k === "R") {
+  if (k === "r" || k === "R" || k === "Enter") {
     newGame();
     e.preventDefault();
     return;
