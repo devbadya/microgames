@@ -1,0 +1,106 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 270"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Rescue Marksman 3D preview"
+>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#101b31" />
+      <stop offset="58%" stop-color="#080d18" />
+      <stop offset="100%" stop-color="#180b24" />
+    </linearGradient>
+    <radialGradient id="cyanGlow" cx="0.22" cy="0.12" r="0.75">
+      <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.30" />
+      <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="redGlow" cx="0.84" cy="0.2" r="0.72">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#fb7185" stop-opacity="0" />
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000" flood-opacity="0.36" />
+    </filter>
+  </defs>
+
+  <rect width="480" height="270" fill="url(#bg)" />
+  <rect width="480" height="270" fill="url(#cyanGlow)" />
+  <rect width="480" height="270" fill="url(#redGlow)" />
+
+  <path d="M44 224 L148 100 L332 100 L436 224 Z" fill="#111827" />
+  <path d="M148 100 L148 52 L332 52 L332 100 Z" fill="#172033" />
+  <path d="M44 224 L44 130 L148 52 L148 100 Z" fill="#0e1726" />
+  <path d="M436 224 L436 130 L332 52 L332 100 Z" fill="#151527" />
+
+  <g fill="rgba(255,255,255,0.08)">
+    <rect x="56" y="78" width="72" height="142" rx="8" />
+    <rect x="144" y="38" width="88" height="188" rx="8" />
+    <rect x="252" y="66" width="76" height="160" rx="8" />
+    <rect x="348" y="48" width="84" height="178" rx="8" />
+  </g>
+
+  <g fill="rgba(110,231,255,0.22)">
+    <rect x="76" y="104" width="18" height="12" rx="3" />
+    <rect x="103" y="104" width="18" height="12" rx="3" />
+    <rect x="166" y="68" width="22" height="14" rx="3" />
+    <rect x="198" y="68" width="22" height="14" rx="3" />
+    <rect x="274" y="92" width="20" height="13" rx="3" />
+    <rect x="382" y="78" width="24" height="14" rx="3" />
+  </g>
+
+  <g stroke="#334155" stroke-width="2" opacity="0.75">
+    <path d="M86 224 L180 100" />
+    <path d="M160 224 L222 100" />
+    <path d="M240 224 L240 100" />
+    <path d="M320 224 L258 100" />
+    <path d="M394 224 L300 100" />
+    <path d="M82 190 H398" />
+    <path d="M114 154 H366" />
+    <path d="M146 118 H334" />
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="94" y="178" width="78" height="38" rx="7" fill="#6b4423" />
+    <rect x="300" y="166" width="88" height="44" rx="8" fill="#26394f" />
+    <rect x="318" y="172" width="28" height="14" rx="4" fill="#6ee7ff" opacity="0.7" />
+  </g>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(138 150)">
+      <rect x="-15" y="-8" width="30" height="44" rx="8" fill="#6ee7ff" />
+      <circle cx="0" cy="-22" r="13" fill="#e7ad83" />
+      <rect x="-6" y="2" width="12" height="12" rx="3" fill="#22c55e" />
+    </g>
+    <g transform="translate(302 144)">
+      <rect x="-17" y="-8" width="34" height="48" rx="8" fill="#fb7185" />
+      <circle cx="0" cy="-24" r="13" fill="#e7ad83" />
+      <rect x="-12" y="-2" width="33" height="7" rx="4" fill="#0b1020" transform="rotate(-18)" />
+    </g>
+    <g transform="translate(356 181)">
+      <rect x="-18" y="-8" width="36" height="50" rx="8" fill="#fb7185" />
+      <circle cx="0" cy="-24" r="14" fill="#e7ad83" />
+      <rect x="-12" y="-1" width="36" height="7" rx="4" fill="#0b1020" transform="rotate(-18)" />
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="226" y="211" width="150" height="16" rx="8" fill="#06080d" transform="rotate(-10 301 219)" />
+    <rect x="290" y="192" width="66" height="27" rx="8" fill="#101827" transform="rotate(-10 323 205)" />
+    <rect x="345" y="190" width="55" height="9" rx="5" fill="#0b1020" transform="rotate(-10 372 195)" />
+  </g>
+
+  <g fill="none" stroke="#d8f6ff" stroke-width="4" stroke-linecap="round" opacity="0.92">
+    <circle cx="240" cy="135" r="82" />
+    <circle cx="240" cy="135" r="5" />
+    <line x1="240" y1="42" x2="240" y2="87" />
+    <line x1="240" y1="183" x2="240" y2="228" />
+    <line x1="147" y1="135" x2="192" y2="135" />
+    <line x1="288" y1="135" x2="333" y2="135" />
+  </g>
+
+  <g fill="#d8f6ff" opacity="0.84" font-family="ui-monospace, monospace" font-size="12">
+    <text x="28" y="242">SHOTS 5   HOSTILES 4   CIVILIANS 2   TIME 75s</text>
+    <text x="28" y="258">3D CITY BIOME · PROTECT BLUE · CLEAR RED</text>
+  </g>
+</svg>

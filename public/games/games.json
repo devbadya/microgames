@@ -30,5 +30,13 @@
     "minutes": 3,
     "tags": ["runner", "swipe", "mobile"],
     "thumbnail": "./thumbnails/metro-rush.svg"
+  },
+  {
+    "slug": "rescue-marksman",
+    "title": "Rescue Marksman",
+    "description": "A 3D sniper rescue mission: scan a city biome, eliminate bad actors, and protect civilians.",
+    "minutes": 4,
+    "tags": ["3d", "sniper", "mobile"],
+    "thumbnail": "./thumbnails/rescue-marksman.svg"
   }
 ]
