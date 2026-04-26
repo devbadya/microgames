@@ -49,22 +49,37 @@ body {
   padding: 4rem 0 1.25rem;
 }
 
-.badge {
+.heroBrand {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid rgba(110, 231, 255, 0.28);
-  background: rgba(110, 231, 255, 0.08);
-  color: #c7f1ff;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  gap: 0.85rem;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.heroLogo {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  filter: drop-shadow(0 12px 28px rgba(110, 231, 255, 0.18));
+  transition: transform 200ms ease;
+}
+
+.heroBrand:hover .heroLogo,
+.heroBrand:focus-visible .heroLogo {
+  transform: translateY(-1px) rotate(-1deg);
+}
+
+.heroBrand:focus-visible {
+  outline: 2px solid rgba(110, 231, 255, 0.6);
+  outline-offset: 4px;
+  border-radius: 14px;
 }
 
 .title {
-  margin: 0.85rem 0 0;
+  margin: 0;
   letter-spacing: -0.025em;
   font-size: clamp(2.2rem, 4.4vw, 3.4rem);
   background: linear-gradient(90deg, #e6edf7 0%, #b6c4d6 60%, #94a4b9 100%);
@@ -288,6 +303,14 @@ body {
 @media (max-width: 600px) {
   .hero {
     padding: 2.6rem 0 1rem;
+  }
+  .heroLogo {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+  }
+  .heroBrand {
+    gap: 0.7rem;
   }
   .subtitle {
     font-size: 0.96rem;
