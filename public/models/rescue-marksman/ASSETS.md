@@ -2,30 +2,6 @@
 
 All downloaded models in this folder are low-poly `GLB` files selected for PlayCanvas browser use.
 
-## Kenney Starter Kit City Builder
-
-Source: https://github.com/KenneyNL/Starter-Kit-City-Builder
-
-License: CC0 / public domain. Kenney states game assets on the asset pages are public domain licensed and attribution is not required: https://kenney.nl/support
-
-Downloaded files:
-
-- `building-small-a.glb`
-- `building-small-b.glb`
-- `building-small-c.glb`
-- `road-intersection.glb`
-- `road-straight-lightposts.glb`
-
-## Kenney Starter Kit Racing
-
-Source: https://github.com/KenneyNL/Starter-Kit-Racing
-
-License: CC0 / public domain.
-
-Downloaded files:
-
-- `vehicle-truck-green.glb`
-
 ## Quaternius Ultimate Monsters
 
 Source: https://quaternius.com/ (Ultimate Monsters pack, distributed via the Quaternius Patreon).

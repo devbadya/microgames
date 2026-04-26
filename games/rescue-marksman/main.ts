@@ -99,14 +99,6 @@ interface Actor {
   motionState: "idle" | "walk" | "hit" | "death";
 }
 
-interface ModelPlacement {
-  file: string;
-  name: string;
-  position: [number, number, number];
-  scale: [number, number, number];
-  rotation?: [number, number, number];
-}
-
 interface MonsterContainerResource extends pc.ContainerResource {
   animations?: pc.Asset[];
 }
@@ -359,21 +351,6 @@ function updateHud(): void {
   setText(timerEl, `${Math.ceil(Math.max(0, missionTime))}s`);
 }
 
-function loadModel(placement: ModelPlacement): void {
-  app.assets.loadFromUrl(`${MODEL_BASE}${placement.file}`, "container", (err: string | null, asset?: pc.Asset) => {
-    if (err || !asset?.resource) {
-      console.warn(`Could not load model ${placement.file}`, err);
-      return;
-    }
-    const entity = (asset as ContainerAsset).resource.instantiateRenderEntity({ castShadows: false });
-    entity.name = placement.name;
-    entity.setPosition(...placement.position);
-    entity.setLocalScale(...placement.scale);
-    if (placement.rotation) entity.setEulerAngles(...placement.rotation);
-    app.root.addChild(entity);
-  });
-}
-
 function createCityBiome(): void {
   makeBox("skyline-backdrop", new pc.Color(0.05, 0.07, 0.12), [46, 16, 0.28], [0, 7.5, -33], 0.72);
   makeBox("street-main", COLORS.street, [22, 0.08, 30], [0, -0.05, -9.5]);
@@ -424,16 +401,6 @@ function createCityBiome(): void {
   makeBox("crate-cover-b", new pc.Color(0.45, 0.28, 0.15), [1.5, 0.75, 1.1], [7.4, 0.38, -10.2]);
   makeBox("tree-trunk", new pc.Color(0.28, 0.17, 0.10), [0.28, 1.3, 0.28], [-10.3, 0.65, -2.6]);
   makeSphere("tree-top", COLORS.foliage, [1.15, 1.15, 1.15], [-10.3, 1.7, -2.6]);
-
-  const placements: ModelPlacement[] = [
-    { file: "building-small-a.glb", name: "kenney-building-a", position: [-11.2, 0, -16.5], scale: [1.35, 1.35, 1.35], rotation: [0, 90, 0] },
-    { file: "building-small-b.glb", name: "kenney-building-b", position: [10.8, 0, -12.0], scale: [1.35, 1.35, 1.35], rotation: [0, -90, 0] },
-    { file: "building-small-c.glb", name: "kenney-building-c", position: [-9.8, 0, -3.8], scale: [1.25, 1.25, 1.25], rotation: [0, 90, 0] },
-    { file: "road-intersection.glb", name: "kenney-road-intersection", position: [0, 0.07, -9.2], scale: [2.2, 2.2, 2.2] },
-    { file: "road-straight-lightposts.glb", name: "kenney-road-lightposts", position: [0, 0.08, -17.5], scale: [2.1, 2.1, 2.1] },
-    { file: "vehicle-truck-green.glb", name: "kenney-truck", position: [4.5, 0.2, -5.8], scale: [1.2, 1.2, 1.2], rotation: [0, -18, 0] },
-  ];
-  for (const placement of placements) loadModel(placement);
 }
 
 function buildProceduralBody(root: pc.Entity, spec: ActorSpec): ProceduralBody {
