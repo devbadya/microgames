@@ -230,6 +230,7 @@ body {
   gap: 1rem;
   color: var(--muted);
   font-size: 0.9rem;
+  flex-wrap: wrap;
 }
 
 .link {
@@ -240,4 +241,22 @@ body {
 
 .link:hover {
   border-bottom-color: rgba(110, 231, 255, 0.6);
+}
+
+@media (max-width: 600px) {
+  .hero {
+    padding: 2.6rem 0 1rem;
+  }
+  .subtitle {
+    font-size: 0.96rem;
+  }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .controls {
+    margin: 1.4rem 0 0.75rem;
+  }
+  .input {
+    padding: 0.85rem 0.95rem;
+  }
 }

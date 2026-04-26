@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#07090f" />
     <title>Tetris — microgames</title>
     <meta name="description" content="Classic Tetris built with the PlayCanvas engine." />
     <link rel="stylesheet" href="../../assets/style.css" />
@@ -48,6 +52,14 @@
       <span><kbd>P</kbd> pause</span>
       <span><kbd>Enter</kbd> restart</span>
     </footer>
+
+    <nav class="touchControls" id="touchControls" aria-label="Game controls">
+      <button type="button" class="touchBtn" data-action="left" aria-label="Move left">←</button>
+      <button type="button" class="touchBtn" data-action="rotate" aria-label="Rotate">↻</button>
+      <button type="button" class="touchBtn" data-action="right" aria-label="Move right">→</button>
+      <button type="button" class="touchBtn" data-action="softdrop" aria-label="Soft drop">↓</button>
+      <button type="button" class="touchBtn touchBtn--accent" data-action="harddrop" aria-label="Hard drop">⤓</button>
+    </nav>
 
     <script type="module" src="./main.ts"></script>
   </body>

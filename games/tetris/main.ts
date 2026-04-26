@@ -355,6 +355,31 @@ function endGame(): void {
   updateHud();
 }
 
+type Action = "left" | "right" | "rotate" | "softdrop" | "harddrop";
+
+function performAction(action: Action): void {
+  if (gameOver || paused) return;
+  switch (action) {
+    case "left":
+      tryMove(-1, 0);
+      break;
+    case "right":
+      tryMove(1, 0);
+      break;
+    case "rotate":
+      tryRotate();
+      break;
+    case "softdrop":
+      softDrop();
+      updateHud();
+      break;
+    case "harddrop":
+      hardDrop();
+      updateHud();
+      break;
+  }
+}
+
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   const k = e.key;
   if (k === "r" || k === "R" || k === "Enter") {
@@ -372,24 +397,79 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   }
   if (paused) return;
   if (k === "ArrowLeft") {
-    tryMove(-1, 0);
+    performAction("left");
     e.preventDefault();
   } else if (k === "ArrowRight") {
-    tryMove(1, 0);
+    performAction("right");
     e.preventDefault();
   } else if (k === "ArrowDown") {
-    softDrop();
-    updateHud();
+    performAction("softdrop");
     e.preventDefault();
   } else if (k === "ArrowUp" || k === "x" || k === "X") {
-    tryRotate();
+    performAction("rotate");
     e.preventDefault();
   } else if (k === " ") {
-    hardDrop();
-    updateHud();
+    performAction("harddrop");
     e.preventDefault();
   }
 });
+
+const REPEATABLE: ReadonlySet<Action> = new Set<Action>(["left", "right", "softdrop"]);
+const REPEAT_DELAY_MS = 220;
+const REPEAT_INTERVAL_MS = 60;
+
+function bindTouchButton(btn: HTMLButtonElement): void {
+  const action = btn.dataset["action"] as Action | undefined;
+  if (!action) return;
+
+  let delayTimer: number | null = null;
+  let repeatTimer: number | null = null;
+
+  const stop = (): void => {
+    if (delayTimer !== null) {
+      window.clearTimeout(delayTimer);
+      delayTimer = null;
+    }
+    if (repeatTimer !== null) {
+      window.clearInterval(repeatTimer);
+      repeatTimer = null;
+    }
+    btn.classList.remove("is-active");
+  };
+
+  btn.addEventListener("pointerdown", (e: PointerEvent) => {
+    e.preventDefault();
+    btn.setPointerCapture(e.pointerId);
+    btn.classList.add("is-active");
+    performAction(action);
+    if (REPEATABLE.has(action)) {
+      delayTimer = window.setTimeout(() => {
+        repeatTimer = window.setInterval(() => performAction(action), REPEAT_INTERVAL_MS);
+      }, REPEAT_DELAY_MS);
+    }
+  });
+
+  for (const ev of ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"]) {
+    btn.addEventListener(ev, stop);
+  }
+
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+const touchControlsEl = document.getElementById("touchControls");
+if (touchControlsEl) {
+  for (const btn of touchControlsEl.querySelectorAll<HTMLButtonElement>("button[data-action]")) {
+    bindTouchButton(btn);
+  }
+}
+
+document.addEventListener(
+  "gesturestart",
+  (e) => {
+    e.preventDefault();
+  },
+  { passive: false },
+);
 
 function renderBoard(): void {
   const ghostPos = canPlace(board, piece.shape, piece.x, piece.y)
