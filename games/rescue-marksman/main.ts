@@ -4,6 +4,7 @@ const SHOTS_PER_LEVEL = 5;
 const LEVEL_COUNT = 10;
 const TARGET_Z = -13;
 const CAMERA_Z = 8;
+const CAMERA_HEIGHT = 3.8;
 const AIM_LIMIT_X = 6.1;
 const AIM_LIMIT_Y = 2.65;
 const AIM_SENSITIVITY = 0.012;
@@ -19,6 +20,8 @@ const COLORS = {
   neutralized: new pc.Color(0.16, 0.22, 0.30),
   crosshair: new pc.Color(0.80, 0.95, 1.0),
   miss: new pc.Color(1.0, 0.82, 0.28),
+  rooftop: new pc.Color(0.09, 0.12, 0.19),
+  rifle: new pc.Color(0.06, 0.08, 0.11),
   safe: new pc.Color(0.35, 0.90, 0.65),
 };
 
@@ -84,7 +87,7 @@ camera.addComponent("camera", {
   nearClip: 0.1,
   farClip: 100,
 });
-camera.setPosition(0, 0.2, CAMERA_Z);
+camera.setPosition(0, CAMERA_HEIGHT, CAMERA_Z);
 camera.lookAt(0, 0, TARGET_Z);
 app.root.addChild(camera);
 
@@ -139,6 +142,11 @@ function makeSphere(name: string, color: pc.Color, scale: [number, number, numbe
 
 makeBox("skyline", COLORS.skyline, [15.5, 9.0, 0.18], [0, 0, TARGET_Z - 0.65], 0.72);
 makeBox("roofline", new pc.Color(0.08, 0.12, 0.20), [15.5, 0.24, 0.3], [0, -3.55, TARGET_Z - 0.25], 0.95);
+makeBox("rooftop-ledge", COLORS.rooftop, [11.5, 0.36, 1.35], [0, 1.55, 4.35], 0.96);
+makeBox("rooftop-front", new pc.Color(0.05, 0.07, 0.11), [11.5, 0.22, 0.28], [0, 1.34, 3.73], 0.98);
+makeBox("rifle-barrel", COLORS.rifle, [0.13, 0.13, 2.55], [1.55, 2.47, 5.35], 0.96);
+makeBox("rifle-scope", new pc.Color(0.10, 0.14, 0.19), [0.42, 0.30, 0.48], [1.24, 2.64, 5.95], 0.96);
+makeBox("rifle-stock", COLORS.rifle, [0.52, 0.22, 0.72], [1.86, 2.30, 6.28], 0.92);
 
 for (let i = 0; i < 36; i++) {
   const col = i % 9;
@@ -171,7 +179,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function updateCameraAim(): void {
-  camera.setPosition(aimX * 0.08, 0.2 + aimY * 0.08, CAMERA_Z);
+  camera.setPosition(aimX * 0.08, CAMERA_HEIGHT + aimY * 0.08, CAMERA_Z);
   camera.lookAt(aimX, aimY, TARGET_Z);
 }
 
@@ -234,7 +242,7 @@ function loadLevel(index: number): void {
     targets.push(createTarget(spec));
   }
   updateHud();
-  showOverlay(`Level ${levelIndex + 1}: drag the scope to aim. Tap/Space to fire.`);
+  showOverlay(`Level ${levelIndex + 1}: rooftop overwatch. Stop red threats, protect blue civilians.`);
 }
 
 function showImpact(x: number, y: number, color: pc.Color): void {

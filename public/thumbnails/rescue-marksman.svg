@@ -62,6 +62,13 @@
     </g>
   </g>
 
+  <g filter="url(#shadow)">
+    <rect x="0" y="222" width="480" height="48" fill="#101827" opacity="0.92" />
+    <rect x="0" y="214" width="480" height="14" rx="4" fill="#1f2937" />
+    <rect x="292" y="218" width="118" height="12" rx="6" fill="#06080d" transform="rotate(-5 351 224)" />
+    <rect x="324" y="204" width="52" height="18" rx="6" fill="#111827" transform="rotate(-5 350 213)" />
+  </g>
+
   <g fill="none" stroke="#d8f6ff" stroke-width="4" stroke-linecap="round" opacity="0.88">
     <circle cx="240" cy="135" r="92" />
     <circle cx="240" cy="135" r="5" />
