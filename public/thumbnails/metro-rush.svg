@@ -48,8 +48,12 @@
 
   <g filter="url(#shadow)">
     <rect x="130" y="137" width="56" height="42" rx="8" fill="#ff637d" />
-    <rect x="294" y="118" width="54" height="82" rx="9" fill="#ff637d" />
-    <rect x="301" y="148" width="40" height="8" rx="4" fill="#6ee7ff" opacity="0.8" />
+    <rect x="292" y="92" width="64" height="112" rx="10" fill="#223852" />
+    <rect x="302" y="108" width="44" height="22" rx="5" fill="#8be9ff" opacity="0.88" />
+    <circle cx="309" cy="188" r="6" fill="#6ee7ff" />
+    <circle cx="339" cy="188" r="6" fill="#6ee7ff" />
+    <rect x="82" y="102" width="30" height="38" rx="6" fill="#52f0bd" />
+    <rect x="72" y="119" width="50" height="8" rx="4" fill="#8be9ff" opacity="0.8" />
   </g>
 
   <g fill="#facc15" filter="url(#shadow)">

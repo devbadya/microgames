@@ -10,6 +10,8 @@ const MAX_SPEED_MULT = 2.1;
 const GRAVITY = -28;
 const JUMP_VELOCITY = 10.5;
 const SLIDE_TIME = 0.58;
+const BOOST_TIME = 6.5;
+const BOOST_HEIGHT = 2.75;
 
 const COLORS = {
   bg: new pc.Color(0.035, 0.045, 0.085),
@@ -17,15 +19,21 @@ const COLORS = {
   rail: new pc.Color(0.28, 0.42, 0.55),
   lane: new pc.Color(0.14, 0.22, 0.35),
   runner: new pc.Color(0.55, 0.84, 1.0),
-  runnerFace: new pc.Color(0.86, 0.96, 1.0),
+  runnerFace: new pc.Color(0.96, 0.72, 0.54),
+  runnerPants: new pc.Color(0.16, 0.28, 0.82),
+  runnerShoes: new pc.Color(1.0, 0.92, 0.42),
   coin: new pc.Color(1.0, 0.82, 0.28),
   barrier: new pc.Color(1.0, 0.35, 0.45),
   low: new pc.Color(0.70, 0.52, 1.0),
   high: new pc.Color(0.22, 0.88, 0.72),
+  train: new pc.Color(0.16, 0.28, 0.42),
+  trainGlass: new pc.Color(0.55, 0.92, 1.0),
+  boost: new pc.Color(0.42, 0.98, 0.78),
+  flame: new pc.Color(1.0, 0.52, 0.24),
   glow: new pc.Color(0.58, 0.90, 1.0),
 };
 
-type ItemKind = "coin" | "barrier" | "low" | "high";
+type ItemKind = "coin" | "barrier" | "low" | "high" | "train" | "boost";
 type Action = "left" | "right" | "jump" | "slide";
 
 interface Item {
@@ -35,13 +43,27 @@ interface Item {
   active: boolean;
   passed: boolean;
   entity: pc.Entity;
-  aux?: pc.Entity;
+  aux: pc.Entity[];
+}
+
+interface Character {
+  root: pc.Entity;
+  body: pc.Entity;
+  head: pc.Entity;
+  cap: pc.Entity;
+  armL: pc.Entity;
+  armR: pc.Entity;
+  legL: pc.Entity;
+  legR: pc.Entity;
+  pack: pc.Entity;
+  flame: pc.Entity;
 }
 
 const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const scoreEl = document.getElementById("score");
 const coinsEl = document.getElementById("coins");
+const boostEl = document.getElementById("boost");
 const bestEl = document.getElementById("best");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
@@ -113,6 +135,22 @@ function makeBox(
   return entity;
 }
 
+function makeSphere(
+  name: string,
+  color: pc.Color,
+  scale: [number, number, number],
+  position: [number, number, number],
+  opacity = 1,
+): pc.Entity {
+  const entity = new pc.Entity(name);
+  entity.addComponent("render", { type: "sphere" });
+  entity.setLocalScale(...scale);
+  entity.setPosition(...position);
+  entity.render!.material = getMaterial(color, opacity);
+  app.root.addChild(entity);
+  return entity;
+}
+
 function showOverlay(message: string): void {
   if (!overlayEl || !overlayMsg) return;
   overlayMsg.textContent = message;
@@ -147,10 +185,13 @@ let best = getStoredBest();
 let distance = 0;
 let speedMultiplier = 1;
 let spawnCursor = -18;
+let boostTimer = 0;
+let runPhase = 0;
 
 function updateHud(): void {
   if (scoreEl) scoreEl.textContent = String(score);
   if (coinsEl) coinsEl.textContent = String(coins);
+  if (boostEl) boostEl.textContent = boostTimer > 0 ? `${Math.ceil(boostTimer)}s` : "0s";
   if (bestEl) bestEl.textContent = String(best);
 }
 
@@ -169,23 +210,47 @@ for (let i = 0; i < 16; i++) {
   laneMarkers.push(makeBox(`lane-b-${i}`, COLORS.lane, [0.055, 0.035, 1.4], [1.05, 0.05, z], 0.55));
 }
 
-const runner = makeBox("runner", COLORS.runner, [PLAYER_WIDTH, PLAYER_HEIGHT, 0.62], [playerX, playerY, PLAYER_Z]);
-const runnerFace = makeBox("runnerFace", COLORS.runnerFace, [PLAYER_WIDTH * 0.44, PLAYER_HEIGHT * 0.28, 0.08], [playerX, playerY + 0.12, PLAYER_Z + 0.34], 0.88);
+function makeCharacter(): Character {
+  const root = new pc.Entity("runnerRoot");
+  app.root.addChild(root);
+
+  const body = makeBox("runnerBody", COLORS.runner, [0.62, 0.82, 0.38], [0, 0.88, 0]);
+  const head = makeSphere("runnerHead", COLORS.runnerFace, [0.42, 0.42, 0.42], [0, 1.52, 0.02]);
+  const cap = makeBox("runnerCap", COLORS.runnerShoes, [0.50, 0.14, 0.42], [0, 1.78, 0.04]);
+  const armL = makeBox("runnerArmL", COLORS.runnerFace, [0.16, 0.58, 0.18], [-0.45, 0.86, 0]);
+  const armR = makeBox("runnerArmR", COLORS.runnerFace, [0.16, 0.58, 0.18], [0.45, 0.86, 0]);
+  const legL = makeBox("runnerLegL", COLORS.runnerPants, [0.18, 0.62, 0.18], [-0.2, 0.28, 0]);
+  const legR = makeBox("runnerLegR", COLORS.runnerPants, [0.18, 0.62, 0.18], [0.2, 0.28, 0]);
+  const pack = makeBox("boostPack", COLORS.boost, [0.28, 0.56, 0.18], [0, 0.92, -0.32], 0.95);
+  const flame = makeBox("boostFlame", COLORS.flame, [0.20, 0.36, 0.12], [0, 0.35, -0.42], 0.9);
+
+  for (const part of [body, head, cap, armL, armR, legL, legR, pack, flame]) {
+    part.reparent(root);
+  }
+
+  pack.enabled = false;
+  flame.enabled = false;
+  return { root, body, head, cap, armL, armR, legL, legR, pack, flame };
+}
+
+const character = makeCharacter();
 
 const items: Item[] = [];
 
 function createItem(kind: ItemKind, lane: number, z: number): Item {
   const entity = makeBox("item", COLORS.coin, [0.5, 0.5, 0.16], [LANES[lane], 1.05, z]);
-  const item: Item = { kind, lane, z, active: true, passed: false, entity };
+  const item: Item = { kind, lane, z, active: true, passed: false, entity, aux: [] };
   applyItemKind(item, kind);
   return item;
 }
 
 function chooseKind(): ItemKind {
   const r = Math.random();
-  if (r < 0.32) return "coin";
-  if (r < 0.58) return "low";
-  if (r < 0.78) return "high";
+  if (r < 0.34) return "coin";
+  if (r < 0.42) return "boost";
+  if (r < 0.60) return "train";
+  if (r < 0.75) return "low";
+  if (r < 0.90) return "high";
   return "barrier";
 }
 
@@ -194,8 +259,8 @@ function applyItemKind(item: Item, kind: ItemKind): void {
   item.active = true;
   item.passed = false;
   item.entity.enabled = true;
-  item.aux?.destroy();
-  item.aux = undefined;
+  for (const aux of item.aux) aux.destroy();
+  item.aux = [];
 
   if (kind === "coin") {
     item.entity.setLocalScale(0.44, 0.44, 0.12);
@@ -209,11 +274,24 @@ function applyItemKind(item: Item, kind: ItemKind): void {
     item.entity.setLocalScale(1.0, 0.38, 0.62);
     item.entity.setEulerAngles(0, 0, 0);
     item.entity.render!.material = getMaterial(COLORS.high);
+  } else if (kind === "train") {
+    item.entity.setLocalScale(1.46, 1.85, 3.7);
+    item.entity.setEulerAngles(0, 0, 0);
+    item.entity.render!.material = getMaterial(COLORS.train);
+    item.aux.push(makeBox("trainGlass", COLORS.trainGlass, [0.96, 0.42, 0.08], [LANES[item.lane], 1.45, item.z + 1.9], 0.86));
+    item.aux.push(makeBox("trainLightL", COLORS.glow, [0.18, 0.18, 0.08], [LANES[item.lane] - 0.42, 0.54, item.z + 1.92], 0.95));
+    item.aux.push(makeBox("trainLightR", COLORS.glow, [0.18, 0.18, 0.08], [LANES[item.lane] + 0.42, 0.54, item.z + 1.92], 0.95));
+  } else if (kind === "boost") {
+    item.entity.setLocalScale(0.52, 0.70, 0.20);
+    item.entity.setEulerAngles(0, 0, 0);
+    item.entity.render!.material = getMaterial(COLORS.boost);
+    item.aux.push(makeBox("boostWingL", COLORS.glow, [0.38, 0.10, 0.14], [LANES[item.lane] - 0.36, 1.4, item.z], 0.8));
+    item.aux.push(makeBox("boostWingR", COLORS.glow, [0.38, 0.10, 0.14], [LANES[item.lane] + 0.36, 1.4, item.z], 0.8));
   } else {
     item.entity.setLocalScale(1.05, 1.35, 0.7);
     item.entity.setEulerAngles(0, 0, 0);
     item.entity.render!.material = getMaterial(COLORS.barrier);
-    item.aux = makeBox("barrierStripe", COLORS.glow, [0.82, 0.08, 0.74], [LANES[item.lane], 0.95, item.z + 0.01], 0.86);
+    item.aux.push(makeBox("barrierStripe", COLORS.glow, [0.82, 0.08, 0.74], [LANES[item.lane], 0.95, item.z + 0.01], 0.86));
   }
 }
 
@@ -223,9 +301,20 @@ function syncItem(item: Item): void {
   if (item.kind === "coin") y = 1.25;
   if (item.kind === "high") y = 1.55;
   if (item.kind === "barrier") y = 0.72;
+  if (item.kind === "train") y = 0.88;
+  if (item.kind === "boost") y = 1.45 + Math.sin(performance.now() / 220) * 0.08;
   item.entity.setPosition(x, y, item.z);
-  if (item.kind === "coin") item.entity.rotateLocal(0, 220 * app.graphicsDevice.maxPixelRatio * 0.001, 0);
-  if (item.aux) item.aux.setPosition(x, 0.95, item.z + 0.01);
+  if (item.kind === "coin" || item.kind === "boost") item.entity.rotateLocal(0, 2.6, 0);
+  if (item.kind === "train") {
+    item.aux[0]?.setPosition(x, 1.45, item.z + 1.9);
+    item.aux[1]?.setPosition(x - 0.42, 0.54, item.z + 1.92);
+    item.aux[2]?.setPosition(x + 0.42, 0.54, item.z + 1.92);
+  } else if (item.kind === "boost") {
+    item.aux[0]?.setPosition(x - 0.36, y, item.z);
+    item.aux[1]?.setPosition(x + 0.36, y, item.z);
+  } else {
+    item.aux[0]?.setPosition(x, 0.95, item.z + 0.01);
+  }
 }
 
 function recycleItem(item: Item): void {
@@ -264,6 +353,7 @@ function newGame(): void {
   coins = 0;
   distance = 0;
   speedMultiplier = 1;
+  boostTimer = 0;
   running = true;
   gameOver = false;
   resetItems();
@@ -272,12 +362,14 @@ function newGame(): void {
 }
 
 function jump(): void {
+  if (boostTimer > 0) return;
   if (playerY > GROUND_Y + PLAYER_HEIGHT / 2 + 0.05) return;
   playerVelocity = JUMP_VELOCITY;
   slideTimer = 0;
 }
 
 function slide(): void {
+  if (boostTimer > 0) return;
   if (playerY > GROUND_Y + PLAYER_HEIGHT / 2 + 0.1) return;
   slideTimer = SLIDE_TIME;
 }
@@ -304,9 +396,12 @@ function endGame(): void {
 
 function collides(item: Item): boolean {
   if (!item.active) return false;
-  if (Math.abs(item.z - PLAYER_Z) > 0.72) return false;
+  const depth = item.kind === "train" ? 2.1 : 0.72;
+  if (Math.abs(item.z - PLAYER_Z) > depth) return false;
   if (Math.abs(LANES[item.lane] - playerX) > 0.78) return false;
-  if (item.kind === "coin") return true;
+  if (item.kind === "coin" || item.kind === "boost") return true;
+  if (boostTimer > 0) return false;
+  if (item.kind === "train") return true;
   if (item.kind === "low") return playerY < 1.45;
   if (item.kind === "high") return !isSliding();
   return true;
@@ -315,10 +410,17 @@ function collides(item: Item): boolean {
 function updatePlayer(dt: number): void {
   laneIndex = targetLaneIndex;
   playerX += (LANES[targetLaneIndex] - playerX) * Math.min(1, dt * 12);
-  playerVelocity += GRAVITY * dt;
-  playerY += playerVelocity * dt;
+  boostTimer = Math.max(0, boostTimer - dt);
+  if (boostTimer > 0) {
+    playerVelocity = 0;
+    slideTimer = 0;
+    playerY += (BOOST_HEIGHT - playerY) * Math.min(1, dt * 8);
+  } else {
+    playerVelocity += GRAVITY * dt;
+    playerY += playerVelocity * dt;
+  }
   const groundY = GROUND_Y + PLAYER_HEIGHT / 2;
-  if (playerY <= groundY) {
+  if (boostTimer <= 0 && playerY <= groundY) {
     playerY = groundY;
     playerVelocity = 0;
   }
@@ -326,12 +428,27 @@ function updatePlayer(dt: number): void {
 
   const slideScaleY = isSliding() ? PLAYER_HEIGHT * 0.52 : PLAYER_HEIGHT;
   const slideCenterY = GROUND_Y + slideScaleY / 2;
-  runner.setLocalScale(PLAYER_WIDTH, slideScaleY, 0.62);
-  runner.setPosition(playerX, isSliding() ? slideCenterY : playerY, PLAYER_Z);
-  runner.setEulerAngles(0, 0, (playerX - LANES[targetLaneIndex]) * -10);
-  runnerFace.setLocalScale(PLAYER_WIDTH * 0.44, slideScaleY * 0.24, 0.08);
-  runnerFace.setPosition(playerX, (isSliding() ? slideCenterY : playerY) + slideScaleY * 0.12, PLAYER_Z + 0.34);
-  runnerFace.setEulerAngles(0, 0, (playerX - LANES[targetLaneIndex]) * -10);
+  const y = isSliding() ? slideCenterY : playerY;
+  const lean = (playerX - LANES[targetLaneIndex]) * -10;
+  runPhase += dt * (boostTimer > 0 ? 9 : 14);
+  const swing = Math.sin(runPhase) * (boostTimer > 0 ? 8 : 20);
+
+  character.root.setPosition(playerX, isSliding() ? y - 0.18 : y - PLAYER_HEIGHT / 2, PLAYER_Z);
+  character.root.setEulerAngles(0, 0, lean);
+  character.body.setLocalScale(PLAYER_WIDTH * 0.7, slideScaleY * 0.62, 0.38);
+  character.body.setLocalPosition(0, isSliding() ? 0.55 : 0.88, 0);
+  character.head.enabled = !isSliding();
+  character.cap.enabled = !isSliding();
+  character.armL.setEulerAngles(0, 0, swing);
+  character.armR.setEulerAngles(0, 0, -swing);
+  character.legL.setEulerAngles(0, 0, -swing);
+  character.legR.setEulerAngles(0, 0, swing);
+  character.pack.enabled = boostTimer > 0;
+  character.flame.enabled = boostTimer > 0;
+  if (boostTimer > 0) {
+    const flamePulse = 1 + Math.sin(runPhase * 2.5) * 0.22;
+    character.flame.setLocalScale(0.20, 0.36 * flamePulse, 0.12);
+  }
 }
 
 function updateTrack(dt: number, speed: number): void {
@@ -369,6 +486,13 @@ app.on("update", (dt: number) => {
           coins += 1;
           score += 5;
           updateHud();
+        } else if (item.kind === "boost") {
+          item.active = false;
+          item.entity.enabled = false;
+          for (const aux of item.aux) aux.enabled = false;
+          boostTimer = BOOST_TIME;
+          score += 15;
+          updateHud();
         } else {
           endGame();
         }
@@ -378,7 +502,7 @@ app.on("update", (dt: number) => {
     best = Math.max(best, score);
     updateHud();
   } else {
-    runner.rotateLocal(0, Math.sin(performance.now() / 700) * dt * 4, 0);
+    character.root.rotateLocal(0, Math.sin(performance.now() / 700) * dt * 4, 0);
   }
 });
 
