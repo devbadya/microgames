@@ -339,7 +339,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
   if (kind === "spike") {
     obstacle.w = 0.48;
     obstacle.h = 0.56;
-    obstacle.y = GROUND_Y + 0.31;
+    obstacle.y = GROUND_Y + 0.47; // 45° box bottom clears groundTop
     obstacle.entity.setLocalScale(0.58, 0.58, 0.3);
     obstacle.entity.setEulerAngles(0, 0, 45);
     obstacle.entity.render!.material = getMaterial(COLORS.spike);
