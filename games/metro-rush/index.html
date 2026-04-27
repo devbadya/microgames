@@ -6,9 +6,12 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1"
     />
-    <meta name="theme-color" content="#07090f" />
+    <meta name="theme-color" content="#1a3a52" />
     <title>Metro Rush — microgames</title>
-    <meta name="description" content="Dash through three neon lanes, dodge barriers and trains, and grab coins." />
+    <meta
+      name="description"
+      content="Subway Surfers–style endless runner: three lanes, swipe to dodge trains, jump, roll, and collect coins."
+    />
     <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
     <link rel="apple-touch-icon" href="../../icon.svg" />
     <link rel="stylesheet" href="../../assets/style.css" />
@@ -19,7 +22,7 @@
 
     <header class="gameTopbar">
       <a class="link backLink" href="../../">← All games</a>
-      <h1 class="gameTitle">Metro Rush</h1>
+      <h1 class="gameTitle">Metro Rush <span class="gameTagline">Endless run</span></h1>
       <div class="hud" aria-label="Game stats">
         <div class="hudItem">
           <span class="hudLabel">Score</span>
@@ -40,8 +43,11 @@
       <canvas id="app"></canvas>
       <div id="overlay" class="overlay">
         <div class="overlayInner">
-          <p id="overlayMsg" class="overlayMsg">Swipe to start</p>
-          <p class="overlayHint">Swipe between lanes, jump, slide, collect coins, and dodge trains.</p>
+          <p id="overlayMsg" class="overlayMsg">Swipe to run</p>
+          <p class="overlayHint">
+            Swipe <strong>left / right</strong> to change lanes, <strong>up</strong> to jump, <strong>down</strong> to roll under barriers — like
+            Subway Surfers. Dodge trains, grab gold coins, beat your high score.
+          </p>
         </div>
       </div>
     </main>

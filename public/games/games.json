@@ -26,9 +26,9 @@
   {
     "slug": "metro-rush",
     "title": "Metro Rush",
-    "description": "Run across three neon lanes, dodge incoming trains, jump and slide, and collect coins.",
+    "description": "Subway Surfers–style endless run: swipe lanes, jump and roll, collect coins, dodge trains.",
     "minutes": 3,
-    "tags": ["runner", "swipe", "mobile"],
+    "tags": ["runner", "endless", "swipe", "mobile"],
     "thumbnail": "./thumbnails/metro-rush.svg"
   }
 ]

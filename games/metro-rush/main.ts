@@ -5,28 +5,38 @@ const PLAYER_Z = 3.1;
 const GROUND_Y = 0;
 const PLAYER_HEIGHT = 1.18;
 const PLAYER_WIDTH = 0.72;
-const BASE_SPEED = 10.5;
-const MAX_SPEED_MULT = 2.1;
+const BASE_SPEED = 12.0;
+const MAX_SPEED_MULT = 2.35;
+const LANE_SMOOTH = 16;
+const CAM_HEIGHT = 3.45;
+const CAM_DIST = 5.1;
+const LOOK_AHEAD_Z = -22;
 const GRAVITY = -28;
 const JUMP_VELOCITY = 10.5;
 const SLIDE_TIME = 0.58;
 
 const COLORS = {
-  bg: new pc.Color(0.035, 0.045, 0.085),
-  track: new pc.Color(0.075, 0.10, 0.17),
-  rail: new pc.Color(0.28, 0.42, 0.55),
-  lane: new pc.Color(0.14, 0.22, 0.35),
-  runner: new pc.Color(0.55, 0.84, 1.0),
+  bg: new pc.Color(0.12, 0.2, 0.32),
+  track: new pc.Color(0.14, 0.18, 0.22),
+  trackStripe: new pc.Color(0.22, 0.3, 0.38),
+  rail: new pc.Color(0.95, 0.78, 0.2),
+  railDark: new pc.Color(0.55, 0.45, 0.1),
+  lane: new pc.Color(0.55, 0.55, 0.5),
+  wall: new pc.Color(0.2, 0.55, 0.62),
+  wallTop: new pc.Color(0.3, 0.75, 0.7),
+  runner: new pc.Color(0.2, 0.55, 0.95),
   runnerFace: new pc.Color(0.96, 0.72, 0.54),
-  runnerPants: new pc.Color(0.16, 0.28, 0.82),
-  runnerShoes: new pc.Color(1.0, 0.92, 0.42),
-  coin: new pc.Color(1.0, 0.82, 0.28),
-  barrier: new pc.Color(1.0, 0.35, 0.45),
-  low: new pc.Color(0.70, 0.52, 1.0),
-  high: new pc.Color(0.22, 0.88, 0.72),
-  train: new pc.Color(0.16, 0.28, 0.42),
-  trainGlass: new pc.Color(0.55, 0.92, 1.0),
-  glow: new pc.Color(0.58, 0.90, 1.0),
+  runnerPants: new pc.Color(0.12, 0.22, 0.55),
+  runnerShoes: new pc.Color(1.0, 0.5, 0.25),
+  coin: new pc.Color(1.0, 0.88, 0.2),
+  barrier: new pc.Color(0.9, 0.25, 0.32),
+  low: new pc.Color(0.55, 0.4, 0.95),
+  high: new pc.Color(0.15, 0.8, 0.45),
+  train: new pc.Color(0.22, 0.35, 0.5),
+  trainFront: new pc.Color(0.35, 0.45, 0.55),
+  trainGlass: new pc.Color(0.5, 0.85, 1.0),
+  trainStripe: new pc.Color(0.95, 0.75, 0.2),
+  glow: new pc.Color(0.4, 0.95, 0.9),
 };
 
 type ItemKind = "coin" | "barrier" | "low" | "high" | "train";
@@ -73,13 +83,13 @@ app.setCanvasResolution(pc.RESOLUTION_AUTO);
 const camera = new pc.Entity("camera");
 camera.addComponent("camera", {
   projection: pc.PROJECTION_PERSPECTIVE,
-  fov: 58,
+  fov: 64,
   clearColor: COLORS.bg,
   nearClip: 0.1,
   farClip: 100,
 });
-camera.setPosition(0, 5.0, 10.4);
-camera.lookAt(0, 0.75, -9);
+camera.setPosition(0, CAM_HEIGHT, PLAYER_Z + CAM_DIST);
+camera.lookAt(0, 0.9, LOOK_AHEAD_Z);
 app.root.addChild(camera);
 
 function addLight(name: string, color: pc.Color, intensity: number, euler: [number, number, number]): void {
@@ -89,9 +99,10 @@ function addLight(name: string, color: pc.Color, intensity: number, euler: [numb
   app.root.addChild(light);
 }
 
-addLight("keyLight", new pc.Color(1, 1, 1), 1.0, [42, 25, 0]);
-addLight("fillLight", new pc.Color(0.50, 0.65, 1.0), 0.58, [-30, -40, 0]);
-addLight("rimLight", new pc.Color(0.60, 1.0, 0.90), 0.34, [180, 0, 0]);
+addLight("sun", new pc.Color(1, 0.98, 0.92), 0.85, [50, 42, 0]);
+addLight("keyLight", new pc.Color(0.9, 0.95, 1.0), 0.7, [35, 20, 0]);
+addLight("fillLight", new pc.Color(0.45, 0.75, 0.9), 0.45, [-35, -25, 0]);
+addLight("rimLight", new pc.Color(0.4, 1.0, 0.85), 0.28, [160, 0, 0]);
 
 const materials = new Map<string, pc.StandardMaterial>();
 
@@ -186,19 +197,40 @@ function updateHud(): void {
   if (bestEl) bestEl.textContent = String(best);
 }
 
-const trackTiles: pc.Entity[] = [];
+const worldScroll: pc.Entity[] = [];
 for (let i = 0; i < 8; i++) {
   const z = -42 + i * 7;
-  trackTiles.push(makeBox(`track-${i}`, COLORS.track, [7.3, 0.16, 6.7], [0, -0.12, z]));
-  makeBox(`rail-l-${i}`, COLORS.rail, [0.08, 0.12, 6.7], [LANES[0] - 1.05, 0.06, z], 0.72);
-  makeBox(`rail-r-${i}`, COLORS.rail, [0.08, 0.12, 6.7], [LANES[2] + 1.05, 0.06, z], 0.72);
+  const deck = makeBox(`track-${i}`, COLORS.track, [7.3, 0.2, 6.7], [0, -0.1, z]);
+  worldScroll.push(
+    deck,
+    makeBox(`track-stripe-${i}`, COLORS.trackStripe, [6.0, 0.04, 6.4], [0, 0.02, z], 0.7),
+    makeBox(`rail-l-${i}`, COLORS.rail, [0.1, 0.14, 6.7], [LANES[0] - 1.12, 0.08, z], 0.98),
+    makeBox(`rail-l-in-${i}`, COLORS.railDark, [0.05, 0.08, 6.5], [LANES[0] - 1.0, 0.08, z], 0.88),
+    makeBox(`rail-r-${i}`, COLORS.rail, [0.1, 0.14, 6.7], [LANES[2] + 1.12, 0.08, z], 0.98),
+    makeBox(`rail-r-in-${i}`, COLORS.railDark, [0.05, 0.08, 6.5], [LANES[2] + 1.0, 0.08, z], 0.88),
+  );
 }
 
 const laneMarkers: pc.Entity[] = [];
 for (let i = 0; i < 16; i++) {
   const z = -45 + i * 3.5;
-  laneMarkers.push(makeBox(`lane-a-${i}`, COLORS.lane, [0.055, 0.035, 1.4], [-1.05, 0.05, z], 0.55));
-  laneMarkers.push(makeBox(`lane-b-${i}`, COLORS.lane, [0.055, 0.035, 1.4], [1.05, 0.05, z], 0.55));
+  laneMarkers.push(
+    makeBox(`lane-a-${i}`, COLORS.lane, [0.08, 0.04, 1.6], [-1.05, 0.06, z], 0.75),
+    makeBox(`lane-b-${i}`, COLORS.lane, [0.08, 0.04, 1.6], [1.05, 0.06, z], 0.75),
+  );
+}
+
+const wallL: pc.Entity[] = [];
+const wallR: pc.Entity[] = [];
+const wallLTop: pc.Entity[] = [];
+const wallRTop: pc.Entity[] = [];
+for (let i = 0; i < 8; i++) {
+  const z = -42 + i * 7;
+  wallL.push(makeBox(`wallL-${i}`, COLORS.wall, [0.5, 2.2, 6.5], [-3.4, 1.0, z]));
+  wallR.push(makeBox(`wallR-${i}`, COLORS.wall, [0.5, 2.2, 6.5], [3.4, 1.0, z]));
+  wallLTop.push(makeBox(`wallL-top-${i}`, COLORS.wallTop, [0.55, 0.16, 6.5], [-3.4, 2.2, z], 0.9));
+  wallRTop.push(makeBox(`wallR-top-${i}`, COLORS.wallTop, [0.55, 0.16, 6.5], [3.4, 2.2, z], 0.9));
+  for (const e of [wallL[i]!, wallR[i]!, wallLTop[i]!, wallRTop[i]!]) worldScroll.push(e);
 }
 
 function makeCharacter(): Character {
@@ -217,6 +249,7 @@ function makeCharacter(): Character {
     part.reparent(root);
   }
 
+  root.setEulerAngles(0, 180, 0);
   return { root, body, head, cap, armL, armR, legL, legR };
 }
 
@@ -233,10 +266,10 @@ function createItem(kind: ItemKind, lane: number, z: number): Item {
 
 function chooseKind(): ItemKind {
   const r = Math.random();
-  if (r < 0.42) return "coin";
-  if (r < 0.60) return "train";
-  if (r < 0.75) return "low";
-  if (r < 0.90) return "high";
+  if (r < 0.34) return "coin";
+  if (r < 0.58) return "train";
+  if (r < 0.72) return "low";
+  if (r < 0.86) return "high";
   return "barrier";
 }
 
@@ -267,6 +300,12 @@ function applyItemKind(item: Item, kind: ItemKind): void {
     item.aux.push(makeBox("trainGlass", COLORS.trainGlass, [0.96, 0.42, 0.08], [LANES[item.lane], 1.45, item.z + 1.9], 0.86));
     item.aux.push(makeBox("trainLightL", COLORS.glow, [0.18, 0.18, 0.08], [LANES[item.lane] - 0.42, 0.54, item.z + 1.92], 0.95));
     item.aux.push(makeBox("trainLightR", COLORS.glow, [0.18, 0.18, 0.08], [LANES[item.lane] + 0.42, 0.54, item.z + 1.92], 0.95));
+    item.aux.push(
+      makeBox("trainNose", COLORS.trainFront, [1.35, 0.5, 0.35], [LANES[item.lane], 0.62, item.z + 1.78], 0.95),
+    );
+    item.aux.push(
+      makeBox("trainStripe", COLORS.trainStripe, [1.4, 0.16, 0.1], [LANES[item.lane], 0.38, item.z + 0.2], 1),
+    );
   } else {
     item.entity.setLocalScale(1.05, 1.35, 0.7);
     item.entity.setEulerAngles(0, 0, 0);
@@ -288,6 +327,8 @@ function syncItem(item: Item): void {
     item.aux[0]?.setPosition(x, 1.45, item.z + 1.9);
     item.aux[1]?.setPosition(x - 0.42, 0.54, item.z + 1.92);
     item.aux[2]?.setPosition(x + 0.42, 0.54, item.z + 1.92);
+    item.aux[3]?.setPosition(x, 0.62, item.z + 1.78);
+    item.aux[4]?.setPosition(x, 0.38, item.z + 0.2);
   } else {
     item.aux[0]?.setPosition(x, 0.95, item.z + 0.01);
   }
@@ -381,7 +422,7 @@ function collides(item: Item): boolean {
 
 function updatePlayer(dt: number): void {
   laneIndex = targetLaneIndex;
-  playerX += (LANES[targetLaneIndex] - playerX) * Math.min(1, dt * 12);
+  playerX += (LANES[targetLaneIndex] - playerX) * Math.min(1, dt * LANE_SMOOTH);
   playerVelocity += GRAVITY * dt;
   playerY += playerVelocity * dt;
   const groundY = GROUND_Y + PLAYER_HEIGHT / 2;
@@ -394,12 +435,13 @@ function updatePlayer(dt: number): void {
   const slideScaleY = isSliding() ? PLAYER_HEIGHT * 0.52 : PLAYER_HEIGHT;
   const slideCenterY = GROUND_Y + slideScaleY / 2;
   const y = isSliding() ? slideCenterY : playerY;
-  const lean = (playerX - LANES[targetLaneIndex]) * -10;
-  runPhase += dt * 14;
-  const swing = Math.sin(runPhase) * 20;
+  const dLane = LANES[targetLaneIndex] - playerX;
+  const strafeBank = dLane * -18;
+  runPhase += dt * 16;
+  const swing = Math.sin(runPhase) * 22;
 
   character.root.setPosition(playerX, isSliding() ? y - 0.18 : y - PLAYER_HEIGHT / 2, PLAYER_Z);
-  character.root.setEulerAngles(0, 0, lean);
+  character.root.setEulerAngles(0, 180, strafeBank);
   character.body.setLocalScale(PLAYER_WIDTH * 0.7, slideScaleY * 0.62, 0.38);
   character.body.setLocalPosition(0, isSliding() ? 0.55 : 0.88, 0);
   character.head.enabled = !isSliding();
@@ -410,19 +452,30 @@ function updatePlayer(dt: number): void {
   character.legR.setEulerAngles(0, 0, swing);
 }
 
+const SCROLL_WRAP = 56;
 function updateTrack(dt: number, speed: number): void {
-  for (const tile of trackTiles) {
-    const p = tile.getPosition();
+  for (const e of worldScroll) {
+    const p = e.getPosition();
     p.z += speed * dt;
-    if (p.z > 7) p.z -= 56;
-    tile.setPosition(p);
+    if (p.z > 7) p.z -= SCROLL_WRAP;
+    e.setPosition(p);
   }
   for (const marker of laneMarkers) {
     const p = marker.getPosition();
     p.z += speed * dt;
-    if (p.z > 7) p.z -= 56;
+    if (p.z > 7) p.z -= SCROLL_WRAP;
     marker.setPosition(p);
   }
+}
+
+function updateCamera(_dt: number, speed: number): void {
+  if (!camera.camera) return;
+  const sway = running && !gameOver ? Math.sin(runPhase * 0.35) * 0.04 : 0;
+  const camX = playerX * 0.32 + sway;
+  const lookX = playerX * 0.42;
+  const bounce = running && !gameOver ? speed * 0.0012 : 0;
+  camera.setPosition(camX, CAM_HEIGHT, PLAYER_Z + CAM_DIST);
+  camera.lookAt(lookX, 0.9 + bounce, LOOK_AHEAD_Z);
 }
 
 app.on("update", (dt: number) => {
@@ -456,6 +509,7 @@ app.on("update", (dt: number) => {
   } else {
     character.root.rotateLocal(0, Math.sin(performance.now() / 700) * dt * 4, 0);
   }
+  updateCamera(dt, speed);
 });
 
 function fitToStage(): void {
