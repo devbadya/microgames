@@ -1,0 +1,30 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 480 270"
+  preserveAspectRatio="xMidYMid slice"
+  role="img"
+  aria-label="Dino Run preview"
+>
+  <defs>
+    <linearGradient id="drBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1828" />
+      <stop offset="100%" stop-color="#070a12" />
+    </linearGradient>
+    <linearGradient id="drGround" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a2840" />
+      <stop offset="100%" stop-color="#121a2a" />
+    </linearGradient>
+  </defs>
+  <rect width="480" height="270" fill="url(#drBg)" />
+  <rect y="200" width="480" height="70" fill="url(#drGround)" />
+  <line x1="0" y1="200" x2="480" y2="200" stroke="rgba(110,231,255,0.2)" stroke-width="2" />
+  <rect x="360" y="165" width="22" height="35" rx="2" fill="#2a9d5e" />
+  <rect x="320" y="158" width="28" height="42" rx="2" fill="#3cb878" />
+  <g fill="#e8c96a">
+    <rect x="88" y="168" width="38" height="32" rx="3" />
+    <rect x="118" y="172" width="12" height="8" rx="1" />
+  </g>
+  <path d="M260 188 L280 175 L300 188 Z" fill="rgba(200,160,255,0.85)" />
+  <circle cx="140" cy="48" r="2" fill="rgba(255,255,255,0.15)" />
+  <circle cx="280" cy="62" r="1.5" fill="rgba(255,255,255,0.1)" />
+</svg>

@@ -1,0 +1,57 @@
+@import "./../sky-hopper/style.css";
+
+#app {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.touchControls {
+  display: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.32);
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.touchBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.95rem 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  transition: background 80ms ease, border-color 80ms ease, transform 80ms ease;
+}
+
+.touchBtn:active,
+.touchBtn.is-active {
+  background: linear-gradient(180deg, rgba(110, 231, 255, 0.22), rgba(167, 139, 250, 0.16));
+  border-color: rgba(110, 231, 255, 0.5);
+  transform: translateY(1px);
+}
+
+.touchBtn--accent {
+  background: linear-gradient(180deg, rgba(110, 231, 255, 0.18), rgba(167, 139, 250, 0.14));
+  border-color: rgba(110, 231, 255, 0.32);
+}
+
+@media (pointer: coarse), (hover: none) {
+  .gameHelp {
+    display: none;
+  }
+  .touchControls {
+    display: grid;
+  }
+}

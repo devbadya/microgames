@@ -1,5 +1,13 @@
 [
   {
+    "slug": "dino-run",
+    "title": "Dino Run",
+    "description": "Jump cacti, duck flyers, and survive as the desert speeds up — inspired by the classic offline dino runner.",
+    "minutes": 3,
+    "tags": ["arcade", "endless", "keyboard"],
+    "thumbnail": "./thumbnails/dino-run.svg"
+  },
+  {
     "slug": "tetris",
     "title": "Tetris",
     "description": "The classic block-stacking puzzle, rebuilt with the PlayCanvas engine.",

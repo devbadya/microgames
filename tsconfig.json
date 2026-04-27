@@ -16,5 +16,5 @@
     "noEmit": true,
     "useDefineForClassFields": true
   },
-  "include": ["assets/**/*.ts", "games/**/*.ts", "vite.config.ts"]
+  "include": ["assets/**/*.ts", "games/**/*.ts", "vite.config.ts", "vitest.config.ts", "e2e/**/*.ts"]
 }

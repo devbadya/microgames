@@ -4,3 +4,6 @@ dist
 *.log
 .vite
 tmp/
+coverage
+test-results
+.playwright

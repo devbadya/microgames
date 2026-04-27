@@ -16,6 +16,7 @@ export default defineConfig({
         notFound: resolve(root, "404.html"),
         skyHopper: resolve(root, "games/sky-hopper/index.html"),
         tetris: resolve(root, "games/tetris/index.html"),
+        dinoRun: resolve(root, "games/dino-run/index.html"),
       },
     },
   },
