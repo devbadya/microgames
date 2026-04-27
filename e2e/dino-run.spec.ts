@@ -21,3 +21,18 @@ test("dino run: start, then score a point or reach game over", async ({ page }) 
   }
   throw new Error("Timed out without score or game-over overlay");
 });
+
+test("dino run: pause, continue, leave link", async ({ page }) => {
+  await page.goto("/games/dino-run/");
+  await page.keyboard.press("Space");
+  await expect(page.locator("#overlay")).toBeHidden({ timeout: 5000 });
+  // Pause immediately so a quick game over does not hide the pause control.
+  await page.keyboard.press("p");
+  await expect(page.locator("#pauseOverlay")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Paused" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Leave" })).toHaveAttribute("href", "../../");
+  await page.locator("#pauseContinue").click();
+  await expect(page.locator("#pauseOverlay")).toBeHidden();
+  await expect(page.locator("#score")).toBeVisible();
+  await expect(page.locator("#pauseBtn")).toBeVisible();
+});

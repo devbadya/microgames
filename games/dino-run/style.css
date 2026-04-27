@@ -5,6 +5,76 @@
   image-rendering: crisp-edges;
 }
 
+.pauseBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+
+.pauseBtn:hover {
+  background: rgba(110, 231, 255, 0.12);
+  border-color: rgba(110, 231, 255, 0.35);
+}
+
+.pauseOverlay {
+  z-index: 2;
+}
+
+.pauseInner {
+  min-width: min(20rem, 90vw);
+}
+
+.pauseActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  align-items: stretch;
+}
+
+.pausePrimary {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(110, 231, 255, 0.45);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(110, 231, 255, 0.22), rgba(167, 139, 250, 0.14));
+  cursor: pointer;
+}
+
+.pausePrimary:hover {
+  border-color: rgba(110, 231, 255, 0.7);
+}
+
+.pauseExit {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.5rem;
+  border-radius: 8px;
+}
+
+.pauseExit:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .touchControls {
   display: none;
   grid-template-columns: 1fr 1fr;

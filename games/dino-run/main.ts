@@ -26,6 +26,9 @@ const scoreEl = document.getElementById("score");
 const bestEl = document.getElementById("best");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
+const pauseBtn = document.getElementById("pauseBtn");
+const pauseOverlay = document.getElementById("pauseOverlay");
+const pauseContinue = document.getElementById("pauseContinue");
 
 if (!canvas || !stage) {
   throw new Error("Dino: missing canvas or stage");
@@ -36,6 +39,7 @@ if (!ctx) throw new Error("Dino: 2D context not available");
 
 let state: DinoState = createDinoState(getStoredBest());
 let jumpQueued = false;
+let paused = false;
 const keys = { ArrowDown: false };
 
 const rng = (): number => Math.random();
@@ -54,15 +58,43 @@ function hideOverlay(): void {
   if (overlayEl) overlayEl.hidden = true;
 }
 
+function syncPauseButton(): void {
+  if (pauseBtn) {
+    pauseBtn.hidden = state.phase !== "running";
+  }
+}
+
+function setPaused(value: boolean): void {
+  paused = value;
+  if (pauseOverlay) pauseOverlay.hidden = !value;
+  if (value) {
+    keys.ArrowDown = false;
+    queueMicrotask(() => pauseContinue?.focus());
+  }
+}
+
+function openPause(): void {
+  if (state.phase !== "running" || paused) return;
+  setPaused(true);
+}
+
+function closePause(): void {
+  if (!paused) return;
+  setPaused(false);
+}
+
 function handleStartOrRestart(): void {
   if (state.phase === "idle" || state.phase === "dead") {
+    setPaused(false);
     state = startRun(state);
     setHud();
     hideOverlay();
+    syncPauseButton();
   }
 }
 
 function onPointerPrimary(): void {
+  if (paused) return;
   if (state.phase === "running") {
     jumpQueued = true;
   } else {
@@ -71,6 +103,18 @@ function onPointerPrimary(): void {
 }
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (paused) {
+    if (e.key === " " || e.key === "Enter" || e.key === "p" || e.key === "P" || e.key === "Escape") {
+      e.preventDefault();
+      closePause();
+    }
+    return;
+  }
+  if ((e.key === "p" || e.key === "P" || e.key === "Escape") && state.phase === "running") {
+    e.preventDefault();
+    openPause();
+    return;
+  }
   if (e.key === " " || e.key === "ArrowUp") {
     e.preventDefault();
     if (state.phase === "running") {
@@ -96,8 +140,23 @@ window.addEventListener("keyup", (e: KeyboardEvent) => {
   }
 });
 
+if (pauseBtn) {
+  pauseBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (state.phase === "running" && !paused) openPause();
+  });
+}
+
+if (pauseContinue) {
+  pauseContinue.addEventListener("click", (e) => {
+    e.preventDefault();
+    closePause();
+  });
+}
+
 stage.addEventListener("pointerdown", (e: PointerEvent) => {
   if (e.target instanceof HTMLButtonElement) return;
+  if (e.target instanceof HTMLAnchorElement) return;
   e.preventDefault();
   onPointerPrimary();
 });
@@ -106,6 +165,7 @@ const touchJump = document.getElementById("touchJump");
 if (touchJump) {
   touchJump.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (paused) return;
     if (state.phase === "running") {
       jumpQueued = true;
     } else {
@@ -118,6 +178,7 @@ const touchDuck = document.getElementById("touchDuck");
 if (touchDuck) {
   touchDuck.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (paused) return;
     keys.ArrowDown = true;
   });
   const endDuck = (): void => {
@@ -336,7 +397,7 @@ function frame(now: number): void {
   const dt = lastT > 0 ? Math.min(0.05, (now - lastT) / 1000) : 0;
   lastT = now;
 
-  if (state.phase === "running") {
+  if (state.phase === "running" && !paused) {
     const prevScore = state.score;
     state = tickDino(
       state,
@@ -349,10 +410,12 @@ function frame(now: number): void {
       scoreEl.textContent = String(Math.floor(state.score));
     }
     if (state.phase === "dead") {
+      setPaused(false);
       storeBest(state.best);
       setHud();
       const pts = Math.floor(state.score);
       showOverlay(pts ? `${pts} pts — Space to restart` : "0 pts — Space to restart");
+      syncPauseButton();
     }
   }
 
@@ -368,5 +431,6 @@ const bestStored = getStoredBest();
 state = { ...state, best: Math.max(state.best, bestStored) };
 setHud();
 showOverlay("Space or tap to start");
+syncPauseButton();
 resize();
 requestAnimationFrame(frame);
