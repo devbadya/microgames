@@ -8,7 +8,7 @@
     />
     <meta name="theme-color" content="#07090f" />
     <title>Metro Rush — microgames</title>
-    <meta name="description" content="Dash through three neon lanes, dodge barriers, and grab coins." />
+    <meta name="description" content="Dash through three neon lanes, dodge barriers and trains, and grab coins." />
     <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
     <link rel="apple-touch-icon" href="../../icon.svg" />
     <link rel="stylesheet" href="../../assets/style.css" />
@@ -30,10 +30,6 @@
           <span id="coins" class="hudValue">0</span>
         </div>
         <div class="hudItem">
-          <span class="hudLabel">Boost</span>
-          <span id="boost" class="hudValue">0s</span>
-        </div>
-        <div class="hudItem">
           <span class="hudLabel">Best</span>
           <span id="best" class="hudValue">0</span>
         </div>
@@ -45,7 +41,7 @@
       <div id="overlay" class="overlay">
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Swipe to start</p>
-          <p class="overlayHint">Swipe lanes, jump, slide, collect Boost Packs, and dodge trains.</p>
+          <p class="overlayHint">Swipe between lanes, jump, slide, collect coins, and dodge trains.</p>
         </div>
       </div>
     </main>
@@ -56,7 +52,6 @@
       <span><kbd>↓</kbd> slide</span>
       <span><kbd>Space</kbd> jump</span>
       <span><kbd>Enter</kbd> restart</span>
-      <span><kbd>Boost Pack</kbd> fly over trains</span>
     </footer>
 
     <script type="module" src="./main.ts"></script>

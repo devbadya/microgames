@@ -26,7 +26,7 @@
   {
     "slug": "metro-rush",
     "title": "Metro Rush",
-    "description": "Run across three neon lanes, dodge incoming trains, grab coins, and collect Boost Packs to fly.",
+    "description": "Run across three neon lanes, dodge incoming trains, jump and slide, and collect coins.",
     "minutes": 3,
     "tags": ["runner", "swipe", "mobile"],
     "thumbnail": "./thumbnails/metro-rush.svg"
