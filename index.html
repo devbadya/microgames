@@ -13,6 +13,75 @@
   <body>
     <div class="bgGlow" aria-hidden="true"></div>
 
+    <button
+      type="button"
+      class="settingsTrigger"
+      id="settingsBtn"
+      aria-expanded="false"
+      aria-controls="settingsPanel"
+    >
+      Settings
+    </button>
+    <div
+      class="settingsBackdrop"
+      id="settingsBackdrop"
+      hidden
+      aria-hidden="true"
+    ></div>
+    <aside class="settingsPanel" id="settingsPanel" hidden aria-labelledby="settingsHeading">
+      <div class="settingsPanelInner">
+        <header class="settingsHeader">
+          <h2 class="settingsTitle" id="settingsHeading">Settings</h2>
+          <button type="button" class="settingsClose" id="settingsClose" aria-label="Close settings">×</button>
+        </header>
+        <div class="settingsBody">
+          <h3 class="settingsSectionTitle">Justiz in Deutschland (overview)</h3>
+          <p>
+            German courts are organized federally: the ordinary system splits into
+            <strong>local and regional courts (Amts- und Landgerichte)</strong>, then higher regional courts
+            (<em>Oberlandesgerichte</em>) and, for civil and criminal review, the
+            <strong>Federal Court of Justice</strong> (<em>Bundesgerichtshof</em>).
+            The <strong>Federal Constitutional Court</strong> (<em>Bundesverfassungsgericht</em>) decides
+            questions of the Basic Law (<em>Grundgesetz</em>).
+          </p>
+          <p>
+            <em>Performance</em> of justice systems is compared internationally with rule-of-law and efficiency
+            indicators. Useful starting points (external, official or widely cited):
+          </p>
+          <ul class="settingsLinks">
+            <li>
+              <a href="https://commission.europa.eu/strategy-and-policy/policies/justice-and-fundamental-rights/upholding-rule-law/eu-justice-scoreboard_en" rel="noopener noreferrer" target="_blank"
+                >EU Justice Scoreboard (European Commission)</a
+              >
+              — annual country comparisons (efficiency, quality, independence of justice).
+            </li>
+            <li>
+              <a href="https://www.coe.int/en/web/cepej" rel="noopener noreferrer" target="_blank"
+                >CEPEJ (Council of Europe)</a
+              >
+              — European Commission for the Efficiency of Justice: statistics and reports.
+            </li>
+            <li>
+              <a href="https://www.bmjv.de" rel="noopener noreferrer" target="_blank"
+                >Bundesministerium der Justiz</a
+              >
+              — federal justice ministry (policy, legislation, services).
+            </li>
+            <li>
+              <a href="https://www.bundesverfassungsgericht.de" rel="noopener noreferrer" target="_blank"
+                >Bundesverfassungsgericht</a
+              >
+              — Germany’s Federal Constitutional Court.
+            </li>
+          </ul>
+          <p class="settingsNote">
+            This page is a general summary for visitors from Germany. It is not legal advice. Figures and
+            rankings change year to year; use the links above for current reports.
+          </p>
+        </div>
+      </div>
+    </aside>
+
     <main class="container">
       <section class="controls" aria-label="Filters">
         <input

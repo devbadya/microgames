@@ -131,4 +131,34 @@ function main(): void {
   })();
 }
 
-document.addEventListener("DOMContentLoaded", main);
+function wireSettingsPanel(): void {
+  const btn = document.getElementById("settingsBtn");
+  const panel = document.getElementById("settingsPanel");
+  const backdrop = document.getElementById("settingsBackdrop");
+  const closeBtn = document.getElementById("settingsClose");
+  if (!btn || !panel || !backdrop || !closeBtn) return;
+
+  const setOpen = (open: boolean): void => {
+    btn.setAttribute("aria-expanded", String(open));
+    panel.hidden = !open;
+    backdrop.hidden = !open;
+    document.body.classList.toggle("settingsOpen", open);
+  };
+
+  btn.addEventListener("click", () => {
+    setOpen(panel.hasAttribute("hidden"));
+  });
+  closeBtn.addEventListener("click", () => setOpen(false));
+  backdrop.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !panel.hidden) {
+      e.preventDefault();
+      setOpen(false);
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  main();
+  wireSettingsPanel();
+});

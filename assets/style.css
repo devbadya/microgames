@@ -29,6 +29,172 @@ body {
   overflow-x: hidden;
 }
 
+body.settingsOpen {
+  overflow: hidden;
+}
+
+.settingsTrigger {
+  position: fixed;
+  top: max(0.85rem, env(safe-area-inset-top));
+  right: max(0.85rem, env(safe-area-inset-right));
+  z-index: 50;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 8px 28px var(--shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settingsTrigger:hover,
+.settingsTrigger:focus-visible {
+  border-color: rgba(110, 231, 255, 0.4);
+  outline: none;
+}
+
+.settingsTrigger[aria-expanded="true"] {
+  border-color: rgba(110, 231, 255, 0.55);
+}
+
+.settingsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.settingsBackdrop[hidden] {
+  display: none;
+}
+
+.settingsPanel {
+  position: fixed;
+  z-index: 70;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(100vw - 0.5rem, 420px);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 50px var(--shadow);
+  overflow: hidden;
+}
+
+.settingsPanel[hidden] {
+  display: none;
+}
+
+.settingsPanelInner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: env(safe-area-inset-top) 0 0 0;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.settingsTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.settingsClose {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settingsClose:hover,
+.settingsClose:focus-visible {
+  border-color: rgba(110, 231, 255, 0.45);
+  outline: none;
+}
+
+.settingsBody {
+  padding: 1rem 1.25rem 1.5rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+}
+
+.settingsBody p {
+  margin: 0 0 0.9rem;
+  line-height: 1.55;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.settingsBody p:last-of-type {
+  margin-bottom: 0;
+}
+
+.settingsSectionTitle {
+  margin: 0 0 0.6rem;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+.settingsLinks {
+  margin: 0.5rem 0 1rem;
+  padding: 0 0 0 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.settingsLinks a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(110, 231, 255, 0.3);
+}
+
+.settingsLinks a:hover,
+.settingsLinks a:focus-visible {
+  border-bottom-color: rgba(110, 231, 255, 0.7);
+  outline: none;
+}
+
+.settingsNote {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem !important;
+}
+
 .bgGlow {
   position: fixed;
   inset: 0;
