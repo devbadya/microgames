@@ -131,18 +131,37 @@ function main(): void {
   })();
 }
 
+const LEGAL_LABEL_SHOW = "Show Germany & EU justice overview";
+const LEGAL_LABEL_HIDE = "Hide Germany & EU justice overview";
+
+function setLegalDisclosureExpanded(expand: boolean, toggle: HTMLButtonElement, content: HTMLElement, label: HTMLElement | null): void {
+  content.hidden = !expand;
+  toggle.setAttribute("aria-expanded", String(expand));
+  if (label) label.textContent = expand ? LEGAL_LABEL_HIDE : LEGAL_LABEL_SHOW;
+}
+
 function wireSettingsPanel(): void {
   const btn = document.getElementById("settingsBtn");
   const panel = document.getElementById("settingsPanel");
   const backdrop = document.getElementById("settingsBackdrop");
   const closeBtn = document.getElementById("settingsClose");
+  const legalToggle = document.getElementById("legalToggle");
+  const legalContent = document.getElementById("legalContent");
+  const legalLabel = document.querySelector<HTMLElement>(".settingsRevealLabel");
   if (!btn || !panel || !backdrop || !closeBtn) return;
+
+  const resetLegal = (): void => {
+    if (legalToggle instanceof HTMLButtonElement && legalContent) {
+      setLegalDisclosureExpanded(false, legalToggle, legalContent, legalLabel);
+    }
+  };
 
   const setOpen = (open: boolean): void => {
     btn.setAttribute("aria-expanded", String(open));
     panel.hidden = !open;
     backdrop.hidden = !open;
     document.body.classList.toggle("settingsOpen", open);
+    if (!open) resetLegal();
   };
 
   btn.addEventListener("click", () => {
@@ -156,6 +175,13 @@ function wireSettingsPanel(): void {
       setOpen(false);
     }
   });
+
+  if (legalToggle instanceof HTMLButtonElement && legalContent) {
+    legalToggle.addEventListener("click", () => {
+      const willExpand = legalContent.hasAttribute("hidden");
+      setLegalDisclosureExpanded(willExpand, legalToggle, legalContent, legalLabel);
+    });
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

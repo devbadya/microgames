@@ -38,19 +38,34 @@ body.settingsOpen {
   top: max(0.85rem, env(safe-area-inset-top));
   right: max(0.85rem, env(safe-area-inset-right));
   z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   appearance: none;
   -webkit-appearance: none;
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0.5rem 1rem;
+  padding: 0.48rem 1rem 0.48rem 0.85rem;
   font: inherit;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
-  box-shadow: 0 8px 28px var(--shadow);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025));
+  box-shadow: 0 4px 24px var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.settingsTriggerIcon {
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.88;
+}
+
+.settingsTriggerText {
+  position: relative;
+  top: 0.02em;
 }
 
 .settingsTrigger:hover,
@@ -81,13 +96,13 @@ body.settingsOpen {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(100vw - 0.5rem, 420px);
+  width: min(100vw - 0.5rem, 400px);
   max-width: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
+  background: linear-gradient(180deg, #0f1622 0%, #0a0e18 100%);
   border-left: 1px solid var(--border);
-  box-shadow: -12px 0 50px var(--shadow);
+  box-shadow: -16px 0 64px rgba(0, 0, 0, 0.55);
   overflow: hidden;
 }
 
@@ -105,18 +120,32 @@ body.settingsOpen {
 
 .settingsHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 1rem 1rem 0.75rem 1.25rem;
+  padding: 1.1rem 1rem 1rem 1.25rem;
   border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
   flex: 0 0 auto;
+}
+
+.settingsHeaderText {
+  min-width: 0;
 }
 
 .settingsTitle {
   margin: 0;
-  font-size: 1.1rem;
-  letter-spacing: -0.02em;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.settingsSubtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .settingsClose {
@@ -142,57 +171,165 @@ body.settingsOpen {
 }
 
 .settingsBody {
-  padding: 1rem 1.25rem 1.5rem;
+  padding: 1.15rem 1.25rem 1.5rem;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   flex: 1 1 auto;
 }
 
-.settingsBody p {
-  margin: 0 0 0.9rem;
-  line-height: 1.55;
-  font-size: 0.92rem;
-  color: var(--text);
+.settingsCard {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem 1.05rem 1.05rem;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.settingsBody p:last-of-type {
-  margin-bottom: 0;
-}
-
-.settingsSectionTitle {
-  margin: 0 0 0.6rem;
-  font-size: 0.88rem;
+.settingsCardTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent);
+  letter-spacing: 0.12em;
+  color: #b8c4d4;
 }
 
-.settingsLinks {
-  margin: 0.5rem 0 1rem;
-  padding: 0 0 0 1.1rem;
-  font-size: 0.9rem;
-  line-height: 1.55;
+.settingsCardLead {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
   color: var(--muted);
 }
 
+.settingsRevealBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.72rem 0.9rem;
+  text-align: left;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(110, 231, 255, 0.1), rgba(110, 231, 255, 0.03));
+  border: 1px solid rgba(110, 231, 255, 0.22);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settingsRevealBtn:hover,
+.settingsRevealBtn:focus-visible {
+  border-color: rgba(110, 231, 255, 0.45);
+  background: linear-gradient(180deg, rgba(110, 231, 255, 0.14), rgba(110, 231, 255, 0.05));
+  outline: none;
+}
+
+.settingsRevealBtn[aria-expanded="true"] {
+  border-color: rgba(110, 231, 255, 0.5);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-bottom: 0;
+}
+
+.settingsRevealLabel {
+  flex: 1;
+  line-height: 1.45;
+}
+
+.settingsRevealChevron {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: #7dd3f8;
+  transition: transform 0.2s ease;
+}
+
+.settingsRevealBtn[aria-expanded="true"] .settingsRevealChevron {
+  transform: rotate(-180deg);
+}
+
+.settingsReveal {
+  margin-top: -1px;
+  border: 1px solid rgba(110, 231, 255, 0.22);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.9rem 0.85rem 1rem;
+}
+
+.settingsReveal[hidden] {
+  display: none;
+}
+
+.settingsProse p {
+  margin: 0 0 0.85rem;
+  line-height: 1.58;
+  font-size: 0.86rem;
+  color: #d0dae8;
+}
+
+.settingsProse p:last-of-type {
+  margin-bottom: 0;
+}
+
+.settingsLinks {
+  margin: 0.6rem 0 0.85rem;
+  padding: 0 0 0 1.05rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #9aa6b8;
+}
+
+.settingsLinks li {
+  margin-bottom: 0.45rem;
+}
+
+.settingsLinks li:last-child {
+  margin-bottom: 0;
+}
+
 .settingsLinks a {
-  color: var(--accent);
+  color: #7ce8ff;
   text-decoration: none;
-  border-bottom: 1px solid rgba(110, 231, 255, 0.3);
+  border-bottom: 1px solid rgba(110, 231, 255, 0.28);
+  font-weight: 500;
 }
 
 .settingsLinks a:hover,
 .settingsLinks a:focus-visible {
-  border-bottom-color: rgba(110, 231, 255, 0.7);
+  border-bottom-color: rgba(110, 231, 255, 0.75);
   outline: none;
 }
 
-.settingsNote {
-  font-size: 0.85rem;
-  color: var(--muted);
-  padding: 0.75rem 0 0;
+.settingsProse .settingsDisclaimer {
+  margin: 0.75rem 0 0;
+  padding-top: 0.75rem;
   border-top: 1px solid var(--border);
-  margin-top: 0.5rem !important;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #7a8699;
+  font-style: italic;
+}
+
+@media (max-width: 380px) {
+  .settingsTriggerText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .settingsTrigger {
+    padding: 0.55rem 0.65rem;
+  }
 }
 
 .bgGlow {
