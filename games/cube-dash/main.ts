@@ -5,7 +5,12 @@ const WORLD_WIDTH = 15.5;
 const PLAYER_X = -4.8;
 const PLAYER_SIZE = 0.72;
 const GROUND_Y = -3.05;
+const GROUND_STRIP_TOP = GROUND_Y + 0.03 + 0.0275; // top of thin cyan "line" (groundTop box)
 const PLAYER_GROUND_Y = GROUND_Y + PLAYER_SIZE / 2;
+// Flat isosceles triangle (like reference: slightly taller than wide), thin in Z
+const SPIKE_HALF_W = 0.34;
+const SPIKE_H = 0.86;
+const SPIKE_HALF_DEPTH = 0.045;
 const GRAVITY = -18.0;
 const JUMP_VELOCITY = 9.25;
 const BASE_SPEED = 3.55;
@@ -13,13 +18,15 @@ const MAX_SPEED_MULT = 1.4;
 const LEVEL_LENGTH = 220;
 
 const COLORS = {
-  bg: new pc.Color(0.035, 0.045, 0.085),
-  grid: new pc.Color(0.12, 0.20, 0.32),
-  ground: new pc.Color(0.12, 0.16, 0.25),
-  groundTop: new pc.Color(0.46, 0.89, 0.98),
+  // Reference: dark navy playfield, cyan line, solid salmon spikes
+  bg: new pc.Color(0.102, 0.141, 0.2), // #1A2433
+  grid: new pc.Color(0.14, 0.2, 0.28),
+  ground: new pc.Color(0.08, 0.11, 0.16),
+  groundTop: new pc.Color(0.451, 0.761, 0.82), // #73C2D1
   cube: new pc.Color(0.66, 0.50, 1.0),
   cubeFace: new pc.Color(0.86, 0.78, 1.0),
-  spike: new pc.Color(1.0, 0.38, 0.52),
+  /** Reference spike fill #E87D7D — flat, no stroke */
+  gdSpike: new pc.Color(0.91, 0.49, 0.49),
   block: new pc.Color(0.38, 0.84, 1.0),
   blockFace: new pc.Color(0.67, 0.94, 1.0),
   spark: new pc.Color(0.80, 0.96, 1.0),
@@ -149,6 +156,103 @@ function getMaterial(color: pc.Color, opacity = 1): pc.StandardMaterial {
   return material;
 }
 
+/** Solid flat color (no shading), like the reference 2D triangles */
+function getSpikeMaterial(): pc.StandardMaterial {
+  const key = "spike-unlit-salmon";
+  const existing = materials.get(key);
+  if (existing) return existing;
+  const m = new pc.StandardMaterial();
+  m.diffuse = COLORS.gdSpike;
+  m.useMetalness = true;
+  m.metalness = 0;
+  m.gloss = 0.08;
+  m.useLighting = false;
+  m.update();
+  materials.set(key, m);
+  return m;
+}
+
+function createTrianglePrismMesh(
+  device: pc.GraphicsDevice,
+  halfW: number,
+  height: number,
+  halfDepth: number,
+  zNudge: number,
+): pc.Mesh {
+  // CCW as seen from outside. Base y=0, apex (0, height, *). +Z = toward camera
+  const B = halfW;
+  const H = height;
+  const D = halfDepth;
+
+  const p = (x: number, y: number, z: number) => [x, y, z + zNudge] as const;
+
+  // Six corners: front = +D, back = -D
+  const a = p(-B, 0, D);
+  const b = p(B, 0, D);
+  const c = p(0, H, D);
+  const aB = p(-B, 0, -D);
+  const bB = p(B, 0, -D);
+  const cB = p(0, H, -D);
+
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const idx: number[] = [];
+  const cross3 = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const x = ay * bz - az * by;
+    const y = az * bx - ax * bz;
+    const z = ax * by - ay * bx;
+    const l = Math.sqrt(x * x + y * y + z * z) || 1;
+    return [x / l, y / l, z / l];
+  };
+  const addFace = (v0: readonly [number, number, number], v1: readonly [number, number, number], v2: readonly [number, number, number]) => {
+    const e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+    const e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+    const n = cross3(e1[0]!, e1[1]!, e1[2]!, e2[0]!, e2[1]!, e2[2]!);
+    const start = pos.length / 3;
+    for (const v of [v0, v1, v2]) {
+      pos.push(v[0], v[1], v[2]);
+      nrm.push(n[0], n[1], n[2]);
+    }
+    idx.push(start, start + 1, start + 2);
+  };
+  // Front (outward +Z)
+  addFace(c, b, a);
+  // Back (outward −Z)
+  addFace(cB, aB, bB);
+  // Left quadrilateral (outward −X)
+  addFace(c, a, aB);
+  addFace(c, aB, cB);
+  // Right quadrilateral (outward +X)
+  addFace(c, bB, b);
+  addFace(c, bB, cB);
+  // Bottom y=0 (outward is −Y), CCW as seen from +Y
+  addFace(a, b, bB);
+  addFace(a, bB, aB);
+
+  const g = new pc.Geometry();
+  g.positions = pos;
+  g.normals = nrm;
+  g.indices = idx;
+  return pc.Mesh.fromGeometry(device, g);
+}
+
+let gdSpikeMesh: pc.Mesh | undefined;
+
+function initGdSpikeMesh(): void {
+  if (gdSpikeMesh) return;
+  gdSpikeMesh = createTrianglePrismMesh(app.graphicsDevice, SPIKE_HALF_W, SPIKE_H, SPIKE_HALF_DEPTH, 0);
+}
+
+function setSpikeRender(obstacle: Obstacle): void {
+  initGdSpikeMesh();
+  const r = obstacle.entity.render!;
+  r.type = "asset";
+  r.meshInstances = [new pc.MeshInstance(gdSpikeMesh!, getSpikeMaterial(), obstacle.entity)];
+  r.castShadows = false;
+  obstacle.entity.setLocalScale(1, 1, 1);
+  obstacle.entity.setEulerAngles(0, 0, 0);
+}
+
 function makeBox(
   name: string,
   color: pc.Color,
@@ -268,8 +372,8 @@ function updateHud(): void {
   if (progressFillEl) progressFillEl.style.width = `${pct}%`;
 }
 
-const bgPanel = makeBox("bgPanel", new pc.Color(0.045, 0.07, 0.13), [WORLD_WIDTH + 3, WORLD_HEIGHT + 2, 0.16], [0, 0, -1.9], 0.72);
-bgPanel.render!.material = getMaterial(new pc.Color(0.045, 0.07, 0.13), 0.72);
+const bgPanel = makeBox("bgPanel", COLORS.bg, [WORLD_WIDTH + 3, WORLD_HEIGHT + 2, 0.16], [0, 0, -1.9], 0.72);
+bgPanel.render!.material = getMaterial(COLORS.bg, 0.72);
 
 const gridLines: pc.Entity[] = [];
 for (let i = 0; i < 16; i++) {
@@ -310,7 +414,7 @@ function createObstacle(kind: ObstacleKind, x: number): Obstacle {
     h: 0.5,
     passed: false,
     used: false,
-    entity: makeBox("obstacle", COLORS.spike, [0.58, 0.58, 0.3], [x, GROUND_Y, 0.1]),
+    entity: makeBox("obstacle", COLORS.gdSpike, [0.58, 0.58, 0.3], [x, GROUND_Y, 0.1]),
   };
   setObstacleKind(obstacle, kind);
   syncObstacle(obstacle);
@@ -337,18 +441,17 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
   obstacle.used = false;
 
   if (kind === "spike") {
-    obstacle.w = 0.48;
-    obstacle.h = 0.56;
-    obstacle.y = GROUND_Y + 0.47; // 45° box bottom clears groundTop
-    obstacle.entity.setLocalScale(0.58, 0.58, 0.3);
-    obstacle.entity.setEulerAngles(0, 0, 45);
-    obstacle.entity.render!.material = getMaterial(COLORS.spike);
+    obstacle.w = 2 * SPIKE_HALF_W;
+    obstacle.h = SPIKE_H;
+    obstacle.y = GROUND_STRIP_TOP + SPIKE_H * 0.5;
+    setSpikeRender(obstacle);
     if (obstacle.face) obstacle.face.enabled = false;
     if (obstacle.glow) obstacle.glow.enabled = false;
   } else if (kind === "block") {
     obstacle.w = 0.68;
     obstacle.h = 0.70;
     obstacle.y = GROUND_Y + 0.37;
+    obstacle.entity.render!.type = "box";
     obstacle.entity.setLocalScale(0.74, 0.74, 0.34);
     obstacle.entity.setEulerAngles(0, 0, 0);
     obstacle.entity.render!.material = getMaterial(COLORS.block);
@@ -360,6 +463,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     obstacle.w = 1.45;
     obstacle.h = 0.22;
     obstacle.y = GROUND_Y + 0.11;
+    obstacle.entity.render!.type = "box";
     obstacle.entity.setLocalScale(1.55, 0.22, 0.38);
     obstacle.entity.setEulerAngles(0, 0, 0);
     obstacle.entity.render!.material = getMaterial(COLORS.pad);
@@ -372,6 +476,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     obstacle.w = 0.85;
     obstacle.h = 0.85;
     obstacle.y = ORB_Y;
+    obstacle.entity.render!.type = "box";
     obstacle.entity.setLocalScale(0.6, 0.6, 0.18);
     obstacle.entity.setEulerAngles(0, 0, 45);
     obstacle.entity.render!.material = getMaterial(COLORS.orb);
@@ -383,7 +488,9 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
 }
 
 function syncObstacle(obstacle: Obstacle): void {
-  obstacle.entity.setPosition(obstacle.x, obstacle.y, obstacle.kind === "orb" ? 0.05 : 0.1);
+  // Spike mesh has local base at y=0; anchor at GROUND_STRIP_TOP so it sits on the cyan line (hitbox still uses obstacle.y as center)
+  const entityY = obstacle.kind === "spike" ? GROUND_STRIP_TOP : obstacle.y;
+  obstacle.entity.setPosition(obstacle.x, entityY, obstacle.kind === "orb" ? 0.05 : 0.1);
   if (obstacle.face?.enabled) {
     if (obstacle.kind === "pad") {
       obstacle.face.setPosition(obstacle.x, obstacle.y + 0.13, 0.18);
