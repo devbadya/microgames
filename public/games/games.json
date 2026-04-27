@@ -14,21 +14,5 @@
     "minutes": 2,
     "tags": ["arcade", "tap", "mobile"],
     "thumbnail": "./thumbnails/sky-hopper.svg"
-  },
-  {
-    "slug": "cube-dash",
-    "title": "Cube Dash",
-    "description": "Jump a rotating neon cube through spikes and blocks in a fast auto-runner.",
-    "minutes": 2,
-    "tags": ["runner", "jump", "mobile"],
-    "thumbnail": "./thumbnails/cube-dash.svg"
-  },
-  {
-    "slug": "metro-rush",
-    "title": "Metro Rush",
-    "description": "Subway Surfers–style endless run: swipe lanes, jump and roll, collect coins, dodge trains.",
-    "minutes": 3,
-    "tags": ["runner", "endless", "swipe", "mobile"],
-    "thumbnail": "./thumbnails/metro-rush.svg"
   }
 ]
