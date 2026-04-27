@@ -12,10 +12,19 @@ const SPIKE_HALF_W = 0.34;
 const SPIKE_H = 0.86;
 const SPIKE_HALF_DEPTH = 0.045;
 const GRAVITY = -18.0;
-const JUMP_VELOCITY = 9.25;
-const BASE_SPEED = 3.55;
-const MAX_SPEED_MULT = 1.4;
+const JUMP_VELOCITY = 8.2;
+const BASE_SPEED = 2.25;
+const MAX_SPEED_MULT = 1.12;
+const SHIP_THRUST = 34;
+const SHIP_GRAVITY = -10;
+const SHIP_ZONE_START = 48;
+const SHIP_ZONE_END = 112;
+const SHIP_Y_MAX = GROUND_Y + 1.85; // ceiling in ship mode
 const LEVEL_LENGTH = 220;
+/** Stereo Madness–like pacing: no speed-up with score (official is fixed tempo). */
+const STEREO_MADNESS_PACE = true;
+/** One full block height, used for step stacks (1:1 with typical GD “unit”). */
+const BLOCK_H = 0.7;
 
 const COLORS = {
   // Reference: dark navy playfield, cyan line, solid salmon spikes
@@ -38,33 +47,76 @@ const COLORS = {
 
 type ObstacleKind = "spike" | "block" | "pad" | "orb";
 type IconShape = "cube" | "diamond" | "orb" | "wide";
+type PlayerForm = "cube" | "ship";
 
 interface PatternStep {
   kind: ObstacleKind;
   gap: number;
+  /** Block stack height: 0 = on the floor, 1+ = ground block under it (stair struts like SM). */
+  blockStep?: number;
 }
 
+// Easier gaps; blue blocks are lethal (hurdles) — not platforms. (Ship: hold to fly, see inShipMode.)
 const LEVEL_PATTERN: PatternStep[] = [
-  { kind: "spike", gap: 5.5 },
-  { kind: "spike", gap: 5.5 },
-  { kind: "spike", gap: 5.5 },
-  { kind: "spike", gap: 4.2 },
-  { kind: "block", gap: 5.5 },
-  { kind: "spike", gap: 5.0 },
-  { kind: "pad", gap: 5.0 },
-  { kind: "orb", gap: 4.6 },
-  { kind: "spike", gap: 5.5 },
-  { kind: "spike", gap: 3.4 },
-  { kind: "spike", gap: 5.5 },
-  { kind: "block", gap: 4.6 },
-  { kind: "spike", gap: 4.6 },
-  { kind: "pad", gap: 5.4 },
-  { kind: "block", gap: 5.0 },
-  { kind: "orb", gap: 4.6 },
-  { kind: "spike", gap: 4.0 },
   { kind: "spike", gap: 3.2 },
   { kind: "spike", gap: 3.2 },
-  { kind: "spike", gap: 5.5 },
+  { kind: "block", gap: 2.4, blockStep: 0 },
+  { kind: "spike", gap: 2.6 },
+  { kind: "block", gap: 2.0, blockStep: 0 },
+  { kind: "spike", gap: 2.8 },
+  { kind: "spike", gap: 2.8 },
+  { kind: "spike", gap: 3.0 },
+  { kind: "block", gap: 2.2, blockStep: 0 },
+  { kind: "spike", gap: 2.2 },
+  { kind: "block", gap: 1.8, blockStep: 0 },
+  { kind: "spike", gap: 2.5 },
+  { kind: "spike", gap: 2.0 },
+  { kind: "spike", gap: 2.0 },
+  { kind: "spike", gap: 2.4 },
+  { kind: "block", gap: 1.6, blockStep: 0 },
+  { kind: "spike", gap: 2.2 },
+  { kind: "spike", gap: 2.2 },
+  { kind: "spike", gap: 2.2 },
+  { kind: "spike", gap: 2.6 },
+  { kind: "block", gap: 1.4, blockStep: 0 },
+  { kind: "block", gap: 1.4, blockStep: 0 },
+  { kind: "spike", gap: 1.6 },
+  { kind: "spike", gap: 1.6 },
+  { kind: "spike", gap: 1.6 },
+  { kind: "spike", gap: 2.8 },
+  { kind: "block", gap: 1.2, blockStep: 0 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 2.6 },
+  { kind: "block", gap: 1.2, blockStep: 0 },
+  { kind: "spike", gap: 1.4 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 2.4 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 2.4 },
+  { kind: "block", gap: 1.2, blockStep: 0 },
+  { kind: "spike", gap: 1.2 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 2.2 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 1.0 },
+  { kind: "spike", gap: 2.4 },
 ];
 
 interface Obstacle {
@@ -73,6 +125,7 @@ interface Obstacle {
   y: number;
   w: number;
   h: number;
+  blockStep: number;
   passed: boolean;
   used: boolean;
   entity: pc.Entity;
@@ -363,6 +416,13 @@ let speedMultiplier = 1;
 let pulse = 0;
 let distance = 0;
 let patternIndex = 0;
+let playerForm: PlayerForm = "cube";
+let shipThrusting = false;
+
+function inShipModeByDistance(): boolean {
+  const c = distance % Math.max(1, LEVEL_LENGTH);
+  return c >= SHIP_ZONE_START && c < SHIP_ZONE_END;
+}
 
 function updateHud(): void {
   if (scoreEl) scoreEl.textContent = String(score);
@@ -412,6 +472,7 @@ function createObstacle(kind: ObstacleKind, x: number): Obstacle {
     y: GROUND_Y,
     w: 0.5,
     h: 0.5,
+    blockStep: 0,
     passed: false,
     used: false,
     entity: makeBox("obstacle", COLORS.gdSpike, [0.58, 0.58, 0.3], [x, GROUND_Y, 0.1]),
@@ -441,6 +502,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
   obstacle.used = false;
 
   if (kind === "spike") {
+    obstacle.blockStep = 0;
     obstacle.w = 2 * SPIKE_HALF_W;
     obstacle.h = SPIKE_H;
     obstacle.y = GROUND_STRIP_TOP + SPIKE_H * 0.5;
@@ -448,9 +510,11 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     if (obstacle.face) obstacle.face.enabled = false;
     if (obstacle.glow) obstacle.glow.enabled = false;
   } else if (kind === "block") {
+    const st = Math.max(0, Math.min(4, Math.floor(obstacle.blockStep)));
+    const bottomY = GROUND_STRIP_TOP + st * BLOCK_H;
     obstacle.w = 0.68;
-    obstacle.h = 0.70;
-    obstacle.y = GROUND_Y + 0.37;
+    obstacle.h = BLOCK_H;
+    obstacle.y = bottomY + BLOCK_H * 0.5;
     obstacle.entity.render!.type = "box";
     obstacle.entity.setLocalScale(0.74, 0.74, 0.34);
     obstacle.entity.setEulerAngles(0, 0, 0);
@@ -460,6 +524,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     face.render!.material = getMaterial(COLORS.blockFace, 0.82);
     if (obstacle.glow) obstacle.glow.enabled = false;
   } else if (kind === "pad") {
+    obstacle.blockStep = 0;
     obstacle.w = 1.45;
     obstacle.h = 0.22;
     obstacle.y = GROUND_Y + 0.11;
@@ -473,6 +538,7 @@ function setObstacleKind(obstacle: Obstacle, kind: ObstacleKind): void {
     face.render!.material = getMaterial(COLORS.padGlow, 0.95);
     if (obstacle.glow) obstacle.glow.enabled = false;
   } else {
+    obstacle.blockStep = 0;
     obstacle.w = 0.85;
     obstacle.h = 0.85;
     obstacle.y = ORB_Y;
@@ -513,6 +579,7 @@ function resetObstacles(): void {
     cursor += step.gap;
     const obstacle = obstacles[i] ?? createObstacle(step.kind, cursor);
     obstacle.x = cursor;
+    obstacle.blockStep = step.blockStep ?? 0;
     setObstacleKind(obstacle, step.kind);
     syncObstacle(obstacle);
     if (!obstacles[i]) obstacles.push(obstacle);
@@ -524,6 +591,7 @@ function recycleObstacle(obstacle: Obstacle): void {
   const step = LEVEL_PATTERN[patternIndex % LEVEL_PATTERN.length]!;
   patternIndex += 1;
   obstacle.x = rightMost + step.gap;
+  obstacle.blockStep = step.blockStep ?? 0;
   setObstacleKind(obstacle, step.kind);
   syncObstacle(obstacle);
 }
@@ -575,7 +643,7 @@ function setIconSettings(next: Partial<IconSettings>): void {
 function syncPlayer(): void {
   const shape = iconSettings.shape;
   const scale = shapeScale(shape);
-  const rotationOffset = shape === "diamond" ? 45 : 0;
+  const rotationOffset = playerForm === "ship" ? 0 : shape === "diamond" ? 45 : 0;
   const rotation = playerRotation + rotationOffset;
   const activePlayer = shape === "orb" ? playerOrb : playerBox;
 
@@ -601,6 +669,8 @@ function newGame(): void {
   playerVelocity = 0;
   playerRotation = 0;
   grounded = true;
+  playerForm = "cube";
+  shipThrusting = false;
   running = true;
   gameOver = false;
   score = 0;
@@ -617,6 +687,7 @@ function rectsOverlapXY(ax: number, ay: number, aw: number, ah: number, bx: numb
 }
 
 function tryOrbJump(): boolean {
+  if (playerForm === "ship") return false;
   for (const obstacle of obstacles) {
     if (obstacle.kind !== "orb" || obstacle.used) continue;
     if (
@@ -645,6 +716,9 @@ function tryOrbJump(): boolean {
 function jump(): void {
   if (!running || gameOver) {
     newGame();
+    return;
+  }
+  if (playerForm === "ship") {
     return;
   }
   if (grounded) {
@@ -680,7 +754,7 @@ function hitsObstacle(obstacle: Obstacle): boolean {
 }
 
 function tryActivatePad(obstacle: Obstacle): void {
-  if (obstacle.kind !== "pad" || obstacle.used) return;
+  if (playerForm === "ship" || obstacle.kind !== "pad" || obstacle.used) return;
   if (
     rectsOverlapXY(
       PLAYER_X,
@@ -711,7 +785,7 @@ function updateBackground(dt: number, speed: number): void {
 }
 
 function updateSparks(dt: number): void {
-  if (running && grounded && !gameOver && Math.random() < 0.8) emitSpark();
+  if (running && grounded && !gameOver && playerForm === "cube" && Math.random() < 0.8) emitSpark();
 
   for (const spark of sparks) {
     if (spark.age >= spark.life) {
@@ -735,19 +809,63 @@ app.on("update", (dt: number) => {
   updateSparks(dt);
 
   if (running && !gameOver) {
-    speedMultiplier = Math.min(MAX_SPEED_MULT, 1 + score * 0.012);
-    distance += speed * dt;
-    playerVelocity += GRAVITY * dt;
-    playerY += playerVelocity * dt;
-
-    if (playerY <= PLAYER_GROUND_Y) {
-      playerY = PLAYER_GROUND_Y;
-      playerVelocity = 0;
-      grounded = true;
-      playerRotation = Math.round(playerRotation / 90) * 90;
+    if (STEREO_MADNESS_PACE) {
+      speedMultiplier = 1;
     } else {
-      grounded = false;
-      playerRotation -= speed * 125 * dt;
+      speedMultiplier = Math.min(MAX_SPEED_MULT, 1 + score * 0.012);
+    }
+    distance += speed * dt;
+
+    const wantShip = inShipModeByDistance();
+    if (wantShip && playerForm === "cube") {
+      playerForm = "ship";
+      if (playerVelocity < 0.15) {
+        playerVelocity = 0.25;
+      }
+    } else if (!wantShip && playerForm === "ship") {
+      playerForm = "cube";
+      shipThrusting = false;
+      if (playerY < PLAYER_GROUND_Y) {
+        playerY = PLAYER_GROUND_Y;
+        if (playerVelocity < 0) {
+          playerVelocity = 0;
+        }
+        grounded = true;
+      }
+    }
+
+    if (playerForm === "ship") {
+      const thrust = shipThrusting ? SHIP_THRUST : 0;
+      playerVelocity += (SHIP_GRAVITY + thrust) * dt;
+      playerY += playerVelocity * dt;
+      if (playerY < PLAYER_GROUND_Y) {
+        playerY = PLAYER_GROUND_Y;
+        if (playerVelocity < 0) {
+          playerVelocity = 0;
+        }
+        grounded = true;
+      } else {
+        grounded = false;
+      }
+      if (playerY > SHIP_Y_MAX) {
+        playerY = SHIP_Y_MAX;
+        if (playerVelocity > 0) {
+          playerVelocity = 0;
+        }
+      }
+      playerRotation = shipThrusting ? 22 : -8 + playerVelocity * 0.5;
+    } else {
+      playerVelocity += GRAVITY * dt;
+      playerY += playerVelocity * dt;
+      if (playerY <= PLAYER_GROUND_Y) {
+        playerY = PLAYER_GROUND_Y;
+        playerVelocity = 0;
+        grounded = true;
+        playerRotation = Math.round(playerRotation / 90) * 90;
+      } else {
+        grounded = false;
+        playerRotation -= speed * 125 * dt;
+      }
     }
 
     for (const obstacle of obstacles) {
@@ -839,13 +957,39 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   if (eventStartedInSettings(e.target)) return;
   if (e.key === " " || e.key === "ArrowUp" || e.key === "Enter") {
     e.preventDefault();
-    jump();
+    if (running && !gameOver && inShipModeByDistance() && (e.key === " " || e.key === "ArrowUp" || e.key === "Enter")) {
+      shipThrusting = true;
+    } else {
+      jump();
+    }
+  }
+});
+
+window.addEventListener("keyup", (e: KeyboardEvent) => {
+  if (e.key === " " || e.key === "ArrowUp" || e.key === "Enter") {
+    shipThrusting = false;
   }
 });
 
 stage.addEventListener("pointerdown", (e: PointerEvent) => {
   e.preventDefault();
+  if (eventStartedInSettings(e.target)) return;
+  if (!running || gameOver) {
+    jump();
+    return;
+  }
+  if (inShipModeByDistance()) {
+    shipThrusting = true;
+    return;
+  }
   jump();
+});
+
+window.addEventListener("pointerup", () => {
+  shipThrusting = false;
+});
+window.addEventListener("pointercancel", () => {
+  shipThrusting = false;
 });
 
 document.addEventListener(
