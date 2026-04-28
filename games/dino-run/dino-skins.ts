@@ -401,6 +401,88 @@ export function getSkinBitmaps(id: DinoSkinId): SkinBitmaps {
   return SKINS[id];
 }
 
+/**
+ * Raster frames cropped from the pack’s Preview.gif (Quaternius Dinosaur Animated Pack),
+ * as `public/games/dino-run/preview-sprites/*.png`.
+ */
+export const PREVIEW_SPRITE_REL = "./preview-sprites/" as const;
+
+export function previewSpriteHref(
+  skin: DinoSkinId,
+  kind: "jump" | "run-0" | "run-1" | "run-2" | "run-3",
+): string {
+  return `${PREVIEW_SPRITE_REL}${skin}-${kind}.png`;
+}
+
+export type LoadedPreviewSprites = Record<
+  DinoSkinId,
+  { readonly runFrames: readonly HTMLImageElement[]; readonly jump: HTMLImageElement }
+>;
+
+let cachedPreviewSprites: LoadedPreviewSprites | null = null;
+let previewSpritesLoad: Promise<boolean> | null = null;
+
+/**
+ * Loads PNG previews (1∶1 crops from Preview.gif per species segment). Falls back silently to
+ * procedural pixel skins if URLs fail (offline / missing asset).
+ */
+export function loadPreviewSprites(): Promise<boolean> {
+  if (cachedPreviewSprites) return Promise.resolve(true);
+  if (previewSpritesLoad) return previewSpritesLoad;
+
+  previewSpritesLoad = (async (): Promise<boolean> => {
+    const loadImg = (src: string): Promise<HTMLImageElement> =>
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(src));
+        img.src = src;
+      });
+
+    const out = {} as LoadedPreviewSprites;
+    try {
+      for (const skin of DINO_SKIN_IDS) {
+        const runFrames = [] as HTMLImageElement[];
+        for (const rk of ["run-0", "run-1", "run-2", "run-3"] as const) {
+          runFrames.push(await loadImg(previewSpriteHref(skin, rk)));
+        }
+        const jump = await loadImg(previewSpriteHref(skin, "jump"));
+        out[skin] = { runFrames, jump };
+      }
+      cachedPreviewSprites = out;
+      return true;
+    } catch {
+      cachedPreviewSprites = null;
+      return false;
+    }
+  })();
+
+  return previewSpritesLoad;
+}
+
+export function previewsSpritesReady(): boolean {
+  return cachedPreviewSprites !== null;
+}
+
+function drawScaledImg(
+  g: CanvasRenderingContext2D,
+  pb: { x: number; y: number; w: number; h: number },
+  img: HTMLImageElement,
+): void {
+  const iw = img.naturalWidth || 32;
+  const ih = img.naturalHeight || 32;
+  const scale = Math.min(pb.w / iw, pb.h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const ox = pb.x + (pb.w - dw) * 0.5;
+  const oy = pb.y + (pb.h - dh);
+  const prevSmooth = g.imageSmoothingEnabled;
+  g.imageSmoothingEnabled = true;
+  g.drawImage(img, ox, oy, dw, dh);
+  g.imageSmoothingEnabled = prevSmooth;
+}
+
 const RUN_FRAME_MS = 52;
 
 function drawBitmapCellsStriped(
@@ -437,6 +519,22 @@ export function drawSkinDino(
   const sprites = SKINS[skin];
   const { body, shade } = SKIN_PAIR[skin];
   const stripePhase = DINO_SKIN_IDS.indexOf(skin) % 2;
+  const preview = cachedPreviewSprites?.[skin];
+
+  if (preview && !isDuck) {
+    let img: HTMLImageElement;
+    if (phase !== "running") {
+      img = preview.runFrames[0];
+    } else if (!grounded) {
+      img = preview.jump;
+    } else {
+      const runIdx =
+        Math.floor((runTime * 1000) / RUN_FRAME_MS) % preview.runFrames.length;
+      img = preview.runFrames[runIdx];
+    }
+    drawScaledImg(g, pb, img);
+    return;
+  }
 
   if (isDuck) {
     const rows = Math.floor((runTime * 1000) / 135) % 2 === 0 ? sprites.duck0 : sprites.duck1;

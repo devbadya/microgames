@@ -20,7 +20,9 @@ import {
   DINO_SKIN_LABELS,
   type DinoSkinId,
   drawSkinDino,
+  loadPreviewSprites,
   loadStoredSkin,
+  previewSpriteHref,
   storeSkin,
 } from "./dino-skins";
 
@@ -103,9 +105,18 @@ function populateSkinCards(): void {
     btn.className = "skinCard";
     btn.setAttribute("data-skin", id);
     btn.setAttribute("aria-label", `${DINO_SKIN_LABELS[id]}, ${DINO_SKIN_BLEND_FILES[id]}`);
-    btn.innerHTML =
-      `<span class="skinCardTitle">${DINO_SKIN_LABELS[id]}</span>` +
-      `<span class="skinCardFile">${DINO_SKIN_BLEND_FILES[id]}</span>`;
+    const thumb = document.createElement("img");
+    thumb.className = "skinCardThumb";
+    thumb.alt = "";
+    thumb.src = previewSpriteHref(id, "run-0");
+    thumb.loading = "lazy";
+    const title = document.createElement("span");
+    title.className = "skinCardTitle";
+    title.textContent = DINO_SKIN_LABELS[id];
+    const file = document.createElement("span");
+    file.className = "skinCardFile";
+    file.textContent = DINO_SKIN_BLEND_FILES[id];
+    btn.append(thumb, title, file);
     btn.addEventListener("click", () => selectSkinUi(id));
     skinGrid.appendChild(btn);
   }
@@ -390,4 +401,5 @@ syncPauseButton();
 syncChangeDinoButton();
 resize();
 (window as Window & { __dinoReady?: boolean }).__dinoReady = true;
+void loadPreviewSprites();
 requestAnimationFrame(frame);
