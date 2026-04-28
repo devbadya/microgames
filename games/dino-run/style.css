@@ -1,5 +1,45 @@
 @import "./../sky-hopper/style.css";
 
+/*
+ * Chrome offline page look: light chrome UI around the classic grey dino canvas.
+ */
+.gameBody.dinoChromeOffline {
+  color-scheme: light;
+  --bg: #f7f7f7;
+  --panel: #ffffff;
+  --text: #202124;
+  --muted: #5f6368;
+  --border: rgba(0, 0, 0, 0.12);
+  --shadow: rgba(60, 64, 67, 0.12);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.dinoChromeGlow {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gameBody.dinoChromeOffline .gameTopbar,
+.gameBody.dinoChromeOffline .gameHelp {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(130%) blur(8px);
+}
+
+.gameBody.dinoChromeOffline .overlay {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.gameBody.dinoChromeOffline .overlayInner {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 16px 48px var(--shadow);
+}
+
+.gameBody.dinoChromeOffline .touchControls {
+  background: rgba(241, 243, 244, 0.96);
+}
+
 #app {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
