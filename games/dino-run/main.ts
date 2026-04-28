@@ -13,6 +13,8 @@ import {
   drawChromeBird,
   drawChromeCactus,
   drawChromeCloud,
+  drawChromeDesertFloor,
+  drawChromeHorizon,
 } from "./chrome-sprites";
 
 const LS_KEY = "microgames.dinoRun.best";
@@ -233,34 +235,6 @@ function drawChromeSky(
   }
 }
 
-/** Pale strip under the horizon (slightly lighter than sky, like the original). */
-function drawChromeGroundFill(
-  g: CanvasRenderingContext2D,
-  CANVAS_W: number,
-  CANVAS_H: number,
-  GROUND_Y: number,
-): void {
-  g.fillStyle = CHROME.groundStripe;
-  g.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
-}
-
-/** Scrolling dashed horizon line (#535353 segments with gaps). */
-function drawChromeHorizon(
-  g: CanvasRenderingContext2D,
-  CANVAS_W: number,
-  GROUND_Y: number,
-  scroll: number,
-): void {
-  const dash = 14;
-  const gap = 10;
-  const cycle = dash + gap;
-  const off = -((scroll * 0.85) % cycle);
-  g.fillStyle = CHROME.horizon;
-  for (let x = off; x < CANVAS_W + cycle; x += cycle) {
-    g.fillRect(x, GROUND_Y - 1, dash, 2);
-  }
-}
-
 function draw(s: DinoState): void {
   const g = ctx;
   if (!g) return;
@@ -270,7 +244,7 @@ function draw(s: DinoState): void {
   g.fillStyle = CHROME.sky;
   g.fillRect(0, 0, CANVAS_W, CANVAS_H);
   drawChromeSky(g, CANVAS_W, GROUND_Y, scroll);
-  drawChromeGroundFill(g, CANVAS_W, CANVAS_H, GROUND_Y);
+  drawChromeDesertFloor(g, CANVAS_W, CANVAS_H, GROUND_Y, scroll);
   drawChromeHorizon(g, CANVAS_W, GROUND_Y, scroll);
 
   for (const o of s.obstacles) {
@@ -278,7 +252,7 @@ function draw(s: DinoState): void {
     if (o.kind === "cactus") {
       drawChromeCactus(g, b);
     } else {
-      drawChromeBird(g, b, scroll);
+      drawChromeBird(g, b, s.runTime, o.id);
     }
   }
 

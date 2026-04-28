@@ -1,104 +1,134 @@
 /**
  * Chrome offline T-Rex aesthetic: monochrome sprites (grid of cells).
- * Coords: y grows downward; each cell maps to `cell` canvas pixels.
  */
 
 export const CHROME = {
   ink: "#535353",
   sky: "#f7f7f7",
-  groundStripe: "#fafafa",
   cloud: "#dcdcdc",
   horizon: "#535353",
 } as const;
 
-/** Rows use '#' for ink, '.' for empty. */
+/** Desert uses the same base color as sky (like Chrome); detail from marks only. */
+
+/** Stand / jump bitmaps: '#' ink, '.' empty — 21×24 cells. */
 const REX_RUN_0: readonly string[] = [
-  "....................",
-  "........########....",
-  ".......##########...",
-  "......###########...",
-  "......#########.....",
-  "......########......",
-  "......#########.....",
-  ".......#######......",
-  "........#####.......",
-  "......####..##......",
-  ".....####...###.....",
-  "....####....####....",
-  "...####.....####....",
-  "..####......####....",
-  ".####.......####....",
-  "####.........####...",
-  "###..........####...",
-  "###..........#####..",
-  "##...........#####..",
-  "#............#####..",
-  ".............#####..",
-  "....#.........###...",
+  ".....................",
+  "...........######....",
+  ".........############",
+  "........#############",
+  ".......##############",
+  "......###############",
+  ".....################",
+  ".....#############...",
+  ".....############....",
+  ".....############....",
+  "....#############....",
+  "...##############....",
+  "..###############....",
+  ".###############.....",
+  "###############......",
+  "##############.......", // tail
+  "#########.###........",
+  "########...###.......",
+  "######.....####......",
+  "#####.......####.....",
+  "####.........###.....",
+  "###...........###....",
+  "##.............###...",
+  "...#............##...",
 ];
 
 const REX_RUN_1: readonly string[] = [
-  "....................",
-  "........########....",
-  ".......##########...",
-  "......###########...",
-  "......#########.....",
-  "......########......",
-  "......#########.....",
-  ".......#######......",
-  "........#####.......",
-  "......####..##......",
-  ".....####...###.....",
-  "....####....####....",
-  "...####.....####....",
-  "..####......####....",
-  ".####.......####....",
-  "####.........####...",
-  "###..........####...",
-  "###..........#####..",
-  "##.......#...#####..",
-  "#.......###..#####..",
-  ".........#....###...",
+  ".....................",
+  "...........######....",
+  ".........############",
+  "........#############",
+  ".......##############",
+  "......###############",
+  ".....################",
+  ".....#############...",
+  ".....############....",
+  ".....############....",
+  "....#############....",
+  "...##############....",
+  "..###############....",
+  ".###############.....",
+  "###############......",
+  "##############.......", // run: other leg
+  "#########.###........",
+  "########...###.......",
+  "######.....####......",
+  "#####.......####.....",
+  "####.........###.....",
+  "##...........###.....",
+  "...#............##...",
+  "......#.........##...",
 ];
 
 const REX_JUMP: readonly string[] = [
-  "....................",
-  "........########....",
-  ".......##########...",
-  "......###########...",
-  "......#########.....",
-  "......########......",
-  "......#########.....",
-  ".......#######......",
-  "........#####.......",
-  "......####..##......",
-  ".....####...###.....",
-  "....####....####....",
-  "...####.....####....",
-  "..####......####....",
-  ".####.......####....",
-  "####.........####...",
-  "###..........####...",
-  "###..........#####..",
-  "##...........#####..",
-  "#............#####..",
-  ".............#####..",
-  "..............###...",
+  ".....................",
+  "...........######....",
+  ".........############",
+  "........#############",
+  ".......##############",
+  "......###############",
+  ".....################",
+  ".....#############...",
+  ".....############....",
+  ".....############....",
+  "....#############....",
+  "...##############....",
+  "..###############....",
+  ".###############.....",
+  "###############......",
+  "##############.......", // jump: legs tucked
+  "#########.###........",
+  "########....##.......",
+  "######.......##......",
+  "#####.........##.....",
+  "####............#....",
+  "###..............##..",
+  "##................##.",
+  "....................."
 ];
 
-const REX_DUCK: readonly string[] = [
-  "..#######################....",
-  "..########################...",
-  "...#######################...",
+const REX_DUCK_0: readonly string[] = [
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
   "....######################..",
-  "....########...###########..",
-  "....########.#..###########.",
-  "...##########....###########",
-  "..##########......##########",
-  ".##########........#########",
-  "###########.........########",
-  "##########..........########",
-  "########.............#######",
+  "...########################.",
+  "...########################.",
+  "...#################.#######",
+  "..###############....#######",
+  ".################...########",
+  "################....########",
+  "###############.....########",
+  "##############.....########.",
+];
+
+const REX_DUCK_1: readonly string[] = [
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "............................",
+  "....######################..",
+  "...########################.",
+  "...########################.",
+  "...#################.#######",
+  "..###############.....######",
+  ".################.....######",
+  "################......######",
+  "###############.......######",
+  "##############........######.",
 ];
 
 function drawBitmapCells(
@@ -113,17 +143,16 @@ function drawBitmapCells(
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r] ?? "";
     for (let c = 0; c < row.length; c++) {
-      const ch = row[c];
-      if (ch === "#") {
+      if (row[c] === "#") {
         g.fillRect(topLeftX + c * cell, topLeftY + r * cell, cell, cell);
       }
     }
   }
 }
 
-/**
- * Draw Chrome-style monochrome T-Rex into the player hit box (bottom-aligned).
- */
+const RUN_CYCLE_MS = 68;
+
+/** Draw T-Rex into hit box, bottom-aligned. */
 export function drawChromeDino(
   g: CanvasRenderingContext2D,
   pb: { x: number; y: number; w: number; h: number },
@@ -135,7 +164,7 @@ export function drawChromeDino(
   const ink = CHROME.ink;
 
   if (isDuck) {
-    const rows = REX_DUCK;
+    const rows = Math.floor((runTime * 1000) / 135) % 2 === 0 ? REX_DUCK_0 : REX_DUCK_1;
     let maxW = 0;
     for (const row of rows) maxW = Math.max(maxW, row.length);
     const maxH = rows.length;
@@ -154,8 +183,9 @@ export function drawChromeDino(
   } else if (!grounded) {
     rows = REX_JUMP;
   } else {
-    rows = Math.floor(runTime / 85) % 2 === 0 ? REX_RUN_0 : REX_RUN_1;
+    rows = Math.floor((runTime * 1000) / RUN_CYCLE_MS) % 2 === 0 ? REX_RUN_0 : REX_RUN_1;
   }
+
   let maxW = 0;
   for (const row of rows) maxW = Math.max(maxW, row.length);
   const maxH = rows.length;
@@ -168,47 +198,123 @@ export function drawChromeDino(
   drawBitmapCells(g, ox, oy, cell, rows, ink);
 }
 
-/** Sparse pterosaur silhouette (triangle body + angular wings). */
+/** Chrome-style sand: same fill as sky + scrolling pebbles and subtle diagonal marks. */
+export function drawChromeDesertFloor(
+  g: CanvasRenderingContext2D,
+  CANVAS_W: number,
+  CANVAS_H: number,
+  GROUND_Y: number,
+  scroll: number,
+): void {
+  g.fillStyle = CHROME.sky;
+  g.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
+
+  const drift = scroll * 1.12;
+  g.fillStyle = CHROME.ink;
+  /* Tiny pebbles — a few parallax-ish layers */
+  const layers = [
+    { count: 90, ys: 0.12, spd: 1.05 },
+    { count: 55, ys: 0.35, spd: 0.92 },
+    { count: 35, ys: 0.58, spd: 0.78 },
+  ] as const;
+  for (const layer of layers) {
+    for (let i = 0; i < layer.count; i++) {
+      const h = CANVAS_H - GROUND_Y;
+      const z = i * 977 + layer.count;
+      let x =
+        (((z * 793) >>> 5) % (CANVAS_W + 80)) - drift * layer.spd + Math.sin(z * 0.01 + layer.ys * 13) * 3;
+      x = ((x % (CANVAS_W + 120)) + (CANVAS_W + 120)) % (CANVAS_W + 120) - 20;
+      const y = GROUND_Y + 12 + ((((z >>> 5) % 1000) / 1000) * (h - 24) * (0.3 + layer.ys));
+      const pw = (((z >>> 9) % 3) === 0 ? 2 : 1);
+      const ph = (((z >>> 11) % 4) === 0 ? 2 : 1);
+      if (x > -8 && x < CANVAS_W + 8 && y < CANVAS_H - 4) {
+        g.fillRect(Math.round(x), Math.round(y), pw, ph);
+      }
+    }
+  }
+
+  /* Light diagonal scratches scrolling with the scene */
+  g.globalAlpha = 0.38;
+  g.strokeStyle = CHROME.horizon;
+  g.lineWidth = 1;
+  const zig = scroll * 0.72;
+  for (let sx = -50; sx < CANVAS_W + 70; sx += 18) {
+    const gx = Math.floor((sx + zig * 31) % 36);
+    const bx = sx + gx * 0.12;
+    const by = GROUND_Y + 22 + (sx % 7) + ((sx * 97) % 11);
+    g.beginPath();
+    g.moveTo(bx, by + 14);
+    g.lineTo(bx + 14, by);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+}
+
+/** Pterosaur: two-wing-frame flap animation. */
 export function drawChromeBird(
   g: CanvasRenderingContext2D,
   b: { x: number; y: number; w: number; h: number },
-  scroll: number,
+  runTime: number,
+  birdId: number,
 ): void {
-  const ink = CHROME.ink;
-  const flap = Math.sin(scroll * 0.02) > 0 ? 1 : -1;
-
-  g.fillStyle = ink;
-  g.fillRect(b.x + b.w * 0.35, b.y + b.h * 0.35, b.w * 0.52, b.h * 0.42);
-
-  g.beginPath();
-  g.moveTo(b.x + b.w * 0.12, b.y + b.h * (0.45 + flap * 0.04));
-  g.lineTo(b.x + b.w * 0.38, b.y + b.h * (0.2 + flap * 0.12));
-  g.lineTo(b.x + b.w * 0.55, b.y + b.h * 0.45);
-  g.closePath();
-  g.fill();
-
-  g.beginPath();
-  g.moveTo(b.x + b.w * 0.55, b.y + b.h * 0.45);
-  g.lineTo(b.x + b.w * 0.88, b.y + b.h * (0.22 + flap * 0.1));
-  g.lineTo(b.x + b.w * 0.92, b.y + b.h * 0.55);
-  g.closePath();
-  g.fill();
-
-  g.fillRect(b.x + b.w * 0.78, b.y + b.h * 0.48, b.w * 0.12, b.h * 0.1);
+  const wing = (Math.floor(runTime * 11 + birdId * 1.873) % 2) as 0 | 1;
+  drawChromeBirdFrame(g, b, wing);
 }
 
-/** Stacked columns + arm segments like the original cactus cluster. */
+function drawChromeBirdFrame(
+  g: CanvasRenderingContext2D,
+  b: { x: number; y: number; w: number; h: number },
+  wing: 0 | 1,
+): void {
+  const ink = CHROME.ink;
+  g.fillStyle = ink;
+
+  const cx = b.x + b.w * 0.42;
+  const cy = b.y + b.h * 0.48;
+  g.fillRect(b.x + b.w * 0.32, b.y + b.h * 0.38, b.w * 0.55, b.h * 0.38);
+
+  if (wing === 0) {
+    /* wings down */
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(b.x + b.w * 0.02, b.y + b.h * 0.95);
+    g.lineTo(b.x + b.w * 0.28, b.y + b.h * 0.58);
+    g.closePath();
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(b.x + b.w * 0.98, b.y + b.h * 0.88);
+    g.lineTo(b.x + b.w * 0.72, b.y + b.h * 0.55);
+    g.closePath();
+    g.fill();
+  } else {
+    /* wings up */
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(b.x + b.w * 0.05, b.y + b.h * 0.18);
+    g.lineTo(b.x + b.w * 0.3, b.y + b.h * 0.42);
+    g.closePath();
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(b.x + b.w * 0.96, b.y + b.h * 0.2);
+    g.lineTo(b.x + b.w * 0.68, b.y + b.h * 0.45);
+    g.closePath();
+    g.fill();
+  }
+
+  g.fillRect(b.x + b.w * 0.78, b.y + b.h * 0.42, Math.max(3, b.w * 0.14), b.h * 0.14);
+}
+
 export function drawChromeCactus(
   g: CanvasRenderingContext2D,
   b: { x: number; y: number; w: number; h: number },
 ): void {
   const ink = CHROME.ink;
   g.fillStyle = ink;
-
   const stemW = Math.max(4, b.w * 0.22);
   const cx = b.x + b.w * 0.5 - stemW * 0.5;
   g.fillRect(cx, b.y, stemW, b.h);
-
   if (b.w > 18) {
     const armH = Math.min(b.h * 0.32, 18);
     const armW = Math.max(5, b.w * 0.28);
@@ -230,4 +336,20 @@ export function drawChromeCloud(
   g.fillRect(x + w * 0.15, y + h * 0.2, w * 0.7, h * 0.45);
   g.fillRect(x + w * 0.35, y, w * 0.45, h * 0.45);
   g.fillRect(x + w * 0.55, y + h * 0.12, u, h * 0.35);
+}
+
+export function drawChromeHorizon(
+  g: CanvasRenderingContext2D,
+  CANVAS_W: number,
+  GROUND_Y: number,
+  scroll: number,
+): void {
+  const dash = 13;
+  const gap = 11;
+  const cycle = dash + gap;
+  const off = -((scroll * 0.88) % cycle);
+  g.fillStyle = CHROME.horizon;
+  for (let x = off; x < CANVAS_W + cycle; x += cycle) {
+    g.fillRect(x, GROUND_Y - 1, dash, 2);
+  }
 }
