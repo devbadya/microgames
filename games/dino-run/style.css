@@ -1,43 +1,37 @@
 @import "./../sky-hopper/style.css";
 
-/*
- * Chrome offline page look: light chrome UI around the classic grey dino canvas.
- */
-.gameBody.dinoChromeOffline {
-  color-scheme: light;
-  --bg: #f7f7f7;
-  --panel: #ffffff;
-  --text: #202124;
-  --muted: #5f6368;
-  --border: rgba(0, 0, 0, 0.12);
-  --shadow: rgba(60, 64, 67, 0.12);
+/* Colorful arcade shell (matches canvas dusk sky). */
+.gameBody.dinoArcadeTheme {
+  color-scheme: dark;
+  --bg: #07090f;
+  --panel: #0f1622;
+  --text: #e6edf7;
+  --muted: #9aa6b8;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: rgba(0, 0, 0, 0.35);
+  --accent: #6ee7ff;
   background: var(--bg);
   color: var(--text);
 }
 
-.dinoChromeGlow {
-  opacity: 0;
-  pointer-events: none;
+.gameBody.dinoArcadeTheme .gameTopbar,
+.gameBody.dinoArcadeTheme .gameHelp {
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: saturate(140%) blur(8px);
 }
 
-.gameBody.dinoChromeOffline .gameTopbar,
-.gameBody.dinoChromeOffline .gameHelp {
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: saturate(130%) blur(8px);
+.gameBody.dinoArcadeTheme .overlay {
+  background: rgba(7, 9, 15, 0.55);
 }
 
-.gameBody.dinoChromeOffline .overlay {
-  background: rgba(255, 255, 255, 0.72);
+.gameBody.dinoArcadeTheme .overlayInner {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  border-color: rgba(110, 231, 255, 0.22);
+  box-shadow: 0 22px 70px var(--shadow);
 }
 
-.gameBody.dinoChromeOffline .overlayInner {
-  background: #fff;
-  border-color: rgba(0, 0, 0, 0.1);
-  box-shadow: 0 16px 48px var(--shadow);
-}
-
-.gameBody.dinoChromeOffline .touchControls {
-  background: rgba(241, 243, 244, 0.96);
+.gameBody.dinoArcadeTheme .touchControls {
+  background: rgba(15, 22, 34, 0.88);
 }
 
 #app {
@@ -96,17 +90,17 @@
   padding: 0.65rem 0.78rem;
   cursor: pointer;
   text-align: left;
-  background: #fafafa;
+  background: rgba(255, 255, 255, 0.04);
   transition: border-color 0.08s ease, background 0.08s ease;
 }
 
 .skinCard:hover {
-  border-color: rgba(0, 0, 0, 0.22);
+  border-color: rgba(110, 231, 255, 0.32);
 }
 
 .skinCard[aria-pressed="true"] {
-  border-color: rgba(83, 83, 83, 0.55);
-  background: rgba(83, 83, 83, 0.06);
+  border-color: rgba(110, 231, 255, 0.55);
+  background: rgba(110, 231, 255, 0.1);
 }
 
 .skinCardTitle {

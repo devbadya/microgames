@@ -2,8 +2,6 @@
  * Pixel dinosaur skins (2D silhouettes). Names match the asset pack .blend files.
  */
 
-import { CHROME } from "./chrome-sprites";
-
 export const DINO_SKIN_IDS = [
   "trex",
   "apatosaurus",
@@ -46,6 +44,16 @@ export const DINO_SKIN_BLEND_FILES: Record<DinoSkinId, string> = {
   stegosaurus: "Stegosaurus.blend",
   triceratops: "Triceratops.blend",
   velociraptor: "Velociraptor.blend",
+};
+
+/** Per-skin arcade colors (two-tone shading on pixel rows). */
+export const SKIN_PAIR: Record<DinoSkinId, { body: string; shade: string }> = {
+  trex: { body: "#f0cf7a", shade: "#c49a42" },
+  apatosaurus: { body: "#8ec7ec", shade: "#4f8fc9" },
+  parasaurolophus: { body: "#dcb3ff", shade: "#9d54d4" },
+  stegosaurus: { body: "#7bdc9f", shade: "#3aa860" },
+  triceratops: { body: "#ffaeb5", shade: "#e56872" },
+  velociraptor: { body: "#5eecda", shade: "#2cae9a" },
 };
 
 export type SkinBitmaps = {
@@ -335,16 +343,19 @@ export function getSkinBitmaps(id: DinoSkinId): SkinBitmaps {
 
 const RUN_CYCLE_MS = 68;
 
-function drawBitmapCells(
+function drawBitmapCellsStriped(
   g: CanvasRenderingContext2D,
   topLeftX: number,
   topLeftY: number,
   cell: number,
   rows: readonly string[],
-  ink: string,
+  stripePhase: number,
+  body: string,
+  shade: string,
 ): void {
-  g.fillStyle = ink;
   for (let r = 0; r < rows.length; r++) {
+    const tint = ((r + stripePhase) & 1) === 0 ? body : shade;
+    g.fillStyle = tint;
     const row = rows[r] ?? "";
     for (let c = 0; c < row.length; c++) {
       if (row[c] === "#") {
@@ -364,7 +375,8 @@ export function drawSkinDino(
   runTime: number,
 ): void {
   const sprites = SKINS[skin];
-  const ink = CHROME.ink;
+  const { body, shade } = SKIN_PAIR[skin];
+  const stripePhase = DINO_SKIN_IDS.indexOf(skin) % 2;
 
   if (isDuck) {
     const rows = Math.floor((runTime * 1000) / 135) % 2 === 0 ? sprites.duck0 : sprites.duck1;
@@ -376,7 +388,7 @@ export function drawSkinDino(
     const drawH = maxH * cell;
     const ox = pb.x + (pb.w - drawW) * 0.5;
     const oy = pb.y + (pb.h - drawH);
-    drawBitmapCells(g, ox, oy, cell, rows, ink);
+    drawBitmapCellsStriped(g, ox, oy, cell, rows, stripePhase, body, shade);
     return;
   }
 
@@ -398,5 +410,5 @@ export function drawSkinDino(
   const ox = pb.x + (pb.w - drawW) * 0.5;
   const oy = pb.y + (pb.h - drawH);
 
-  drawBitmapCells(g, ox, oy, cell, rows, ink);
+  drawBitmapCellsStriped(g, ox, oy, cell, rows, stripePhase, body, shade);
 }

@@ -8,12 +8,11 @@ import {
   type DinoState,
 } from "./dino-logic";
 import {
-  CHROME,
   drawChromeBird,
   drawChromeCactus,
-  drawChromeCloud,
   drawChromeDesertFloor,
   drawChromeHorizon,
+  drawChromeSkyBackdrop,
 } from "./chrome-sprites";
 import {
   DINO_SKIN_BLEND_FILES,
@@ -316,38 +315,13 @@ function syncCanvasLayout(): void {
   c.imageSmoothingEnabled = false;
 }
 
-/** Sky + slow clouds like Chrome’s offline page. */
-function drawChromeSky(
-  g: CanvasRenderingContext2D,
-  CANVAS_W: number,
-  GROUND_Y: number,
-  scroll: number,
-): void {
-  g.fillStyle = CHROME.sky;
-  g.fillRect(0, 0, CANVAS_W, GROUND_Y);
-
-  const seeds = [
-    [40, 28, 84, 22],
-    [220, 44, 72, 18],
-    [420, 32, 90, 26],
-    [640, 48, 68, 20],
-  ] as const;
-  for (let i = 0; i < seeds.length; i++) {
-    const [bx, by, bw, bh] = seeds[i];
-    const sx = ((bx + scroll * (0.05 + i * 0.02)) % (CANVAS_W + bw + 40)) - 20;
-    drawChromeCloud(g, sx, by, bw, bh);
-  }
-}
-
 function draw(s: DinoState): void {
   const g = ctx;
   if (!g) return;
   const { CANVAS_W, CANVAS_H, GROUND_Y } = DESIGN;
   const scroll = s.runTime * s.speed * 0.11;
 
-  g.fillStyle = CHROME.sky;
-  g.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  drawChromeSky(g, CANVAS_W, GROUND_Y, scroll);
+  drawChromeSkyBackdrop(g, CANVAS_W, GROUND_Y, scroll);
   drawChromeDesertFloor(g, CANVAS_W, CANVAS_H, GROUND_Y, scroll);
   drawChromeHorizon(g, CANVAS_W, GROUND_Y, scroll);
 
