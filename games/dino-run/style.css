@@ -67,8 +67,84 @@
   border-color: rgba(110, 231, 255, 0.35);
 }
 
+.setupOverlay {
+  z-index: 3;
+}
+
 .pauseOverlay {
-  z-index: 2;
+  z-index: 4;
+}
+
+.setupInner {
+  max-width: min(36rem, 94vw);
+  text-align: left;
+}
+
+.skinGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0;
+  width: 100%;
+}
+
+.skinCard {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.65rem 0.78rem;
+  cursor: pointer;
+  text-align: left;
+  background: #fafafa;
+  transition: border-color 0.08s ease, background 0.08s ease;
+}
+
+.skinCard:hover {
+  border-color: rgba(0, 0, 0, 0.22);
+}
+
+.skinCard[aria-pressed="true"] {
+  border-color: rgba(83, 83, 83, 0.55);
+  background: rgba(83, 83, 83, 0.06);
+}
+
+.skinCardTitle {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.skinCardFile {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.changeDinoBtn {
+  margin-top: 0.95rem;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0.25rem;
+}
+
+.changeDinoBtn:hover {
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .skinGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pauseInner {

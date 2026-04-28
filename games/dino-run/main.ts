@@ -9,13 +9,21 @@ import {
 } from "./dino-logic";
 import {
   CHROME,
-  drawChromeDino,
   drawChromeBird,
   drawChromeCactus,
   drawChromeCloud,
   drawChromeDesertFloor,
   drawChromeHorizon,
 } from "./chrome-sprites";
+import {
+  DINO_SKIN_BLEND_FILES,
+  DINO_SKIN_IDS,
+  DINO_SKIN_LABELS,
+  type DinoSkinId,
+  drawSkinDino,
+  loadStoredSkin,
+  storeSkin,
+} from "./dino-skins";
 
 const LS_KEY = "microgames.dinoRun.best";
 
@@ -38,6 +46,10 @@ const overlayMsg = document.getElementById("overlayMsg");
 const pauseBtn = document.getElementById("pauseBtn");
 const pauseOverlay = document.getElementById("pauseOverlay");
 const pauseContinue = document.getElementById("pauseContinue");
+const setupOverlay = document.getElementById("setupOverlay");
+const setupContinue = document.getElementById("setupContinue");
+const skinGrid = document.getElementById("skinGrid");
+const changeDinoBtn = document.getElementById("changeDinoBtn");
 
 if (!canvas || !stage) {
   throw new Error("Dino: missing canvas or stage");
@@ -51,6 +63,10 @@ let jumpQueued = false;
 let paused = false;
 const keys = { ArrowDown: false };
 
+/** Setup screen gates the start overlay until Continue is pressed */
+let awaitingSetupDismiss = true;
+let selectedSkin: DinoSkinId = loadStoredSkin();
+
 const rng = (): number => Math.random();
 
 function setHud(): void {
@@ -61,10 +77,71 @@ function setHud(): void {
 function showOverlay(msg: string): void {
   if (overlayMsg) overlayMsg.textContent = msg;
   if (overlayEl) overlayEl.hidden = false;
+  syncChangeDinoButton();
 }
 
 function hideOverlay(): void {
   if (overlayEl) overlayEl.hidden = true;
+  syncChangeDinoButton();
+}
+
+function syncChangeDinoButton(): void {
+  if (!changeDinoBtn) return;
+  const showChange =
+    !awaitingSetupDismiss &&
+    !!(overlayEl && !overlayEl.hidden) &&
+    (state.phase === "idle" || state.phase === "dead") &&
+    !paused;
+  changeDinoBtn.hidden = !showChange;
+}
+
+function populateSkinCards(): void {
+  if (!skinGrid) return;
+  skinGrid.replaceChildren();
+  for (const id of DINO_SKIN_IDS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "skinCard";
+    btn.setAttribute("data-skin", id);
+    btn.setAttribute("aria-label", `${DINO_SKIN_LABELS[id]}, ${DINO_SKIN_BLEND_FILES[id]}`);
+    btn.innerHTML =
+      `<span class="skinCardTitle">${DINO_SKIN_LABELS[id]}</span>` +
+      `<span class="skinCardFile">${DINO_SKIN_BLEND_FILES[id]}</span>`;
+    btn.addEventListener("click", () => selectSkinUi(id));
+    skinGrid.appendChild(btn);
+  }
+  applySkinHighlight();
+}
+
+function selectSkinUi(id: DinoSkinId): void {
+  selectedSkin = id;
+  applySkinHighlight();
+}
+
+function applySkinHighlight(): void {
+  if (!skinGrid) return;
+  for (const el of skinGrid.querySelectorAll<HTMLButtonElement>(".skinCard")) {
+    const id = el.getAttribute("data-skin") as DinoSkinId;
+    el.setAttribute("aria-pressed", id === selectedSkin ? "true" : "false");
+  }
+}
+
+function finishSetupProceedToGame(): void {
+  if (!awaitingSetupDismiss) return;
+  awaitingSetupDismiss = false;
+  storeSkin(selectedSkin);
+  if (setupOverlay) setupOverlay.hidden = true;
+  showOverlay("Space or tap to start");
+  syncChangeDinoButton();
+}
+
+function reopenSkinChooser(): void {
+  if (state.phase === "running") return;
+  awaitingSetupDismiss = true;
+  setPaused(false);
+  if (overlayEl) overlayEl.hidden = true;
+  if (setupOverlay) setupOverlay.hidden = false;
+  applySkinHighlight();
 }
 
 function syncPauseButton(): void {
@@ -93,16 +170,19 @@ function closePause(): void {
 }
 
 function handleStartOrRestart(): void {
+  if (awaitingSetupDismiss) return;
   if (state.phase === "idle" || state.phase === "dead") {
     setPaused(false);
     state = startRun(state);
     setHud();
     hideOverlay();
     syncPauseButton();
+    syncChangeDinoButton();
   }
 }
 
 function onPointerPrimary(): void {
+  if (awaitingSetupDismiss) return;
   if (paused) return;
   if (state.phase === "running") {
     jumpQueued = true;
@@ -112,6 +192,12 @@ function onPointerPrimary(): void {
 }
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (!setupOverlay?.hidden) {
+    if (e.key === " " || e.key === "Enter") e.preventDefault();
+    if (e.key === "Enter") finishSetupProceedToGame();
+    return;
+  }
+
   if (paused) {
     if (e.key === " " || e.key === "Enter" || e.key === "p" || e.key === "P" || e.key === "Escape") {
       e.preventDefault();
@@ -126,6 +212,7 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   }
   if (e.key === " " || e.key === "ArrowUp") {
     e.preventDefault();
+    if (awaitingSetupDismiss) return;
     if (state.phase === "running") {
       jumpQueued = true;
     } else {
@@ -137,6 +224,7 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
     keys.ArrowDown = true;
   }
   if (e.key === "Enter" && (state.phase === "idle" || state.phase === "dead")) {
+    if (awaitingSetupDismiss) return;
     e.preventDefault();
     handleStartOrRestart();
   }
@@ -163,6 +251,20 @@ if (pauseContinue) {
   });
 }
 
+if (setupContinue) {
+  setupContinue.addEventListener("click", (e) => {
+    e.preventDefault();
+    finishSetupProceedToGame();
+  });
+}
+
+if (changeDinoBtn) {
+  changeDinoBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    reopenSkinChooser();
+  });
+}
+
 stage.addEventListener("pointerdown", (e: PointerEvent) => {
   if (e.target instanceof HTMLButtonElement) return;
   if (e.target instanceof HTMLAnchorElement) return;
@@ -174,6 +276,7 @@ const touchJump = document.getElementById("touchJump");
 if (touchJump) {
   touchJump.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (awaitingSetupDismiss) return;
     if (paused) return;
     if (state.phase === "running") {
       jumpQueued = true;
@@ -187,6 +290,7 @@ const touchDuck = document.getElementById("touchDuck");
 if (touchDuck) {
   touchDuck.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (awaitingSetupDismiss) return;
     if (paused) return;
     keys.ArrowDown = true;
   });
@@ -257,7 +361,7 @@ function draw(s: DinoState): void {
   }
 
   const pb = playerBox(s.playerTop, s.isDuck);
-  drawChromeDino(g, pb, s.phase, s.grounded, s.isDuck, s.runTime);
+  drawSkinDino(g, pb, selectedSkin, s.phase, s.grounded, s.isDuck, s.runTime);
 }
 
 function resize(): void {
@@ -292,6 +396,7 @@ function frame(now: number): void {
       const pts = Math.floor(state.score);
       showOverlay(pts ? `${pts} pts — Space to restart` : "0 pts — Space to restart");
       syncPauseButton();
+      syncChangeDinoButton();
     }
   }
 
@@ -306,8 +411,9 @@ window.addEventListener("resize", resize);
 const bestStored = getStoredBest();
 state = { ...state, best: Math.max(state.best, bestStored) };
 setHud();
-showOverlay("Space or tap to start");
+populateSkinCards();
 syncPauseButton();
+syncChangeDinoButton();
 resize();
 (window as Window & { __dinoReady?: boolean }).__dinoReady = true;
 requestAnimationFrame(frame);

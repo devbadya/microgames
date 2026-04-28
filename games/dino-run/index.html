@@ -38,10 +38,21 @@
 
     <main class="gameStage" id="stage">
       <canvas id="app"></canvas>
-      <div id="overlay" class="overlay">
+      <div id="setupOverlay" class="overlay setupOverlay" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+        <div class="overlayInner setupInner">
+          <h2 id="setupTitle" class="overlayMsg">Choose your dinosaur</h2>
+          <p class="overlayHint">Select a skin (from the Dinosaur Animated Pack), then continue to the run.</p>
+          <div class="skinGrid" id="skinGrid" role="group" aria-label="Dinosaur skins"></div>
+          <button type="button" class="pausePrimary" id="setupContinue">Continue</button>
+        </div>
+      </div>
+      <div id="overlay" class="overlay" hidden>
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Space or tap to start</p>
           <p class="overlayHint">Space / tap = jump · Down = duck</p>
+          <button type="button" class="changeDinoBtn" id="changeDinoBtn" hidden>
+            Change dinosaur…
+          </button>
         </div>
       </div>
       <div id="pauseOverlay" class="overlay pauseOverlay" hidden>

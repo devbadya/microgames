@@ -6,10 +6,16 @@ async function waitDinoReady(page: import("@playwright/test").Page): Promise<voi
   await page.waitForFunction(() => (window as Window & { __dinoReady?: boolean }).__dinoReady === true);
 }
 
+async function dismissDinoSetup(page: import("@playwright/test").Page): Promise<void> {
+  await page.locator("#setupContinue").click();
+}
+
 test("dino run: start, then score a point or reach game over", async ({ page }) => {
   await page.goto("/games/dino-run/");
   await waitDinoReady(page);
   await expect(page).toHaveTitle(/Dino Run/);
+  await expect(page.locator("#setupOverlay")).toBeVisible();
+  await dismissDinoSetup(page);
   const overlay = page.locator("#overlay");
   const overlayMsg = page.locator("#overlayMsg");
   await expect(overlay).toBeVisible();
@@ -32,6 +38,7 @@ test("dino run: start, then score a point or reach game over", async ({ page }) 
 test("dino run: pause, continue, leave link", async ({ page }) => {
   await page.goto("/games/dino-run/");
   await waitDinoReady(page);
+  await dismissDinoSetup(page);
   await page.keyboard.press("Space");
   await expect(page.locator("#overlay")).toBeHidden({ timeout: 5000 });
   // Pause immediately so a quick game over does not hide the pause control.
