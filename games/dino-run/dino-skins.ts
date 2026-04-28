@@ -1,70 +1,62 @@
 /**
- * Pixel dinosaur skins (2D silhouettes). Names match the asset pack .blend files.
+ * Offline-runner style T‑Rex: same ASCII sprite grid + run physics as Chromium’s dinosaur,
+ * tintable via two stripes (main + shaded rows).
  */
 
-export const DINO_SKIN_IDS = [
-  "trex",
-  "apatosaurus",
-  "parasaurolophus",
-  "stegosaurus",
-  "triceratops",
-  "velociraptor",
-] as const;
+const LS_COLOR_KEY = "microgames.dinoRun.dinoColor";
 
-export type DinoSkinId = (typeof DINO_SKIN_IDS)[number];
+/** Default close to Chromium’s dinosaur grey `#535353` (with striped shade). */
+export const DEFAULT_DINO_BODY = "#535353";
 
-const LS_SKIN_KEY = "microgames.dinoRun.skin";
-
-export function loadStoredSkin(): DinoSkinId {
-  const raw = window.localStorage.getItem(LS_SKIN_KEY);
-  if (raw && (DINO_SKIN_IDS as readonly string[]).includes(raw)) {
-    return raw as DinoSkinId;
+export function normalizeHex(css: string): string {
+  const n = css.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(n)) return n;
+  if (/^#[0-9a-f]{3}$/.test(n)) {
+    const inner = n.slice(1);
+    const out = [...inner].map((c) => `${c}${c}`).join("");
+    return `#${out}`;
   }
-  return "trex";
+  return DEFAULT_DINO_BODY;
 }
 
-export function storeSkin(id: DinoSkinId): void {
-  window.localStorage.setItem(LS_SKIN_KEY, id);
+/** Second stripe: slightly darker rows (offline-game look when body is chrome grey). */
+export function shadeFromBody(hex: string, factor = 0.72): string {
+  const h = normalizeHex(hex);
+  const n = parseInt(h.slice(1), 16);
+  const r = Math.round(Math.min(255, Math.max(0, ((n >> 16) & 255) * factor)));
+  const g = Math.round(Math.min(255, Math.max(0, ((n >> 8) & 255) * factor)));
+  const b = Math.round(Math.min(255, Math.max(0, (n & 255) * factor)));
+  const out = (r << 16) | (g << 8) | b;
+  return `#${out.toString(16).padStart(6, "0")}`;
 }
 
-export const DINO_SKIN_LABELS: Record<DinoSkinId, string> = {
-  trex: "T‑Rex",
-  apatosaurus: "Apatosaurus",
-  parasaurolophus: "Parasaurolophus",
-  stegosaurus: "Stegosaurus",
-  triceratops: "Triceratops",
-  velociraptor: "Velociraptor",
-};
+export function loadStoredDinoColor(): string {
+  const raw = window.localStorage.getItem(LS_COLOR_KEY);
+  if (typeof raw === "string" && raw.startsWith("#")) return normalizeHex(raw);
+  return DEFAULT_DINO_BODY;
+}
 
-/** Source filenames in Dinosaur Animated Pack (Blend). */
-export const DINO_SKIN_BLEND_FILES: Record<DinoSkinId, string> = {
-  trex: "Trex.blend",
-  apatosaurus: "Apatosaurus.blend",
-  parasaurolophus: "Parasaurolophus.blend",
-  stegosaurus: "Stegosaurus.blend",
-  triceratops: "Triceratops.blend",
-  velociraptor: "Velociraptor.blend",
-};
+export function storeDinoColor(hex: string): void {
+  window.localStorage.setItem(LS_COLOR_KEY, normalizeHex(hex));
+}
 
-/** Per-skin arcade colors (two-tone shading on pixel rows). */
-export const SKIN_PAIR: Record<DinoSkinId, { body: string; shade: string }> = {
-  trex: { body: "#f0cf7a", shade: "#c49a42" },
-  apatosaurus: { body: "#8ec7ec", shade: "#4f8fc9" },
-  parasaurolophus: { body: "#dcb3ff", shade: "#9d54d4" },
-  stegosaurus: { body: "#7bdc9f", shade: "#3aa860" },
-  triceratops: { body: "#ffaeb5", shade: "#e56872" },
-  velociraptor: { body: "#5eecda", shade: "#2cae9a" },
-};
+/** Remove legacy dinosaur-pack skin preference if present (no migration of value). */
+export function migrateDropPackSkinPreference(): void {
+  try {
+    window.localStorage.removeItem("microgames.dinoRun.skin");
+  } catch {
+    /* ignore */
+  }
+}
 
-export type SkinBitmaps = {
-  /** Four frames at ~12–13 fps for a clear walk cycle. */
+export type DinoSprites = {
   runFrames: readonly [readonly string[], readonly string[], readonly string[], readonly string[]];
   jump: readonly string[];
   duck0: readonly string[];
   duck1: readonly string[];
 };
 
-const TREX_RUN_0: readonly string[] = [
+const RUN_0: readonly string[] = [
   ".....................",
   "...........######....",
   ".........############",
@@ -91,7 +83,7 @@ const TREX_RUN_0: readonly string[] = [
   "...#............##...",
 ];
 
-const TREX_RUN_1: readonly string[] = [
+const RUN_1: readonly string[] = [
   ".....................",
   "...........######....",
   ".........############",
@@ -118,8 +110,7 @@ const TREX_RUN_1: readonly string[] = [
   "......#.........##...",
 ];
 
-/** Extra run phases: same upper body as TREX_RUN_0 (first 17 rows), legs 17–23 only. */
-const TREX_LEGS_1: readonly string[] = [
+const LEGS_TRANSITION_A: readonly string[] = [
   "########...###.......",
   "######.....####......",
   "#####.......####.....",
@@ -129,7 +120,7 @@ const TREX_LEGS_1: readonly string[] = [
   "...#............##...",
 ];
 
-const TREX_LEGS_3: readonly string[] = [
+const LEGS_TRANSITION_B: readonly string[] = [
   "########...###.......",
   "######.....####......",
   "#####.......####.....",
@@ -139,351 +130,89 @@ const TREX_LEGS_3: readonly string[] = [
   ".......#.........##..",
 ];
 
-const TREX_RUN_PREFIX17 = TREX_RUN_0.slice(0, 17);
+const RUN_PREFIX17 = RUN_0.slice(0, 17);
 
-const TREX_RUN_FRAMES: readonly [
-  readonly string[],
-  readonly string[],
-  readonly string[],
-  readonly string[],
-] = [
-  TREX_RUN_0,
-  [...TREX_RUN_PREFIX17, ...TREX_LEGS_1],
-  TREX_RUN_1,
-  [...TREX_RUN_PREFIX17, ...TREX_LEGS_3],
-];
-
-const TREX_JUMP: readonly string[] = [
-  ".....................",
-  "...........######....",
-  ".........############",
-  "........#############",
-  ".......##############",
-  "......###############",
-  ".....################",
-  ".....#############...",
-  ".....############....",
-  ".....############....",
-  "....#############....",
-  "...##############....",
-  "..###############....",
-  ".###############.....",
-  "###############......",
-  "##############.......",
-  "#########.###........",
-  "########....##.......",
-  "######.......##......",
-  "#####.........##.....",
-  "####............#....",
-  "###..............##..",
-  "##................##.",
-  ".....................",
-];
-
-const TREX_DUCK_0: readonly string[] = [
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "....######################..",
-  "...########################.",
-  "...########################.",
-  "...#################.#######",
-  "..###############....#######",
-  ".################...########",
-  "################....########",
-  "###############.....########",
-  "##############.....########.",
-];
-
-const TREX_DUCK_1: readonly string[] = [
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "............................",
-  "....######################..",
-  "...########################.",
-  "...########################.",
-  "...#################.#######",
-  "..###############.....######",
-  ".################.....######",
-  "################......######",
-  "###############.......######",
-  "##############........######.",
-];
-
-const APATO_RUN_0: readonly string[] = [
-  "...#.................",
-  "...##................",
-  "...###...............",
-  "....######...........",
-  ".....#######.........",
-  "......######.........",
-  ".......######........",
-  "........######.......",
-  ".........######......",
-  "..........#####......",
-  "...################..",
-  "..#################..",
-  "..################...",
-  "..###############....",
-  "..###############....",
-  "..##############.....",
-  "..#############......",
-  "..############.......",
-  "..###########........",
-  "...#########.........",
-  "....######...........",
-  "......######.........",
-  "###...######.........",
-  "##.....###...........",
-];
-
-const APATO_RUN_1: readonly string[] = [
-  "...#.................",
-  "...##................",
-  "...###...............",
-  "....######...........",
-  ".....#######.........",
-  "......######.........",
-  ".......######........",
-  "........######.......",
-  ".........######......",
-  "..........#####......",
-  "...################..",
-  "..#################..",
-  "..################...",
-  "..###############....",
-  "..###############....",
-  "..##############.....",
-  "..#############......",
-  "..############.......",
-  "..###########........",
-  "...#########.........",
-  "....######...........",
-  "......######.........",
-  "###...######.........",
-  "##.......###.........",
-];
-
-/** Mid gait: only row 23 moves between APATO_RUN_0 and APATO_RUN_1. */
-const APATO_ROW23_PASS = "##......###..........";
-
-function apatoRow23Frame(base: readonly string[]): readonly string[] {
-  return base.map((row, i) => (i === 23 ? APATO_ROW23_PASS : row));
-}
-
-const APATO_RUN_FRAMES: readonly [
-  readonly string[],
-  readonly string[],
-  readonly string[],
-  readonly string[],
-] = [APATO_RUN_0, apatoRow23Frame(APATO_RUN_0), APATO_RUN_1, apatoRow23Frame(APATO_RUN_1)];
-
-function mapRunFrames(
-  frames: readonly [
-    readonly string[],
-    readonly string[],
-    readonly string[],
-    readonly string[],
+/** Four-frame run matching the offline game cadence — two contact poses + passing steps. */
+export const OFFLINE_DINO_SPRITES: DinoSprites = {
+  runFrames: [
+    RUN_0,
+    [...RUN_PREFIX17, ...LEGS_TRANSITION_A],
+    RUN_1,
+    [...RUN_PREFIX17, ...LEGS_TRANSITION_B],
   ],
-  fn: (row: readonly string[]) => readonly string[],
-): readonly [
-  readonly string[],
-  readonly string[],
-  readonly string[],
-  readonly string[],
-] {
-  return [fn(frames[0]), fn(frames[1]), fn(frames[2]), fn(frames[3])];
-}
-
-function paraFromTrex(run: readonly string[]): readonly string[] {
-  return run.map((row, ri) => {
-    if (ri < 2 || ri > 15) return row;
-    const a = row.split("");
-    for (let r = 0; r < 14 - Math.max(0, ri - 2); r++) {
-      const col = 18 - Math.floor(r / 3);
-      if (col >= 0 && col < a.length) a[col] = "#";
-    }
-    if (ri <= 10) {
-      if (a[19] !== undefined) a[19] = "#";
-      if (ri <= 6 && a[20] !== undefined) a[20] = "#";
-    }
-    return a.join("");
-  });
-}
-
-function stegoFromTrex(run: readonly string[]): readonly string[] {
-  return run.map((row, ri) => {
-    if (ri === 6 || ri === 9 || ri === 12) {
-      const a = row.split("");
-      for (let c = 8; c <= 15 && c < a.length; c++) a[c] = "#";
-      return a.join("");
-    }
-    if (ri === 15) {
-      const a = row.split("");
-      for (let c = 7; c <= 16 && c < a.length; c++) a[c] = "#";
-      return a.join("");
-    }
-    return row;
-  });
-}
-
-function trikeFromTrex(run: readonly string[]): readonly string[] {
-  return run.map((row, ri) => {
-    if (ri < 7 || ri > 17) return row;
-    const a = row.split("");
-    if (ri >= 7 && ri <= 13) {
-      for (let c = 13; c < Math.min(row.length, 21); c++) a[c] = "#";
-    }
-    if ((ri === 11 || ri === 12) && a[20] !== undefined) a[20] = "#";
-    return a.join("");
-  });
-}
-
-/** Slimmer profile: trim ink on the right side of each row. */
-function veloFromTrex(run: readonly string[]): readonly string[] {
-  return run.map((line) => {
-    const chars = [...line];
-    for (let c = 16; c < chars.length; c++) {
-      if (chars[c] === "#") chars[c] = ".";
-    }
-    return chars.join("");
-  });
-}
-
-const SKINS: Record<DinoSkinId, SkinBitmaps> = {
-  trex: {
-    runFrames: TREX_RUN_FRAMES,
-    jump: TREX_JUMP,
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
-  apatosaurus: {
-    runFrames: APATO_RUN_FRAMES,
-    jump: APATO_RUN_0,
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
-  parasaurolophus: {
-    runFrames: mapRunFrames(TREX_RUN_FRAMES, paraFromTrex),
-    jump: paraFromTrex(TREX_JUMP),
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
-  stegosaurus: {
-    runFrames: mapRunFrames(TREX_RUN_FRAMES, stegoFromTrex),
-    jump: stegoFromTrex(TREX_JUMP),
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
-  triceratops: {
-    runFrames: mapRunFrames(TREX_RUN_FRAMES, trikeFromTrex),
-    jump: trikeFromTrex(TREX_JUMP),
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
-  velociraptor: {
-    runFrames: mapRunFrames(TREX_RUN_FRAMES, veloFromTrex),
-    jump: veloFromTrex(TREX_JUMP),
-    duck0: TREX_DUCK_0,
-    duck1: TREX_DUCK_1,
-  },
+  jump: [
+    ".....................",
+    "...........######....",
+    ".........############",
+    "........#############",
+    ".......##############",
+    "......###############",
+    ".....################",
+    ".....#############...",
+    ".....############....",
+    ".....############....",
+    "....#############....",
+    "...##############....",
+    "..###############....",
+    ".###############.....",
+    "###############......",
+    "##############.......",
+    "#########.###........",
+    "########....##.......",
+    "######.......##......",
+    "#####.........##.....",
+    "####............#....",
+    "###..............##..",
+    "##................##.",
+    ".....................",
+  ],
+  duck0: [
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "....######################..",
+    "...########################.",
+    "...########################.",
+    "...#################.#######",
+    "..###############....#######",
+    ".################...########",
+    "################....########",
+    "###############.....########",
+    "##############.....########.",
+  ],
+  duck1: [
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "............................",
+    "....######################..",
+    "...########################.",
+    "...########################.",
+    "...#################.#######",
+    "..###############.....######",
+    ".################.....######",
+    "################......######",
+    "###############.......######",
+    "##############........######.",
+  ],
 };
 
-export function getSkinBitmaps(id: DinoSkinId): SkinBitmaps {
-  return SKINS[id];
-}
-
-/**
- * Raster frames cropped from the pack’s Preview.gif (Quaternius Dinosaur Animated Pack),
- * as `public/games/dino-run/preview-sprites/*.png`.
- */
-export const PREVIEW_SPRITE_REL = "./preview-sprites/" as const;
-
-export function previewSpriteHref(
-  skin: DinoSkinId,
-  kind: "jump" | "run-0" | "run-1" | "run-2" | "run-3",
-): string {
-  return `${PREVIEW_SPRITE_REL}${skin}-${kind}.png`;
-}
-
-export type LoadedPreviewSprites = Record<
-  DinoSkinId,
-  { readonly runFrames: readonly HTMLImageElement[]; readonly jump: HTMLImageElement }
->;
-
-let cachedPreviewSprites: LoadedPreviewSprites | null = null;
-let previewSpritesLoad: Promise<boolean> | null = null;
-
-/**
- * Loads PNG previews (1∶1 crops from Preview.gif per species segment). Falls back silently to
- * procedural pixel skins if URLs fail (offline / missing asset).
- */
-export function loadPreviewSprites(): Promise<boolean> {
-  if (cachedPreviewSprites) return Promise.resolve(true);
-  if (previewSpritesLoad) return previewSpritesLoad;
-
-  previewSpritesLoad = (async (): Promise<boolean> => {
-    const loadImg = (src: string): Promise<HTMLImageElement> =>
-      new Promise((resolve, reject) => {
-        const img = new Image();
-        img.decoding = "async";
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(src));
-        img.src = src;
-      });
-
-    const out = {} as LoadedPreviewSprites;
-    try {
-      for (const skin of DINO_SKIN_IDS) {
-        const runFrames = [] as HTMLImageElement[];
-        for (const rk of ["run-0", "run-1", "run-2", "run-3"] as const) {
-          runFrames.push(await loadImg(previewSpriteHref(skin, rk)));
-        }
-        const jump = await loadImg(previewSpriteHref(skin, "jump"));
-        out[skin] = { runFrames, jump };
-      }
-      cachedPreviewSprites = out;
-      return true;
-    } catch {
-      cachedPreviewSprites = null;
-      return false;
-    }
-  })();
-
-  return previewSpritesLoad;
-}
-
-export function previewsSpritesReady(): boolean {
-  return cachedPreviewSprites !== null;
-}
-
-function drawScaledImg(
-  g: CanvasRenderingContext2D,
-  pb: { x: number; y: number; w: number; h: number },
-  img: HTMLImageElement,
-): void {
-  const iw = img.naturalWidth || 32;
-  const ih = img.naturalHeight || 32;
-  const scale = Math.min(pb.w / iw, pb.h / ih);
-  const dw = iw * scale;
-  const dh = ih * scale;
-  const ox = pb.x + (pb.w - dw) * 0.5;
-  const oy = pb.y + (pb.h - dh);
-  const prevSmooth = g.imageSmoothingEnabled;
-  g.imageSmoothingEnabled = true;
-  g.drawImage(img, ox, oy, dw, dh);
-  g.imageSmoothingEnabled = prevSmooth;
+export function getOfflineDinoSprites(): DinoSprites {
+  return OFFLINE_DINO_SPRITES;
 }
 
 const RUN_FRAME_MS = 52;
+
+export function stripePhaseForAlternateRows(): number {
+  return 0;
+}
 
 function drawBitmapCellsStriped(
   g: CanvasRenderingContext2D,
@@ -507,34 +236,21 @@ function drawBitmapCellsStriped(
   }
 }
 
+export type DinoPalette = { readonly body: string; readonly shade: string };
+
+/** Draw Chromium-style dinosaur; colours come from palette (offline grey or user picker). */
 export function drawSkinDino(
   g: CanvasRenderingContext2D,
   pb: { x: number; y: number; w: number; h: number },
-  skin: DinoSkinId,
+  palette: DinoPalette,
   phase: "idle" | "running" | "dead",
   grounded: boolean,
   isDuck: boolean,
   runTime: number,
 ): void {
-  const sprites = SKINS[skin];
-  const { body, shade } = SKIN_PAIR[skin];
-  const stripePhase = DINO_SKIN_IDS.indexOf(skin) % 2;
-  const preview = cachedPreviewSprites?.[skin];
-
-  if (preview && !isDuck) {
-    let img: HTMLImageElement;
-    if (phase !== "running") {
-      img = preview.runFrames[0];
-    } else if (!grounded) {
-      img = preview.jump;
-    } else {
-      const runIdx =
-        Math.floor((runTime * 1000) / RUN_FRAME_MS) % preview.runFrames.length;
-      img = preview.runFrames[runIdx];
-    }
-    drawScaledImg(g, pb, img);
-    return;
-  }
+  const sprites = OFFLINE_DINO_SPRITES;
+  const { body, shade } = palette;
+  const stripePhase = stripePhaseForAlternateRows();
 
   if (isDuck) {
     const rows = Math.floor((runTime * 1000) / 135) % 2 === 0 ? sprites.duck0 : sprites.duck1;

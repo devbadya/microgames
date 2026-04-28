@@ -74,63 +74,42 @@
   text-align: left;
 }
 
-.skinGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 0.6rem;
+.dinoColorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
   margin: 1rem 0;
-  width: 100%;
 }
 
-.skinCard {
-  appearance: none;
-  -webkit-appearance: none;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.65rem 0.78rem;
-  cursor: pointer;
-  text-align: left;
-  background: rgba(255, 255, 255, 0.04);
-  transition: border-color 0.08s ease, background 0.08s ease;
-}
-
-.skinCard:hover {
-  border-color: rgba(110, 231, 255, 0.32);
-}
-
-.skinCard[aria-pressed="true"] {
-  border-color: rgba(110, 231, 255, 0.55);
-  background: rgba(110, 231, 255, 0.1);
-}
-
-.skinCardThumb {
-  display: block;
-  width: 100%;
-  max-height: 5.5rem;
-  margin-bottom: 0.45rem;
-  object-fit: contain;
-  object-position: bottom left;
-  image-rendering: auto;
-  background: radial-gradient(circle at 70% 50%, rgba(255, 255, 255, 0.06) 0%, transparent 65%);
-  border-radius: 8px;
-  pointer-events: none;
-}
-
-.skinCardTitle {
-  display: block;
+.dinoColorLabel {
   font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.skinCardFile {
-  display: block;
-  margin-top: 0.2rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+.dinoColorInput {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 3rem;
+  height: 2.35rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  background: transparent;
 }
 
-.changeDinoBtn {
+.dinoColorInput::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.dinoColorInput::-webkit-color-swatch {
+  border-radius: 7px;
+  border: none;
+}
+
+.changeColorBtn {
   margin-top: 0.95rem;
   appearance: none;
   -webkit-appearance: none;
@@ -144,14 +123,8 @@
   padding: 0.25rem;
 }
 
-.changeDinoBtn:hover {
+.changeColorBtn:hover {
   color: var(--text);
-}
-
-@media (max-width: 600px) {
-  .skinGrid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .pauseInner {

@@ -15,15 +15,13 @@ import {
   drawChromeSkyBackdrop,
 } from "./chrome-sprites";
 import {
-  DINO_SKIN_BLEND_FILES,
-  DINO_SKIN_IDS,
-  DINO_SKIN_LABELS,
-  type DinoSkinId,
+  DEFAULT_DINO_BODY,
   drawSkinDino,
-  loadPreviewSprites,
-  loadStoredSkin,
-  previewSpriteHref,
-  storeSkin,
+  loadStoredDinoColor,
+  migrateDropPackSkinPreference,
+  shadeFromBody,
+  storeDinoColor,
+  type DinoPalette,
 } from "./dino-skins";
 
 const LS_KEY = "microgames.dinoRun.best";
@@ -49,8 +47,8 @@ const pauseOverlay = document.getElementById("pauseOverlay");
 const pauseContinue = document.getElementById("pauseContinue");
 const setupOverlay = document.getElementById("setupOverlay");
 const setupContinue = document.getElementById("setupContinue");
-const skinGrid = document.getElementById("skinGrid");
-const changeDinoBtn = document.getElementById("changeDinoBtn");
+const dinoColorInput = document.getElementById("dinoColor") as HTMLInputElement | null;
+const changeColorBtn = document.getElementById("changeColorBtn");
 
 if (!canvas || !stage) {
   throw new Error("Dino: missing canvas or stage");
@@ -66,7 +64,13 @@ const keys = { ArrowDown: false };
 
 /** Setup screen gates the start overlay until Continue is pressed */
 let awaitingSetupDismiss = true;
-let selectedSkin: DinoSkinId = loadStoredSkin();
+
+migrateDropPackSkinPreference();
+
+let dinoPalette: DinoPalette = (() => {
+  const body = loadStoredDinoColor();
+  return { body, shade: shadeFromBody(body) };
+})();
 
 const rng = (): number => Math.random();
 
@@ -78,80 +82,57 @@ function setHud(): void {
 function showOverlay(msg: string): void {
   if (overlayMsg) overlayMsg.textContent = msg;
   if (overlayEl) overlayEl.hidden = false;
-  syncChangeDinoButton();
+  syncChangeColorButton();
 }
 
 function hideOverlay(): void {
   if (overlayEl) overlayEl.hidden = true;
-  syncChangeDinoButton();
+  syncChangeColorButton();
 }
 
-function syncChangeDinoButton(): void {
-  if (!changeDinoBtn) return;
+function syncChangeColorButton(): void {
+  if (!changeColorBtn) return;
   const showChange =
     !awaitingSetupDismiss &&
     !!(overlayEl && !overlayEl.hidden) &&
     (state.phase === "idle" || state.phase === "dead") &&
     !paused;
-  changeDinoBtn.hidden = !showChange;
+  changeColorBtn.hidden = !showChange;
 }
 
-function populateSkinCards(): void {
-  if (!skinGrid) return;
-  skinGrid.replaceChildren();
-  for (const id of DINO_SKIN_IDS) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "skinCard";
-    btn.setAttribute("data-skin", id);
-    btn.setAttribute("aria-label", `${DINO_SKIN_LABELS[id]}, ${DINO_SKIN_BLEND_FILES[id]}`);
-    const thumb = document.createElement("img");
-    thumb.className = "skinCardThumb";
-    thumb.alt = "";
-    thumb.src = previewSpriteHref(id, "run-0");
-    thumb.loading = "lazy";
-    const title = document.createElement("span");
-    title.className = "skinCardTitle";
-    title.textContent = DINO_SKIN_LABELS[id];
-    const file = document.createElement("span");
-    file.className = "skinCardFile";
-    file.textContent = DINO_SKIN_BLEND_FILES[id];
-    btn.append(thumb, title, file);
-    btn.addEventListener("click", () => selectSkinUi(id));
-    skinGrid.appendChild(btn);
-  }
-  applySkinHighlight();
-}
+function initColorPicker(): void {
+  if (!dinoColorInput) return;
+  dinoColorInput.value = /^#[0-9a-f]{6}$/i.test(dinoPalette.body)
+    ? dinoPalette.body
+    : DEFAULT_DINO_BODY;
 
-function selectSkinUi(id: DinoSkinId): void {
-  selectedSkin = id;
-  applySkinHighlight();
-}
-
-function applySkinHighlight(): void {
-  if (!skinGrid) return;
-  for (const el of skinGrid.querySelectorAll<HTMLButtonElement>(".skinCard")) {
-    const id = el.getAttribute("data-skin") as DinoSkinId;
-    el.setAttribute("aria-pressed", id === selectedSkin ? "true" : "false");
-  }
+  const applyFromInput = (): void => {
+    dinoPalette = { body: dinoColorInput.value, shade: shadeFromBody(dinoColorInput.value) };
+  };
+  dinoColorInput.addEventListener("input", applyFromInput);
 }
 
 function finishSetupProceedToGame(): void {
   if (!awaitingSetupDismiss) return;
   awaitingSetupDismiss = false;
-  storeSkin(selectedSkin);
+  storeDinoColor(dinoPalette.body);
   if (setupOverlay) setupOverlay.hidden = true;
   showOverlay("Space or tap to start");
-  syncChangeDinoButton();
+  syncChangeColorButton();
 }
 
-function reopenSkinChooser(): void {
+function reopenColourSetup(): void {
   if (state.phase === "running") return;
   awaitingSetupDismiss = true;
   setPaused(false);
   if (overlayEl) overlayEl.hidden = true;
   if (setupOverlay) setupOverlay.hidden = false;
-  applySkinHighlight();
+  if (dinoColorInput) {
+    dinoColorInput.value = /^#[0-9a-f]{6}$/i.test(dinoPalette.body)
+      ? dinoPalette.body
+      : DEFAULT_DINO_BODY;
+    dinoPalette = { body: dinoColorInput.value, shade: shadeFromBody(dinoColorInput.value) };
+  }
 }
 
 function syncPauseButton(): void {
@@ -187,7 +168,7 @@ function handleStartOrRestart(): void {
     setHud();
     hideOverlay();
     syncPauseButton();
-    syncChangeDinoButton();
+    syncChangeColorButton();
   }
 }
 
@@ -268,10 +249,10 @@ if (setupContinue) {
   });
 }
 
-if (changeDinoBtn) {
-  changeDinoBtn.addEventListener("click", (e) => {
+if (changeColorBtn) {
+  changeColorBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    reopenSkinChooser();
+    reopenColourSetup();
   });
 }
 
@@ -346,7 +327,7 @@ function draw(s: DinoState): void {
   }
 
   const pb = playerBox(s.playerTop, s.isDuck);
-  drawSkinDino(g, pb, selectedSkin, s.phase, s.grounded, s.isDuck, s.runTime);
+  drawSkinDino(g, pb, dinoPalette, s.phase, s.grounded, s.isDuck, s.runTime);
 }
 
 function resize(): void {
@@ -381,7 +362,7 @@ function frame(now: number): void {
       const pts = Math.floor(state.score);
       showOverlay(pts ? `${pts} pts — Space to restart` : "0 pts — Space to restart");
       syncPauseButton();
-      syncChangeDinoButton();
+      syncChangeColorButton();
     }
   }
 
@@ -396,10 +377,9 @@ window.addEventListener("resize", resize);
 const bestStored = getStoredBest();
 state = { ...state, best: Math.max(state.best, bestStored) };
 setHud();
-populateSkinCards();
+initColorPicker();
 syncPauseButton();
-syncChangeDinoButton();
+syncChangeColorButton();
 resize();
 (window as Window & { __dinoReady?: boolean }).__dinoReady = true;
-void loadPreviewSprites();
 requestAnimationFrame(frame);

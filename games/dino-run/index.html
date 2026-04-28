@@ -40,9 +40,14 @@
       <canvas id="app"></canvas>
       <div id="setupOverlay" class="overlay setupOverlay" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
         <div class="overlayInner setupInner">
-          <h2 id="setupTitle" class="overlayMsg">Choose your dinosaur</h2>
-          <p class="overlayHint">Select a skin (from the Dinosaur Animated Pack), then continue to the run.</p>
-          <div class="skinGrid" id="skinGrid" role="group" aria-label="Dinosaur skins"></div>
+          <h2 id="setupTitle" class="overlayMsg">Offline runner</h2>
+          <p class="overlayHint">
+            Same dinosaur as Chromium’s dinosaur game — pick a colour, then continue.
+          </p>
+          <div class="dinoColorRow">
+            <label class="dinoColorLabel" for="dinoColor">Colour</label>
+            <input type="color" id="dinoColor" class="dinoColorInput" value="#535353" />
+          </div>
           <button type="button" class="pausePrimary" id="setupContinue">Continue</button>
         </div>
       </div>
@@ -50,8 +55,8 @@
         <div class="overlayInner">
           <p id="overlayMsg" class="overlayMsg">Space or tap to start</p>
           <p class="overlayHint">Space / tap = jump · Down = duck</p>
-          <button type="button" class="changeDinoBtn" id="changeDinoBtn" hidden>
-            Change dinosaur…
+          <button type="button" class="changeColorBtn" id="changeColorBtn" hidden>
+            Change colour…
           </button>
         </div>
       </div>
