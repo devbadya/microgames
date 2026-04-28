@@ -57,8 +57,8 @@ export const SKIN_PAIR: Record<DinoSkinId, { body: string; shade: string }> = {
 };
 
 export type SkinBitmaps = {
-  run0: readonly string[];
-  run1: readonly string[];
+  /** Four frames at ~12–13 fps for a clear walk cycle. */
+  runFrames: readonly [readonly string[], readonly string[], readonly string[], readonly string[]];
   jump: readonly string[];
   duck0: readonly string[];
   duck1: readonly string[];
@@ -116,6 +116,41 @@ const TREX_RUN_1: readonly string[] = [
   "##...........###.....",
   "...#............##...",
   "......#.........##...",
+];
+
+/** Extra run phases: same upper body as TREX_RUN_0 (first 17 rows), legs 17–23 only. */
+const TREX_LEGS_1: readonly string[] = [
+  "########...###.......",
+  "######.....####......",
+  "#####.......####.....",
+  "####.........###.....",
+  "###..........###.....",
+  "##.............###...",
+  "...#............##...",
+];
+
+const TREX_LEGS_3: readonly string[] = [
+  "########...###.......",
+  "######.....####......",
+  "#####.......####.....",
+  "####.........###.....",
+  "##...........###.....",
+  "##.............###...",
+  ".......#.........##..",
+];
+
+const TREX_RUN_PREFIX17 = TREX_RUN_0.slice(0, 17);
+
+const TREX_RUN_FRAMES: readonly [
+  readonly string[],
+  readonly string[],
+  readonly string[],
+  readonly string[],
+] = [
+  TREX_RUN_0,
+  [...TREX_RUN_PREFIX17, ...TREX_LEGS_1],
+  TREX_RUN_1,
+  [...TREX_RUN_PREFIX17, ...TREX_LEGS_3],
 ];
 
 const TREX_JUMP: readonly string[] = [
@@ -237,6 +272,37 @@ const APATO_RUN_1: readonly string[] = [
   "##.......###.........",
 ];
 
+/** Mid gait: only row 23 moves between APATO_RUN_0 and APATO_RUN_1. */
+const APATO_ROW23_PASS = "##......###..........";
+
+function apatoRow23Frame(base: readonly string[]): readonly string[] {
+  return base.map((row, i) => (i === 23 ? APATO_ROW23_PASS : row));
+}
+
+const APATO_RUN_FRAMES: readonly [
+  readonly string[],
+  readonly string[],
+  readonly string[],
+  readonly string[],
+] = [APATO_RUN_0, apatoRow23Frame(APATO_RUN_0), APATO_RUN_1, apatoRow23Frame(APATO_RUN_1)];
+
+function mapRunFrames(
+  frames: readonly [
+    readonly string[],
+    readonly string[],
+    readonly string[],
+    readonly string[],
+  ],
+  fn: (row: readonly string[]) => readonly string[],
+): readonly [
+  readonly string[],
+  readonly string[],
+  readonly string[],
+  readonly string[],
+] {
+  return [fn(frames[0]), fn(frames[1]), fn(frames[2]), fn(frames[3])];
+}
+
 function paraFromTrex(run: readonly string[]): readonly string[] {
   return run.map((row, ri) => {
     if (ri < 2 || ri > 15) return row;
@@ -294,43 +360,37 @@ function veloFromTrex(run: readonly string[]): readonly string[] {
 
 const SKINS: Record<DinoSkinId, SkinBitmaps> = {
   trex: {
-    run0: TREX_RUN_0,
-    run1: TREX_RUN_1,
+    runFrames: TREX_RUN_FRAMES,
     jump: TREX_JUMP,
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
   },
   apatosaurus: {
-    run0: APATO_RUN_0,
-    run1: APATO_RUN_1,
+    runFrames: APATO_RUN_FRAMES,
     jump: APATO_RUN_0,
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
   },
   parasaurolophus: {
-    run0: paraFromTrex(TREX_RUN_0),
-    run1: paraFromTrex(TREX_RUN_1),
+    runFrames: mapRunFrames(TREX_RUN_FRAMES, paraFromTrex),
     jump: paraFromTrex(TREX_JUMP),
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
   },
   stegosaurus: {
-    run0: stegoFromTrex(TREX_RUN_0),
-    run1: stegoFromTrex(TREX_RUN_1),
+    runFrames: mapRunFrames(TREX_RUN_FRAMES, stegoFromTrex),
     jump: stegoFromTrex(TREX_JUMP),
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
   },
   triceratops: {
-    run0: trikeFromTrex(TREX_RUN_0),
-    run1: trikeFromTrex(TREX_RUN_1),
+    runFrames: mapRunFrames(TREX_RUN_FRAMES, trikeFromTrex),
     jump: trikeFromTrex(TREX_JUMP),
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
   },
   velociraptor: {
-    run0: veloFromTrex(TREX_RUN_0),
-    run1: veloFromTrex(TREX_RUN_1),
+    runFrames: mapRunFrames(TREX_RUN_FRAMES, veloFromTrex),
     jump: veloFromTrex(TREX_JUMP),
     duck0: TREX_DUCK_0,
     duck1: TREX_DUCK_1,
@@ -341,7 +401,7 @@ export function getSkinBitmaps(id: DinoSkinId): SkinBitmaps {
   return SKINS[id];
 }
 
-const RUN_CYCLE_MS = 68;
+const RUN_FRAME_MS = 52;
 
 function drawBitmapCellsStriped(
   g: CanvasRenderingContext2D,
@@ -394,11 +454,13 @@ export function drawSkinDino(
 
   let rows: readonly string[];
   if (phase !== "running") {
-    rows = sprites.run0;
+    rows = sprites.runFrames[0];
   } else if (!grounded) {
     rows = sprites.jump;
   } else {
-    rows = Math.floor((runTime * 1000) / RUN_CYCLE_MS) % 2 === 0 ? sprites.run0 : sprites.run1;
+    const runIdx =
+      Math.floor((runTime * 1000) / RUN_FRAME_MS) % sprites.runFrames.length;
+    rows = sprites.runFrames[runIdx];
   }
 
   let maxW = 0;
