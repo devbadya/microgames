@@ -1,0 +1,11 @@
+---
+description: Require a minimum unit test coverage threshold
+alwaysApply: true
+---
+
+# Unit Test Coverage
+
+- Maintain at least 80% unit test coverage for the project.
+- When adding or changing behavior, add or update focused unit tests so coverage stays at or above 80%.
+- If coverage tooling is present, run the appropriate coverage command before considering changes complete.
+- If coverage cannot be verified locally, call that out clearly and explain what still needs to be checked.

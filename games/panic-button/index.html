@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#07090f" />
+    <title>Panic Button — microgames</title>
+    <meta name="description" content="Green means go — red is a trick — build streaks." />
+    <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <link rel="stylesheet" href="../sky-hopper/style.css" />
+    <style>
+      #tap {
+        width: min(96vw, 420px);
+        height: min(56vh, 360px);
+        margin: 0 auto;
+        border-radius: 22px;
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        background: #1e293b;
+        touch-action: manipulation;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        font-size: 1.8rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        user-select: none;
+      }
+      #tap.waiting {
+        background: #1e293b;
+        color: #94a3b8;
+      }
+      #tap.go {
+        background: linear-gradient(145deg, #22c55e, #16a34a);
+        color: #052e16;
+        box-shadow: 0 0 48px rgba(34, 197, 94, 0.45);
+      }
+      #tap.trap {
+        background: linear-gradient(145deg, #ef4444, #b91c1c);
+        color: #fff1f2;
+      }
+    </style>
+  </head>
+  <body class="gameBody">
+    <div class="bgGlow" aria-hidden="true"></div>
+    <header class="gameTopbar">
+      <a class="link backLink" href="../../">← All games</a>
+      <h1 class="gameTitle">Panic Button</h1>
+      <div class="hud" aria-label="Game stats">
+        <div class="hudItem">
+          <span class="hudLabel">Score</span>
+          <span id="score" class="hudValue">0</span>
+        </div>
+        <div class="hudItem">
+          <span class="hudLabel">Combo</span>
+          <span id="combo" class="hudValue">0</span>
+        </div>
+      </div>
+    </header>
+    <main class="gameStage" style="display: flex; flex-direction: column; align-items: center; justify-content: center">
+      <p id="status" style="margin: 0 0 0.75rem; color: var(--muted); font-size: 0.92rem">
+        Wait for GREEN — trap red
+      </p>
+      <button type="button" id="tap" class="waiting" aria-label="Game tap zone">WAIT…</button>
+      <div id="overlay" class="overlay" hidden>
+        <div class="overlayInner">
+          <p id="overlayMsg" class="overlayMsg"></p>
+          <p class="overlayHint">Space restarts · Click the big pad</p>
+        </div>
+      </div>
+    </main>
+    <footer class="gameHelp"><span>Tap / click · Build streak on clean greens</span></footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90">
+  <defs>
+    <linearGradient id="taSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bae6fd" />
+      <stop offset="100%" stop-color="#7dd3fc" />
+    </linearGradient>
+    <linearGradient id="taGround" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5c6b43" />
+      <stop offset="100%" stop-color="#3f4a34" />
+    </linearGradient>
+  </defs>
+  <rect width="120" height="90" rx="10" ry="10" fill="url(#taSky)" />
+  <path
+    fill="url(#taGround)"
+    d="M0 74 L0 62 Q30 54 52 61 T104 56 L120 60 L120 90 L0 90 Z"
+  />
+  <rect x="18" y="48" width="28" height="14" rx="3" fill="#15803d" />
+  <rect x="74" y="44" width="28" height="14" rx="3" fill="#991b1b" />
+  <path
+    d="M32 52 Q54 38 94 52"
+    fill="none"
+    stroke="rgba(0,0,0,0.25)"
+    stroke-width="3"
+    stroke-linecap="round"
+  />
+  <circle cx="70" cy="44" r="4" fill="#111827" />
+  <rect width="120" height="90" rx="10" ry="10" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+</svg>

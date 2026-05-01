@@ -3,49 +3,169 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>microgames — tiny PlayCanvas games</title>
-    <meta name="description" content="A growing collection of tiny PlayCanvas games you can play in your browser." />
-    <meta name="theme-color" content="#07090f" />
+    <title>Microgames</title>
+    <meta
+      name="description"
+      content=""
+      data-i18n-content="metaDesc"
+    />
+    <meta name="theme-color" content="#06080f" />
+    <meta name="color-scheme" content="dark" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
   <body>
+    <a class="skipLink" href="#games" data-i18n="skipToGames">Skip to games</a>
+
+    <div class="noise" aria-hidden="true"></div>
     <div class="bgGlow" aria-hidden="true"></div>
 
-    <button
-      type="button"
-      class="settingsTrigger"
-      id="settingsBtn"
-      aria-expanded="false"
-      aria-controls="settingsPanel"
-      aria-label="Open settings"
-    >
-      <span class="settingsTriggerIcon" aria-hidden="true">⚙</span>
-      <span class="settingsTriggerText">Settings</span>
-    </button>
-    <div
-      class="settingsBackdrop"
-      id="settingsBackdrop"
-      hidden
-      aria-hidden="true"
-    ></div>
+    <header class="siteHeader">
+      <div class="container siteHeaderInner">
+        <a class="brand" href="./">
+          <img class="brandMark" src="./icon.svg" alt="" width="40" height="40" />
+          <span class="brandText">
+            <span class="brandName">Microgames</span>
+            <span class="brandTagline" data-i18n="brandSub">Instant browser games</span>
+          </span>
+        </a>
+
+        <nav class="nav" aria-label="Main">
+          <a class="navLink" href="#games" data-i18n="navGames">Games</a>
+        </nav>
+
+        <div class="headerActions">
+          <div class="langSwitch" role="group" aria-label="Language">
+            <button type="button" class="langBtn" data-set-lang="en" id="langEn" aria-pressed="true">
+              EN
+            </button>
+            <button type="button" class="langBtn" data-set-lang="de" id="langDe" aria-pressed="false">
+              DE
+            </button>
+          </div>
+
+          <button
+            type="button"
+            class="iconBtn"
+            id="settingsBtn"
+            aria-expanded="false"
+            aria-controls="settingsPanel"
+            data-i18n-aria="settingsOpenAria"
+            aria-label="Open menu"
+          >
+            <span class="iconBtnGlyph" aria-hidden="true">☰</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="container heroInner">
+        <div class="heroCopy">
+          <p class="heroEyebrow" data-i18n="heroEyebrow">Browser · HTML5 · PlayCanvas</p>
+          <h1 class="heroTitle" data-i18n="heroTitle">Tiny games. Big grins.</h1>
+          <p class="heroLead" data-i18n="heroLead">
+            Tiny, sharp browser games built to load instantly and score big on fun.
+          </p>
+          <div class="heroBadges">
+            <span class="pill" data-i18n="badgeInstant">No install</span>
+            <span class="pill" data-i18n="badgeFree">Free to play</span>
+            <span class="pill" data-i18n="badgeOpenSource">Open source-friendly</span>
+          </div>
+          <a class="heroCta" href="#games">
+            <span data-i18n="navGames">Games</span>
+            <span aria-hidden="true">↓</span>
+          </a>
+        </div>
+        <div class="heroArt" aria-hidden="true">
+          <div class="heroOrb heroOrb--a"></div>
+          <div class="heroOrb heroOrb--b"></div>
+          <div class="heroGrid"></div>
+        </div>
+      </div>
+    </section>
+
+    <main class="container mainBlock" id="games">
+      <div class="sectionHead">
+        <h2 class="sectionTitle" data-i18n="sectionHeading">Games</h2>
+        <p class="sectionLead" data-i18n="sectionLead">Pick a title — all run instantly in-page.</p>
+      </div>
+
+      <section class="controls" aria-label="Search">
+        <label class="srOnly" for="search" data-i18n="searchLabel">Search games</label>
+        <div class="searchWrap">
+          <span class="searchIcon" aria-hidden="true">⌕</span>
+          <input
+            id="search"
+            class="input searchInput"
+            type="search"
+            placeholder=""
+            data-i18n-placeholder="searchPlaceholder"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+      </section>
+
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="grid" class="grid" aria-label="Games list"></div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footerInner">
+        <p class="footerTag" data-i18n="footerTagline">
+          Built for speed, fairness, and a bit of nostalgia.
+        </p>
+        <div class="footerLinks">
+          <a class="link" href="https://github.com/devbadya/microgames" rel="noopener" data-i18n="footerSource"
+            >Source on GitHub</a
+          >
+        </div>
+      </div>
+    </footer>
+
+    <div class="settingsBackdrop" id="settingsBackdrop" hidden aria-hidden="true"></div>
     <aside class="settingsPanel" id="settingsPanel" hidden aria-labelledby="settingsHeading">
       <div class="settingsPanelInner">
         <header class="settingsHeader">
           <div class="settingsHeaderText">
-            <h2 class="settingsTitle" id="settingsHeading">Settings</h2>
-            <p class="settingsSubtitle">Site information and reference materials</p>
+            <h2 class="settingsTitle" id="settingsHeading" data-i18n="settingsTitle">Menu</h2>
+            <p class="settingsSubtitle" data-i18n="settingsSubtitle">Preferences</p>
           </div>
-          <button type="button" class="settingsClose" id="settingsClose" aria-label="Close settings">×</button>
+          <button
+            type="button"
+            class="settingsClose"
+            id="settingsClose"
+            data-i18n-aria="settingsCloseAria"
+            aria-label="Close"
+          >
+            ×
+          </button>
         </header>
         <div class="settingsBody">
-          <section class="settingsCard" aria-label="Legal reference for Germany and the EU">
-            <h3 class="settingsCardTitle">Legal &amp; judicial reference</h3>
-            <p class="settingsCardLead">
-              Context on the structure of the German judiciary and where to find official EU and national
-              performance data. Content is provided for general information only.
-            </p>
+          <section class="settingsCard" aria-labelledby="langSectionTitle">
+            <h3 class="settingsCardTitle" id="langSectionTitle" data-i18n="settingsLangHeading">Language</h3>
+            <p class="settingsCardLead" data-i18n="settingsLangLead">Site remembers your choice.</p>
+            <div class="langSwitch langSwitch--panel" role="group" aria-label="Language">
+              <button type="button" class="langBtn" data-set-lang="en" id="langEnPanel" aria-pressed="true">
+                English
+              </button>
+              <button type="button" class="langBtn" data-set-lang="de" id="langDePanel" aria-pressed="false">
+                Deutsch
+              </button>
+            </div>
+          </section>
+
+          <section class="settingsCard" aria-label="Legal reference">
+            <h3 class="settingsCardTitle" data-i18n="legalCardTitle">Legal</h3>
+            <p class="settingsCardLead" data-i18n="legalCardLead">Context on courts.</p>
             <button
               type="button"
               class="settingsRevealBtn"
@@ -53,87 +173,48 @@
               aria-expanded="false"
               aria-controls="legalContent"
             >
-              <span class="settingsRevealLabel">Show Germany &amp; EU justice overview</span>
+              <span class="settingsRevealLabel" data-i18n="legalToggleShow">Overview</span>
               <span class="settingsRevealChevron" aria-hidden="true">▼</span>
             </button>
             <div id="legalContent" class="settingsReveal" hidden>
               <div class="settingsProse">
-                <p>
-                  The German court system is organised in a federal structure. The ordinary civil and
-                  criminal courts run from <strong>local and regional courts</strong> (<em>Amts- und
-                  Landgerichte</em>) through <strong>higher regional courts</strong> (<em>Oberlandesgerichte</em>)
-                  to the <strong>Federal Court of Justice</strong> (<em>Bundesgerichtshof</em>) for
-                  final review. The <strong>Federal Constitutional Court</strong>
-                  (<em>Bundesverfassungsgericht</em>) decides matters under the <em>Grundgesetz</em> (Basic Law).
-                </p>
-                <p>
-                  International comparisons of justice systems use indicators such as efficiency, quality, and
-                  independence. The following sources are maintained by public bodies or intergovernmental
-                  organisations; figures and country rankings are updated on their own publication cycles.
-                </p>
+                <p data-i18n="legalP1"></p>
+                <p data-i18n="legalP2"></p>
                 <ul class="settingsLinks">
                   <li>
                     <a
                       href="https://commission.europa.eu/strategy-and-policy/policies/justice-and-fundamental-rights/upholding-rule-law/eu-justice-scoreboard_en"
                       rel="noopener noreferrer"
                       target="_blank"
-                      >EU Justice Scoreboard (European Commission)</a
-                    >
-                    — annual comparative data (efficiency, quality, independence).
+                      data-i18n="legalLinkEu"
+                    ></a>
+                    <span data-i18n="legalLinkEuBul"></span>
                   </li>
                   <li>
-                    <a href="https://www.coe.int/en/web/cepej" rel="noopener noreferrer" target="_blank"
-                      >CEPEJ (Council of Europe)</a
-                    >
-                    — European Commission for the Efficiency of Justice: methodology and country reports.
+                    <a href="https://www.coe.int/en/web/cepej" rel="noopener noreferrer" target="_blank" data-i18n="legalLinkCoe"></a>
+                    <span data-i18n="legalLinkCoeBul"></span>
                   </li>
                   <li>
-                    <a href="https://www.bmjv.de" rel="noopener noreferrer" target="_blank"
-                      >Bundesministerium der Justiz</a
-                    >
-                    — German Federal Ministry of Justice and Consumer Protection.
+                    <a href="https://www.bmjv.de" rel="noopener noreferrer" target="_blank" data-i18n="legalLinkBmjv"></a>
+                    <span data-i18n="legalLinkBmjvBul"></span>
                   </li>
                   <li>
-                    <a href="https://www.bundesverfassungsgericht.de" rel="noopener noreferrer" target="_blank"
-                      >Bundesverfassungsgericht</a
-                    >
-                    — German Federal Constitutional Court.
+                    <a
+                      href="https://www.bundesverfassungsgericht.de"
+                      rel="noopener noreferrer"
+                      target="_blank"
+                      data-i18n="legalLinkBverfG"
+                    ></a>
+                    <span data-i18n="legalLinkBverfGBul"></span>
                   </li>
                 </ul>
-                <p class="settingsDisclaimer">
-                  This overview does not constitute legal advice. For binding information, consult qualified
-                  counsel and the official sources linked above.
-                </p>
+                <p class="settingsDisclaimer" data-i18n="legalDisclaimer"></p>
               </div>
             </div>
           </section>
         </div>
       </div>
     </aside>
-
-    <main class="container">
-      <section class="controls" aria-label="Filters">
-        <input
-          id="search"
-          class="input"
-          type="search"
-          placeholder="Search games…"
-          autocomplete="off"
-          aria-label="Search games"
-        />
-      </section>
-
-      <section>
-        <div id="status" class="status" role="status" aria-live="polite"></div>
-        <div id="grid" class="grid" aria-label="Games list"></div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="container footerInner">
-        <a class="link" href="https://github.com/devbadya/microgames" rel="noopener">Source</a>
-      </div>
-    </footer>
 
     <script type="module" src="./assets/site.ts"></script>
   </body>

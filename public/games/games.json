@@ -2,7 +2,9 @@
   {
     "slug": "dino-run",
     "title": "Dino Run",
+    "title_de": "Dino Run",
     "description": "Jump cacti, duck flyers, and survive as the desert speeds up — inspired by the classic offline dino runner.",
+    "description_de": "Über Kakteen springen, unter Vögeln ducken und mit dem Tempo mithalten — inspiriert vom klassischen Offline-Dino.",
     "minutes": 3,
     "tags": ["arcade", "endless", "keyboard"],
     "thumbnail": "./thumbnails/dino-run.svg"
@@ -10,7 +12,9 @@
   {
     "slug": "tetris",
     "title": "Tetris",
+    "title_de": "Tetris",
     "description": "The classic block-stacking puzzle, rebuilt with the PlayCanvas engine.",
+    "description_de": "Das klassische Stapelpuzzle — neu aufgebaut mit der PlayCanvas-Engine.",
     "minutes": 5,
     "tags": ["puzzle", "playcanvas", "keyboard"],
     "thumbnail": "./thumbnails/tetris.svg"
@@ -18,9 +22,41 @@
   {
     "slug": "sky-hopper",
     "title": "Sky Hopper",
+    "title_de": "Sky Hopper",
     "description": "Tap to flap through glowing gates in a tiny arcade side scroller.",
+    "description_de": "Tippen zum Flattern — durch leuchtende Tore in einem Mini-Sidescroller.",
     "minutes": 2,
     "tags": ["arcade", "tap", "mobile"],
     "thumbnail": "./thumbnails/sky-hopper.svg"
+  },
+  {
+    "slug": "panic-button",
+    "title": "Panic Button",
+    "title_de": "Panic Button",
+    "description": "Wait for GREEN — slam the button fast. Reds are decoys — build streak multipliers or face sassy flop text.",
+    "description_de": "Warte auf GRÜN — dann schnell drücken. Rot ist Köder — Streak oder fail mit Text.",
+    "minutes": 2,
+    "tags": ["arcade", "tap", "reflex"],
+    "thumbnail": "./thumbnails/panic-button.svg"
+  },
+  {
+    "slug": "tank-wars",
+    "title": "Tank Wars",
+    "title_de": "Tank Wars",
+    "description": "Top-down duel vs a bot: five tank types with unique shot behavior · earn XP each win.",
+    "description_de": "Top-down Duell gegen den Bot: fünf Panzertypen mit eigenem Schussverhalten · XP pro Sieg.",
+    "minutes": 4,
+    "tags": ["arcade", "keyboard", "action"],
+    "thumbnail": "./thumbnails/tank-wars.svg"
+  },
+  {
+    "slug": "tank-artillery",
+    "title": "Tank Artillery",
+    "title_de": "Panzer-Artillerie",
+    "description": "Turn-based ballistic duel vs a bot: aim, wind, craters · earn XP each win.",
+    "description_de": "Ballistisches Zug-Duell gegen den Bot: Winkel, Wind, Krater · XP pro Sieg.",
+    "minutes": 5,
+    "tags": ["strategy", "keyboard", "ballistics"],
+    "thumbnail": "./thumbnails/tank-artillery.svg"
   }
 ]

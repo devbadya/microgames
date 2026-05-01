@@ -1,0 +1,1538 @@
+/* Panzer-Artillerie · Lobby / Shop im Fortnite-Stil (kein Affiliate — nur Look) */
+
+:root {
+  --fn-font: "Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
+  --fn-deep: #050816;
+  --fn-panel: #0d1328;
+  --fn-cyan: #2ecfff;
+  --fn-cyan-glow: rgba(46, 207, 255, 0.45);
+}
+
+.gameBody.taBody {
+  margin: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(46, 207, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 80% 100%, rgba(139, 92, 246, 0.22), transparent 50%),
+    linear-gradient(180deg, #0a1628 0%, #070b18 42%, var(--fn-deep) 100%);
+}
+
+.taRoot {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.taRoot:fullscreen {
+  min-height: 100%;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(46, 207, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 80% 100%, rgba(139, 92, 246, 0.22), transparent 50%),
+    linear-gradient(180deg, #0a1628 0%, #070b18 42%, var(--fn-deep) 100%);
+}
+
+.taRoot:-webkit-full-screen {
+  min-height: 100%;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(46, 207, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 80% 100%, rgba(139, 92, 246, 0.22), transparent 50%),
+    linear-gradient(180deg, #0a1628 0%, #070b18 42%, var(--fn-deep) 100%);
+}
+
+/* —— Fortnite-Shell: linke Rail + Hauptbereich —— */
+.taHub.taFortniteShell {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-height: 0;
+  z-index: 12;
+  padding: clamp(3.2rem, 5vw, 3.85rem) clamp(0.4rem, 1.8vw, 1rem) 0.6rem clamp(0.35rem, 1.2vw, 0.75rem);
+  max-width: min(92rem, calc(100vw - 0.5rem));
+  width: 100%;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+.taFortniteRail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.35rem 0.25rem;
+  align-self: stretch;
+}
+
+.taFortniteRail .taFortniteRailBtn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: clamp(4.25rem, 11vw, 5.15rem);
+  min-height: 4.85rem;
+  padding: 0.45rem 0.35rem;
+  border-radius: 14px;
+  border: 2px solid rgba(148, 163, 184, 0.28);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: clamp(0.72rem, 2vw, 0.82rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: rgba(226, 232, 240, 0.88);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 4px 16px rgba(0, 0, 0, 0.35);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 75ms ease;
+}
+
+.taFortniteRail .taFortniteRailTxt {
+  display: block;
+  line-height: 1;
+}
+
+.taFortniteRailIc {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.taFortniteRail .taFortniteRailBtn:hover,
+.taFortniteRail .taFortniteRailBtn:focus-visible {
+  border-color: rgba(46, 207, 255, 0.45);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.taFortniteRail .taFortniteRailBtn.taHubNavBtn--active {
+  border-color: var(--fn-cyan);
+  color: #fff;
+  background: linear-gradient(160deg, rgba(46, 207, 255, 0.22) 0%, rgba(15, 23, 42, 0.92) 70%);
+  box-shadow:
+    0 0 0 1px var(--fn-cyan-glow),
+    inset 0 0 28px rgba(46, 207, 255, 0.12),
+    0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.taFortniteRail .taFortniteRailBtn.taHubNavBtn--active .taFortniteRailIc {
+  border-color: rgba(46, 207, 255, 0.65);
+}
+
+.taFortniteCenter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.taFortniteTopBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.55rem 0.95rem;
+  margin-bottom: 0.65rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(8, 12, 26, 0.72);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.38);
+}
+
+.taFortniteModeLine {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: clamp(0.88rem, 2.6vw, 1.06rem);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.taFortniteModePulse {
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 50%;
+  background: var(--fn-cyan);
+  box-shadow: 0 0 12px var(--fn-cyan-glow);
+  animation: taFnPulse 1.45s ease-in-out infinite;
+}
+
+@keyframes taFnPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(0.88);
+  }
+}
+
+.taFortnitePurse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: clamp(0.88rem, 2.5vw, 1.02rem);
+}
+
+.taFortnitePurse .taHubPurseItem {
+  padding: 0.32rem 0.82rem;
+  border-radius: 999px;
+  border: none;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.12),
+    0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.taFortniteGemPill {
+  border: 1px solid rgba(250, 204, 21, 0.45) !important;
+  background: linear-gradient(180deg, #fde047 0%, #eab308 100%) !important;
+  color: #422006 !important;
+  text-shadow: none;
+}
+
+.taFortniteXpPill {
+  border: 1px solid rgba(56, 189, 248, 0.4) !important;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%) !important;
+  color: #e0f2fe !important;
+}
+
+.taHubMain {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.taHubPanel {
+  flex: 1;
+  min-height: 0;
+  animation: taHubFade 0.25s ease;
+}
+
+.taLobbyFloatBottom .taHubLoadHint {
+  margin-top: 0.55rem;
+  color: rgba(248, 250, 252, 0.88);
+  text-shadow: 0 1px 4px rgba(15, 23, 42, 0.8);
+}
+
+.taLobbyShowcase:has(#taHubPlay:not(:disabled)) #taHubLoadHint {
+  display: none;
+}
+
+@keyframes taHubFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.taHubPanel--lobby {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.taLobbyLayout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Showcase: Bühnenlicht angelehnt an Fortnite-Lobby */
+.taLobbyShowcase {
+  flex: 1;
+  position: relative;
+  min-height: clamp(280px, min(72vh, 720px), 85vh);
+  border-radius: 22px;
+  border: 1px solid rgba(46, 207, 255, 0.22);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.6),
+    0 20px 50px rgba(0, 0, 0, 0.55),
+    inset 0 -80px 120px rgba(0, 0, 0, 0.45);
+  background:
+    radial-gradient(ellipse 92% 75% at 50% 86%, rgba(46, 207, 255, 0.18), transparent 58%),
+    radial-gradient(ellipse 70% 55% at 50% 22%, rgba(167, 139, 250, 0.2), transparent 52%),
+    linear-gradient(180deg, #121c3a 0%, #090f24 52%, #040612 100%);
+}
+
+.taLobbyShowcase::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 8%, rgba(255, 255, 255, 0.12), transparent 38%),
+    radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.5), transparent 55%);
+}
+
+.taLobbyShowcase #taLobbyTankCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  vertical-align: top;
+  position: relative;
+  z-index: 0;
+  /* Kenney-Silber hat starke rote Akzente — in der Lobby etwas weicher */
+  filter: saturate(0.86) contrast(1.02);
+  transition: filter 0.35s ease;
+}
+
+@keyframes taLobbyReturnFlash {
+  0% {
+    border-color: rgba(46, 207, 255, 0.55);
+    box-shadow:
+      0 0 0 2px rgba(46, 207, 255, 0.28),
+      0 0 0 1px rgba(15, 23, 42, 0.6),
+      0 22px 56px rgba(0, 0, 0, 0.58),
+      inset 0 -80px 120px rgba(0, 0, 0, 0.45);
+  }
+  100% {
+    border-color: rgba(46, 207, 255, 0.22);
+    box-shadow:
+      0 0 0 1px rgba(15, 23, 42, 0.6),
+      0 20px 50px rgba(0, 0, 0, 0.55),
+      inset 0 -80px 120px rgba(0, 0, 0, 0.45);
+  }
+}
+
+.taLobbyShowcase.taLobbyShowcase--returnFlash {
+  animation: taLobbyReturnFlash 0.9s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taLobbyShowcase.taLobbyShowcase--returnFlash {
+    animation: none;
+    border-color: rgba(46, 207, 255, 0.42);
+  }
+}
+
+.taLobbyFloatTop {
+  position: absolute;
+  z-index: 2;
+  top: max(0.85rem, env(safe-area-inset-top, 0));
+  left: max(0.85rem, env(safe-area-inset-left, 0));
+  max-width: min(24rem, 90vw);
+  pointer-events: none;
+}
+
+.taLobbyTitle {
+  margin: 0 0 0.35rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.38rem, 4.8vw, 2.05rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f8fafc;
+  text-shadow:
+    0 0 22px rgba(46, 207, 255, 0.35),
+    0 3px 0 rgba(15, 23, 42, 0.9);
+  line-height: 1.12;
+}
+
+.taLobbyLeadShort {
+  margin: 0;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 700;
+  font-size: clamp(0.86rem, 2.35vw, 1.02rem);
+  letter-spacing: 0.04em;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.9);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+.taLobbyFloatReady {
+  position: absolute;
+  z-index: 2;
+  left: max(0.75rem, env(safe-area-inset-left, 0));
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  pointer-events: auto;
+}
+
+.taLobbyReadyBtn {
+  padding: 0.78rem 2.05rem;
+  min-width: min(90vw, 11.5rem);
+  margin: 0;
+  border-radius: 999px;
+  border: 2px solid rgba(46, 207, 255, 0.65);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.05rem, 3.6vw, 1.38rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: #ecfeff;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.28) 0%, rgba(15, 23, 42, 0.88) 120%);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.5),
+    0 8px 0 rgba(14, 116, 144, 0.55),
+    0 14px 28px rgba(0, 0, 0, 0.42);
+  transition:
+    transform 75ms ease,
+    box-shadow 75ms ease,
+    opacity 0.15s ease,
+    filter 0.12s ease;
+}
+
+.taLobbyReadyBtn:hover:not(:disabled),
+.taLobbyReadyBtn:focus-visible:not(:disabled) {
+  transform: translateY(2px);
+  outline: none;
+  filter: brightness(1.06);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.45),
+    0 5px 0 rgba(14, 116, 144, 0.5),
+    0 10px 22px rgba(0, 0, 0, 0.38);
+}
+
+.taLobbyReadyBtn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.taLobbyFloatBottom {
+  position: absolute;
+  z-index: 2;
+  right: max(0.75rem, env(safe-area-inset-right, 0));
+  left: auto;
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0));
+  transform: none;
+  width: auto;
+  max-width: min(94vw, 20rem);
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  pointer-events: auto;
+}
+
+.taLobbyPlayBtn {
+  margin: 0;
+}
+
+.taHubTitle {
+  margin: 0 0 0.85rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(2rem, 6vw, 2.85rem);
+  letter-spacing: -0.03em;
+  color: #0f172a;
+  text-shadow:
+    2px 0 #fff,
+    -2px 0 #fff,
+    0 2px #fff,
+    0 -2px #fff;
+}
+
+.taHubSubtitle {
+  margin: 0 0 0.75rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 1.75rem;
+  color: #0f172a;
+}
+
+.taHubLead,
+.taHubMuted {
+  margin: 0 auto 1.65rem;
+  max-width: 28rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.05rem, 3vw, 1.22rem);
+  line-height: 1.52;
+  color: rgba(15, 23, 42, 0.94);
+}
+
+.taHubMuted {
+  margin-bottom: 1rem;
+}
+
+.taHubPlayBtn {
+  padding: 0.88rem 2.65rem;
+  min-width: min(94vw, 14.5rem);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.18rem, 3.9vw, 1.52rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  color: #3f2906;
+  background: linear-gradient(180deg, #fff569 0%, #fbbf24 40%, #f59e0b 100%);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.25),
+    0 10px 0 #b45309,
+    0 14px 28px rgba(0, 0, 0, 0.45);
+  transition: transform 75ms ease, box-shadow 75ms ease, opacity 0.15s ease, filter 0.12s ease;
+}
+
+.taHubPlayBtn:hover:not(:disabled),
+.taHubPlayBtn:focus-visible:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.25),
+    0 6px 0 #b45309,
+    0 10px 22px rgba(0, 0, 0, 0.4);
+  outline: none;
+  filter: brightness(1.04);
+}
+
+.taHubPlayBtn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.taHubLoadHint {
+  margin: 0.85rem 0 0;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.taShopPlaceholder {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1.1rem;
+  max-width: 28rem;
+}
+
+.taShopRow--wide {
+  grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
+}
+
+.taShopCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 9.25rem;
+  padding: 0.82rem 0.92rem;
+  padding-top: 1.68rem;
+  border-radius: 12px;
+  border: 3px solid rgba(148, 163, 184, 0.35);
+  background: radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 55%);
+  background-color: rgba(21, 30, 56, 0.72);
+}
+
+.taShopCard--fn {
+  backdrop-filter: blur(6px);
+}
+
+.taShopCard--locked {
+  opacity: 0.92;
+}
+
+.taShopCard--epic {
+  border-color: #a855f7;
+  box-shadow:
+    0 0 0 1px rgba(168, 85, 247, 0.35),
+    0 0 22px rgba(168, 85, 247, 0.25);
+}
+
+.taShopCard--legendary {
+  border-color: #fbbf24;
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.4),
+    0 0 26px rgba(251, 191, 36, 0.28);
+}
+
+.taShopCard--rare {
+  border-color: #38bdf8;
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.35),
+    0 0 18px rgba(56, 189, 248, 0.2);
+}
+
+.taShopCardRarity {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0.2rem 0.5rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.74rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgba(248, 250, 252, 0.95);
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.taShopCard--epic .taShopCardRarity {
+  color: #e9d5ff;
+}
+
+.taShopCard--legendary .taShopCardRarity {
+  color: #fde68a;
+}
+
+.taShopCard--rare .taShopCardRarity {
+  color: #bae6fd;
+}
+
+.taShopCardTag {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 0.14rem 0.5rem;
+  margin-bottom: 0;
+  border-radius: 6px;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+.taShopCardTitle {
+  display: block;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 1.06rem;
+  letter-spacing: 0.03em;
+  color: #f8fafc;
+}
+
+.taShopCardMeta {
+  display: block;
+  margin-top: 0.12rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: rgba(203, 213, 225, 0.85);
+  flex: 1;
+}
+
+.taShopCardPrice {
+  margin-top: 0.5rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: #fde047;
+}
+
+/* Item-Shop-Overlay wie Fortnite Store */
+.taShop {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: grid;
+  place-items: stretch;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.taShop[hidden] {
+  display: none;
+}
+
+.taShopBackdrop {
+  position: absolute;
+  inset: 0;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(5, 8, 20, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.taShopPanel {
+  position: relative;
+  z-index: 29;
+  display: flex;
+  flex-direction: column;
+  width: calc(100vw - 24px);
+  max-width: 72rem;
+  height: calc(100dvh - 24px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px));
+  max-height: 960px;
+  margin: auto;
+  align-self: center;
+  justify-self: center;
+  border-radius: 16px;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  background:
+    radial-gradient(circle at 12% -10%, rgba(168, 85, 247, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(17, 24, 48, 0.98) 0%, rgba(8, 12, 26, 0.99) 65%, #060912 100%);
+  box-shadow:
+    0 0 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(15, 23, 42, 0.7);
+  overflow: hidden;
+  animation: taShopPopFn 0.32s cubic-bezier(0.2, 0.95, 0.35, 1);
+}
+
+@keyframes taShopPopFn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.taShopHeader--fn {
+  flex: 0 0 auto;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.taShopTitleBlock {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.taShopKicker {
+  margin: 0 0 0.2rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.74rem;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.taShopTimer {
+  margin: 0.35rem 0 0;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(34, 211, 238, 0.82);
+}
+
+.taShopLead--fn {
+  margin-top: 0.75rem;
+  color: rgba(226, 232, 240, 0.86);
+}
+
+.taShopSection {
+  margin-bottom: 1.35rem;
+}
+
+.taShopSection:last-child {
+  margin-bottom: 0;
+}
+
+.taShopSectionTitle {
+  margin: 0 0 0.75rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.94rem;
+  letter-spacing: 0.46em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.taShopTankList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15.75rem, 1fr));
+  gap: 0.75rem;
+}
+
+.taShopTankCard.taShopTankCard--owned {
+  border-color: rgba(52, 211, 153, 0.48);
+}
+
+.taShopTankActions {
+  margin-top: auto;
+  padding-top: 0.42rem;
+}
+
+.taShopTankBuyBtn {
+  width: 100%;
+  padding: 0.42rem 0.65rem;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f172a;
+  background: linear-gradient(180deg, #fcd34d 0%, #f59e0b 100%);
+  box-shadow: 0 3px 0 #b45309;
+}
+
+.taShopTankBuyBtn:hover:not(:disabled),
+.taShopTankBuyBtn:focus-visible:not(:disabled) {
+  outline: none;
+  filter: brightness(1.06);
+}
+
+.taShopTankBuyBtn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.taShopTankMsg {
+  margin: 0.55rem 0 0;
+  min-height: 1.2em;
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #67e8f9;
+}
+
+.taLockerTankList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.taLockerTankRow--active {
+  border-color: rgba(52, 211, 153, 0.55) !important;
+  background: rgba(6, 78, 59, 0.22);
+}
+
+.taLockerEquipBtn {
+  padding: 0.35rem 0.72rem;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  cursor: pointer;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.26);
+}
+
+.taLockerEquipBtn:hover,
+.taLockerEquipBtn:focus-visible {
+  outline: none;
+  background: rgba(14, 165, 233, 0.4);
+}
+
+.taShopPanel .taShopPlaceholder {
+  max-width: none;
+  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+}
+
+.taShopHeaderTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.taShopPanelTitle {
+  margin: 0;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.72rem, 5vw, 2.42rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f8fafc;
+  text-shadow: 0 0 24px rgba(46, 207, 255, 0.25);
+}
+
+.taShopCloseGhost {
+  padding: 0.4rem 1.05rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: rgba(248, 250, 252, 0.95);
+  background: rgba(30, 41, 59, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.12s ease, transform 75ms ease, background 0.12s ease;
+}
+
+.taShopCloseGhost:hover,
+.taShopCloseGhost:focus-visible {
+  border-color: var(--fn-cyan);
+  background: rgba(56, 189, 248, 0.12);
+  outline: none;
+}
+
+.taShopLead {
+  margin: 0.65rem 0 0.75rem;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 700;
+  font-size: clamp(0.93rem, 2.65vw, 1.03rem);
+  line-height: 1.46;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.taShopPurseRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+
+.taShopBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.15rem 1.1rem;
+}
+
+.taShopBody--fn {
+  padding: 1.05rem 1.25rem 1.35rem;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(46, 207, 255, 0.06), transparent 45%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.25) 0%, transparent 28%);
+}
+
+.taShopFooter {
+  flex: 0 0 auto;
+  padding: 0.65rem 1.15rem 1rem;
+  border-top: 3px solid rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.taShopFooter--fn {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(8, 12, 26, 0.9);
+}
+
+.taShopFooterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.taShopCodePanel {
+  padding: 0.55rem 0.15rem 0.15rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.taShopCodeHint {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  color: rgba(226, 232, 240, 0.78);
+  line-height: 1.35;
+}
+
+.taShopCodeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.taShopCodeInput {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(2, 6, 23, 0.65);
+  color: #f8fafc;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-size: 0.92rem;
+  /* Cursor wirkt oft wie ein „Strich“; Fokus sichtbar über Ring */
+  caret-color: transparent;
+}
+
+.taShopCodeInput::placeholder {
+  color: rgba(148, 163, 184, 0.65);
+}
+
+.taShopCodeInput:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline-offset: 1px;
+}
+
+.taShopCodeApply {
+  padding: 0.48rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.18);
+  transition:
+    background 75ms ease,
+    transform 75ms ease;
+}
+
+.taShopCodeApply:hover,
+.taShopCodeApply:focus-visible {
+  background: rgba(14, 165, 233, 0.32);
+  outline: none;
+}
+
+.taShopCodeApply:active {
+  transform: translateY(1px);
+}
+
+.taShopCodeMsg {
+  margin: 0.45rem 0 0;
+  min-height: 1.25em;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #a5f3fc;
+}
+
+.taShopCodeToggle {
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: rgba(226, 232, 240, 0.92);
+  background: rgba(15, 23, 42, 0.55);
+  transition:
+    background 75ms ease,
+    border-color 75ms ease;
+}
+
+.taShopCodeToggle:hover,
+.taShopCodeToggle:focus-visible {
+  border-color: rgba(248, 250, 252, 0.35);
+  background: rgba(30, 41, 59, 0.75);
+  outline: none;
+}
+
+.taShopCloseBtn {
+  padding: 0.55rem 1.85rem;
+  border-radius: 999px;
+  border: none;
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: #451a03;
+  background: linear-gradient(180deg, #fcd34d 0%, #f59e0b 100%);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.2),
+    0 6px 0 #b45309;
+  transition:
+    transform 75ms ease,
+    box-shadow 75ms ease;
+}
+
+.taShopCloseBtn:hover,
+.taShopCloseBtn:focus-visible {
+  transform: translateY(1px);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.2),
+    0 3px 0 #b45309;
+  outline: none;
+}
+
+/** Locker (#taLocker) nutzt dieselbe Shell-Klasse .taShop — nur Akzent & Slots */
+#taLocker .taLockerPanel.taShopPanel {
+  border-color: rgba(167, 139, 250, 0.32);
+  box-shadow:
+    0 0 80px rgba(0, 0, 0, 0.7),
+    0 0 42px rgba(139, 92, 246, 0.12),
+    0 0 0 1px rgba(15, 23, 42, 0.7);
+}
+
+.taLockerSlotList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.58rem;
+}
+
+.taLockerSlot {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 7.5rem) 1fr auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 0.92rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(21, 30, 56, 0.55);
+}
+
+.taLockerSlot--soon {
+  opacity: 0.86;
+}
+
+.taLockerSlotLabel {
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.taLockerSlotValue {
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.96rem;
+  color: #f8fafc;
+}
+
+.taLockerSlotTag {
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.28);
+}
+
+.taLockerSlot--soon .taLockerSlotTag {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: rgba(226, 232, 240, 0.8);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.taHub[hidden] {
+  display: none;
+}
+
+.taFullscreenBtn {
+  position: absolute;
+  z-index: 18;
+  top: max(0.45rem, env(safe-area-inset-top));
+  right: max(0.45rem, env(safe-area-inset-right));
+  padding: 0.38rem 0.92rem;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: rgba(248, 250, 252, 0.94);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 6px 20px rgba(0, 0, 0, 0.4);
+  transition: transform 80ms ease, border-color 0.12s ease;
+}
+
+.taFullscreenBtn:hover,
+.taFullscreenBtn:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--fn-cyan);
+  outline: none;
+}
+
+.taBack.link {
+  position: absolute;
+  z-index: 18;
+  top: max(0.45rem, env(safe-area-inset-top));
+  left: max(0.45rem, env(safe-area-inset-left));
+  padding: 0.38rem 0.92rem;
+  border-radius: 10px;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  color: #422006;
+  background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.15),
+    0 6px 18px rgba(0, 0, 0, 0.4);
+  text-decoration: none;
+  border-bottom: none;
+  transition: transform 80ms ease, filter 0.12s ease;
+}
+
+.taBack.link:hover,
+.taBack.link:focus-visible {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  outline: none;
+}
+
+.taStage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(2.5rem, env(safe-area-inset-top)) 0.75rem 0.5rem;
+}
+
+.taStage #taCanvas {
+  display: block;
+  width: min(96vw, calc((100dvh - 7.5rem) * 1680 / 720));
+  max-width: 100%;
+  max-height: calc(100dvh - 7.5rem);
+  height: auto;
+  aspect-ratio: 1680 / 720;
+  border-radius: 16px;
+  border: 4px solid #0f172a;
+  box-shadow:
+    8px 8px 0 rgba(15, 23, 42, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.25);
+  outline: none;
+  background: #7dd3fc;
+  image-rendering: auto;
+}
+
+/* Ohne das überschreibt `.taStage { display: flex }` das UA-`[hidden]` → Canvas bleibt als zweiter Flex-Block unter der Lobby sichtbar. */
+.taStage[hidden],
+.taBottom[hidden] {
+  display: none !important;
+}
+
+.taBottom {
+  flex: 0 0 auto;
+  padding: 0.45rem 1rem max(0.85rem, env(safe-area-inset-bottom));
+  text-align: center;
+  background: linear-gradient(180deg, rgba(12, 18, 36, 0.45) 0%, rgba(8, 12, 26, 0.82) 100%);
+  border-top: 1px solid rgba(56, 189, 248, 0.22);
+  backdrop-filter: blur(10px);
+}
+
+.taFoot {
+  margin: 0 0 0.4rem;
+  font-weight: 900;
+  font-size: 1.05rem;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  color: #f8fafc;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 14px rgba(0, 0, 0, 0.55);
+  min-height: 1.35em;
+}
+
+.taHint {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  max-width: 52rem;
+  margin-inline: auto;
+  font-weight: 800;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #e2e8f0;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 20px rgba(0, 0, 0, 0.45);
+}
+
+.taHint kbd {
+  display: inline-block;
+  margin: 0 0.1em;
+  padding: 0.14em 0.48em;
+  border-radius: 6px;
+  border: 2px solid #0f172a;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  font-size: 0.85em;
+  font-family: inherit;
+  font-weight: 800;
+  color: #0f172a;
+  box-shadow:
+    2px 2px 0 #0f172a,
+    0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+.taSrOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Aufgeben — Dialog über dem Spiel */
+.taSurrender {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+}
+
+.taSurrender[hidden] {
+  display: none;
+}
+
+.taSurrenderBackdrop {
+  position: absolute;
+  inset: 0;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.taSurrenderPanel {
+  position: relative;
+  z-index: 41;
+  max-width: min(94vw, 26rem);
+  padding: 1.35rem 1.5rem 1.25rem;
+  margin: min(12vh, 4rem) 1rem 1rem;
+  border-radius: 18px;
+  border: 4px solid #0f172a;
+  background: linear-gradient(180deg, #fefce8 0%, #fef9c3 40%, #fef08a 100%);
+  box-shadow:
+    8px 8px 0 rgba(15, 23, 42, 0.4),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.06),
+    0 0 40px rgba(46, 207, 255, 0.12);
+}
+
+.taSurrenderMsg {
+  margin: 0 0 1rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 1.15rem;
+  line-height: 1.42;
+  color: #0f172a;
+  text-align: center;
+}
+
+.taSurrenderRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+}
+
+.taSurrenderBtn {
+  min-width: 6.25rem;
+  padding: 0.55rem 1.35rem;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 1.02rem;
+  border-radius: 999px;
+  border: 3px solid #0f172a;
+  cursor: pointer;
+  transition: transform 75ms ease, box-shadow 75ms ease;
+}
+
+.taSurrenderJa {
+  background: #fecaca;
+  color: #991b1b;
+  box-shadow: 4px 4px 0 #0f172a;
+}
+
+.taSurrenderJa:hover,
+.taSurrenderJa:focus-visible {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 #0f172a;
+  outline: none;
+}
+
+.taSurrenderNein {
+  background: #d1fae5;
+  color: #065f46;
+  box-shadow: 4px 4px 0 #0f172a;
+}
+
+.taSurrenderNein:hover,
+.taSurrenderNein:focus-visible {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 #0f172a;
+  outline: none;
+}
+
+/* Gewonnen / verloren — große Meldung */
+.taGameOver {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+}
+
+.taGameOver[hidden] {
+  display: none;
+}
+
+.taGameOverBackdrop {
+  position: absolute;
+  inset: 0;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(5px);
+}
+
+.taGameOverPanel {
+  position: relative;
+  z-index: 51;
+  max-width: min(96vw, 36rem);
+  padding: clamp(1.75rem, 4vw, 2.75rem) clamp(1.25rem, 4vw, 2.25rem);
+  margin: min(10vh, 3rem) 1rem 1rem;
+  border-radius: 22px;
+  border: 4px solid #0f172a;
+  background: linear-gradient(180deg, #fef08a 0%, #fcd34d 55%, #f59e0b 100%);
+  box-shadow:
+    10px 10px 0 rgba(15, 23, 42, 0.42),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+.taGameOverTitle {
+  margin: 0 0 0.6rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.85rem, 6.5vw, 2.75rem);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  text-wrap: balance;
+}
+
+.taGameOverSub {
+  margin: 0 0 1.35rem;
+  font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(1rem, 3vw, 1.22rem);
+  line-height: 1.4;
+  color: rgba(15, 23, 42, 0.88);
+}
+
+.taGameOverActions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+@media (min-width: 520px) {
+  .taGameOverActions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+.taGameOverBtn {
+  display: inline-block;
+  min-width: 13rem;
+  padding: 0.75rem 1.75rem;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: clamp(1.05rem, 2.8vw, 1.2rem);
+  border-radius: 999px;
+  border: 4px solid #0f172a;
+  cursor: pointer;
+  background: linear-gradient(180deg, #86efac 0%, #4ade80 45%, #22c55e 100%);
+  color: #064e3b;
+  box-shadow: 5px 5px 0 #0f172a;
+  transition: transform 75ms ease, box-shadow 75ms ease;
+}
+
+.taGameOverBtn--secondary {
+  background: linear-gradient(180deg, #f1f5f9 0%, #cbd5e1 45%, #94a3b8 100%);
+  color: #0f172a;
+}
+
+.taGameOverBtn:hover,
+.taGameOverBtn:focus-visible {
+  transform: translate(2px, 2px);
+  box-shadow: 3px 3px 0 #0f172a;
+  outline: none;
+}

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>Panzer-Artillerie — microgames</title>
+    <meta
+      name="description"
+      content="Zug-Artillerie: Winkel, Kraft, Wind, Krater im Boden — breite Welt · XP bei Siegen."
+    />
+    <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Nunito:wght@700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="gameBody taBody">
+    <div id="taRoot" class="taRoot">
+      <a class="taBack link" href="../../">← Spiele</a>
+      <button type="button" id="taFullscreenBtn" class="taFullscreenBtn" aria-pressed="false">Vollbild</button>
+
+      <div id="taHub" class="taHub taFortniteShell" aria-label="Lobby">
+        <aside class="taFortniteRail" aria-label="Menü">
+          <button type="button" id="taHubTabLobby" class="taHubNavBtn taFortniteRailBtn taHubNavBtn--active">
+            <span class="taFortniteRailIc" aria-hidden="true">⌂</span>
+            <span class="taFortniteRailTxt">Lobby</span>
+          </button>
+          <button type="button" id="taHubTabShop" class="taHubNavBtn taFortniteRailBtn">
+            <span class="taFortniteRailIc" aria-hidden="true">🛒</span>
+            <span class="taFortniteRailTxt">Shop</span>
+          </button>
+          <button type="button" id="taHubTabLocker" class="taHubNavBtn taFortniteRailBtn">
+            <span class="taFortniteRailIc" aria-hidden="true">🎒</span>
+            <span class="taFortniteRailTxt">Locker</span>
+          </button>
+        </aside>
+
+        <div class="taFortniteCenter">
+          <header class="taFortniteTopBar">
+            <p class="taFortniteModeLine">
+              <span class="taFortniteModePulse" aria-hidden="true"></span>
+              Lobby · Panzer-Artillerie
+            </p>
+            <div class="taHubPurse taFortnitePurse" aria-label="Fortschritt">
+              <span class="taHubPurseItem taFortniteGemPill"><span aria-hidden="true">💎</span> <span id="taHubGems">0</span></span>
+              <span class="taHubPurseItem taFortniteXpPill"
+                >Lvl <span id="taHubLvlHud">1</span> · <span id="taHubXpHud">0</span> XP</span
+              >
+            </div>
+          </header>
+
+          <div class="taHubMain">
+          <section id="taHubPanelLobby" class="taHubPanel taHubPanel--lobby" aria-label="Lobby">
+            <div class="taLobbyLayout">
+              <div class="taLobbyShowcase">
+                <canvas id="taLobbyTankCanvas" width="960" height="480" aria-hidden="true"></canvas>
+                <div class="taLobbyFloatTop">
+                  <h1 class="taLobbyTitle">Panzer-Artillerie</h1>
+                  <p id="taLobbyLeadShort" class="taLobbyLeadShort">
+                    Wind · Gelände · Krater — Siege bringen XP und 💎.
+                  </p>
+                </div>
+                <div class="taLobbyFloatReady">
+                  <button
+                    type="button"
+                    id="taLobbyReadyBtn"
+                    class="taLobbyReadyBtn"
+                    disabled
+                    aria-label="Bereit — Partie starten"
+                  >
+                    Bereit
+                  </button>
+                </div>
+                <div class="taLobbyFloatBottom">
+                  <button type="button" id="taHubPlay" class="taHubPlayBtn taLobbyPlayBtn" disabled>Ins Spiel</button>
+                  <p id="taHubLoadHint" class="taHubLoadHint">Lade Grafiken …</p>
+                </div>
+              </div>
+            </div>
+          </section>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="taShop"
+        class="taShop"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="taShopTitle"
+      >
+        <button type="button" class="taShopBackdrop" id="taShopBackdrop" aria-label="Hintergrund — schließt den Shop"></button>
+        <div class="taShopPanel">
+          <header class="taShopHeader taShopHeader--fn">
+            <div class="taShopHeaderTop">
+              <div class="taShopTitleBlock">
+                <p class="taShopKicker">Objektgeschäft</p>
+                <h2 id="taShopTitle" class="taShopPanelTitle">Item-Shop</h2>
+                <p class="taShopTimer" aria-hidden="true">Rotation · bald neue Angebote</p>
+              </div>
+              <button type="button" class="taShopCloseGhost" id="taShopClose" aria-label="Zurück zur Lobby">ESC · Lobby</button>
+            </div>
+            <p class="taShopLead taShopLead--fn">
+              <strong>💎 Panzer:</strong> Stärkere Modelle kosten mehr 💎 (steigend mit Feuerkraft); Silber bleibt der kostenlose Starter.
+            </p>
+            <div class="taShopPurseRow taFortnitePurse" aria-label="Fortschritt">
+              <span class="taHubPurseItem taFortniteGemPill"><span aria-hidden="true">💎</span> <span id="taShopGems">0</span></span>
+              <span class="taHubPurseItem taFortniteXpPill"
+                >Lvl <span id="taShopLvlHud">1</span> · <span id="taShopXpHud">0</span> XP</span
+              >
+            </div>
+          </header>
+          <div class="taShopBody taShopBody--fn">
+            <section class="taShopSection" aria-labelledby="taShopSecTanks">
+              <h3 id="taShopSecTanks" class="taShopSectionTitle">Panzer</h3>
+              <ul id="taShopTankList" class="taShopTankList"></ul>
+              <p class="taShopTankMsg" id="taShopTankMsg" role="status" aria-live="polite"></p>
+            </section>
+            <section class="taShopSection" aria-labelledby="taShopSecGear">
+              <h3 id="taShopSecGear" class="taShopSectionTitle">Spezial</h3>
+              <ul id="taShopGearList" class="taShopTankList"></ul>
+              <p class="taShopTankMsg" id="taShopGearMsg" role="status" aria-live="polite"></p>
+            </section>
+            <section class="taShopSection" aria-labelledby="taShopSecDaily">
+              <h3 id="taShopSecDaily" class="taShopSectionTitle">Tages-Angebote</h3>
+              <ul class="taShopPlaceholder taShopRow--wide">
+                <li class="taShopCard taShopCard--fn taShopCard--epic taShopCard--locked">
+                  <span class="taShopCardRarity">Episch</span>
+                  <span class="taShopCardTag">Soon</span>
+                  <span class="taShopCardTitle">Kosmetik-Paket</span>
+                  <span class="taShopCardMeta">Spuren &amp; Abzeichen</span>
+                  <span class="taShopCardPrice" aria-hidden="true"> ??? 💎</span>
+                </li>
+                <li class="taShopCard taShopCard--fn taShopCard--rare taShopCard--locked">
+                  <span class="taShopCardRarity">Rare</span>
+                  <span class="taShopCardTag">Soon</span>
+                  <span class="taShopCardTitle">Sound-Pack</span>
+                  <span class="taShopCardMeta">Geschütz &amp; Treffer FX</span>
+                  <span class="taShopCardPrice" aria-hidden="true"> ??? 💎</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+          <footer class="taShopFooter taShopFooter--fn">
+            <div class="taShopCodePanel" id="taShopCodePanel" hidden>
+              <p class="taShopCodeHint">Wenn du einen Promo-Code hast — hier einlösen.</p>
+              <div class="taShopCodeRow">
+                <label class="visuallyHidden" for="taShopCodeInput">Promo-Code</label>
+                <input
+                  type="text"
+                  id="taShopCodeInput"
+                  class="taShopCodeInput"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="32"
+                  placeholder="Code eingeben"
+                />
+                <button type="button" class="taShopCodeApply" id="taShopCodeApply">Einlösen</button>
+              </div>
+              <p class="taShopCodeMsg" id="taShopCodeMsg" role="status" aria-live="polite"></p>
+            </div>
+            <div class="taShopFooterBar">
+              <button type="button" class="taShopCodeToggle" id="taShopCodeToggle" aria-expanded="false">
+                Code
+              </button>
+              <button type="button" class="taShopCloseBtn" id="taShopCloseFoot">Schließen</button>
+            </div>
+          </footer>
+        </div>
+      </div>
+
+      <div
+        id="taLocker"
+        class="taShop"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="taLockerTitle"
+      >
+        <button type="button" class="taShopBackdrop" id="taLockerBackdrop" aria-label="Hintergrund — schließt den Locker"></button>
+        <div class="taShopPanel taLockerPanel">
+          <header class="taShopHeader taShopHeader--fn">
+            <div class="taShopHeaderTop">
+              <div class="taShopTitleBlock">
+                <p class="taShopKicker">Ausrüstung</p>
+                <h2 id="taLockerTitle" class="taShopPanelTitle">Locker</h2>
+                <p class="taShopTimer" aria-hidden="true">Kosmetik · nur Anzeige</p>
+              </div>
+              <button type="button" class="taShopCloseGhost" id="taLockerClose" aria-label="Zurück zur Lobby">ESC · Lobby</button>
+            </div>
+            <p class="taShopLead taShopLead--fn">
+              Fahrzeug wählen — jeder Typ schießt mit <strong>eigenem Kaliber</strong> (Munitionsnamen ändern sich).
+              Die Garage speichert gekaufte Modelle im Browser.
+            </p>
+            <div class="taShopPurseRow taFortnitePurse" aria-label="Fortschritt">
+              <span class="taHubPurseItem taFortniteGemPill"><span aria-hidden="true">💎</span> <span id="taLockerGems">0</span></span>
+              <span class="taHubPurseItem taFortniteXpPill"
+                >Lvl <span id="taLockerLvlHud">1</span> · <span id="taLockerXpHud">0</span> XP</span
+              >
+            </div>
+          </header>
+          <div class="taShopBody taShopBody--fn">
+            <section class="taShopSection" aria-labelledby="taLockerSecBody">
+              <h3 id="taLockerSecBody" class="taShopSectionTitle">Garage · Panzer</h3>
+              <ul id="taLockerTankList" class="taLockerTankList"></ul>
+            </section>
+          </div>
+          <footer class="taShopFooter taShopFooter--fn">
+            <button type="button" class="taShopCloseBtn" id="taLockerCloseFoot">Locker schließen</button>
+          </footer>
+        </div>
+      </div>
+
+      <div id="taStage" class="taStage" hidden>
+        <canvas id="taCanvas" width="1680" height="720" tabindex="0" aria-label="Panzer-Artillerie"></canvas>
+      </div>
+
+      <div id="taBottom" class="taBottom" hidden>
+        <p id="taFoot" class="taFoot" aria-live="polite"></p>
+        <p class="taHint">
+          <kbd>←</kbd><kbd>→</kbd> fahren · <kbd>Enter</kbd> zielen · <kbd>A</kbd><kbd>D</kbd> Winkel · <kbd>W</kbd><kbd>S</kbd>
+          Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> zuschlagen · bei Wüsten-Panzer: <kbd>5</kbd> Kristallschild (wenn im Shop gekauft) · <kbd>R</kbd> aufgeben
+        </p>
+      </div>
+
+      <div
+        id="taSurrender"
+        class="taSurrender"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="taSurrenderMsg"
+      >
+        <button type="button" class="taSurrenderBackdrop" id="taSurrenderBackdrop" aria-label="Abbrechen"></button>
+        <div class="taSurrenderPanel">
+          <p id="taSurrenderMsg" class="taSurrenderMsg"></p>
+          <div class="taSurrenderRow">
+            <button type="button" class="taSurrenderBtn taSurrenderJa" id="taSurrenderJa">Ja</button>
+            <button type="button" class="taSurrenderBtn taSurrenderNein" id="taSurrenderNein">Nein</button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="taGameOver"
+        class="taGameOver"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="taGameOverTitle"
+      >
+        <button type="button" class="taGameOverBackdrop" id="taGameOverBackdrop" aria-label="Ergebnis ausblenden (Lobby)"></button>
+        <div class="taGameOverPanel">
+          <h2 id="taGameOverTitle" class="taGameOverTitle"></h2>
+          <p id="taGameOverSub" class="taGameOverSub"></p>
+          <div class="taGameOverActions" id="taGameOverActions">
+            <button type="button" class="taGameOverBtn" id="taGameOverBtn"></button>
+            <button type="button" class="taGameOverBtn taGameOverBtn--secondary" id="taGameOverLobbyBtn" hidden>
+              Zurück zur Lobby
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="taSrOnly" aria-live="polite">
+        <span id="taWind"></span>
+        <span id="taPhase"></span>
+        <span id="taWeapon"></span>
+        <span id="taHp"></span>
+      </div>
+      <span id="taXp" hidden>0</span>
+      <span id="taLvl" hidden>1</span>
+    </div>
+
+    <!--
+      Gehostete Einrichtung (nichts davon öffentlich committen):
+      – Promo: vor main.ts z. B. window.__TANK_PROMO_CLAIM_URL__, oder Secret VITE_TANK_PROMO_CLAIM_URL beim Build.
+      – Lokal (nur localhost / 127.0.0.1): Shop → Code „Seba1“ → 10 000 💎 (ohne promo-stub).
+      – Gastgeber-💎: Secret VITE_ADMIN_GEM_PASSPHRASE beim Build oder window.__TANK_ADMIN_GEM_PASSPHRASE__ vor main.ts → Phrase dann im Shop unter „Code“ einlösen.
+    -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

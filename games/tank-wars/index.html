@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#1c1917" />
+    <title>Tank Wars — microgames</title>
+    <meta
+      name="description"
+      content="Top-down Tank-Duell gegen einen Bot: fünf Typen mit eigenem Schussverhalten · XP für Siege."
+    />
+    <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="gameBody twBody">
+    <header class="gameTopbar">
+      <a class="link backLink" href="../../">← Alle Spiele</a>
+      <h1 class="gameTitle">Tank Wars</h1>
+      <div class="hud hudWide" aria-label="Fortschritt">
+        <div class="hudItem">
+          <span class="hudLabel">XP</span>
+          <span id="twXpTotal" class="hudValue">0</span>
+        </div>
+        <div class="hudItem">
+          <span class="hudLabel">Level</span>
+          <span id="twLevel" class="hudValue">1</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="twWrap">
+      <canvas id="arena" width="920" height="540" tabindex="0" aria-label="Arena"></canvas>
+
+      <div id="twSelectOverlay" class="overlay" role="dialog" aria-labelledby="twSelTitle">
+        <div class="overlayInner twSelectInner">
+          <h2 id="twSelTitle">Tank &amp; Waffe wählen</h2>
+          <p class="twHint">
+            Jeder Typ hat eigene Reichweite, Schaden und Spezial-Schuss. <kbd>WASD</kbd> fahren und drehen ·
+            <kbd>Leertaste</kbd> schießen.
+          </p>
+          <div class="twCards">
+            <button type="button" class="twPick" data-loadout="striker">Grün · Stürmer<br /><span>klassisch</span></button>
+            <button type="button" class="twPick" data-loadout="sniper">Blau · Sniper<br /><span>schnelles Geschoß</span></button>
+            <button type="button" class="twPick" data-loadout="bruiser">Rot · Panzer<br /><span>schwerer Schuss</span></button>
+            <button type="button" class="twPick" data-loadout="scatter">Beige · Streuschuss<br /><span>3 Geschosse</span></button>
+            <button type="button" class="twPick" data-loadout="ghost">Schwarz · Geist<br /><span>durch erste Mauer</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="twOverlay" class="overlay" hidden role="dialog" aria-labelledby="twOutcomeTitle">
+        <div class="overlayInner twOutcomeInner">
+          <h3 id="twOutcomeTitle"></h3>
+          <p id="twOutcomeSub"></p>
+          <button type="button" id="twAgainBtn">Nochmal wählen</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

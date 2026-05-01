@@ -3,22 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Not found</title>
-    <meta name="theme-color" content="#07090f" />
+    <title>Page not found — Microgames</title>
+    <meta name="theme-color" content="#06080f" />
+    <meta name="color-scheme" content="dark" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
-  <body>
-    <header class="header">
-      <div class="container">
-        <h1 class="title">404</h1>
-        <p class="subtitle">That page doesn’t exist.</p>
-        <p style="margin-top: 1rem">
-          <a class="link" href="./">Back to homepage</a>
-        </p>
-      </div>
-    </header>
+  <body class="mainBlock">
+    <div class="bgGlow" aria-hidden="true"></div>
+    <div class="container" style="padding: clamp(3.5rem, 12vw, 6rem) 0">
+      <p class="heroEyebrow" style="letter-spacing: 0.02em">404</p>
+      <h1 class="heroTitle">Page not found</h1>
+      <p class="heroLead">This URL doesn’t map to anything we ship.</p>
+      <p style="margin-top: 1.5rem">
+        <a class="heroCta" href="./" style="display: inline-flex; text-decoration: none">← Back to homepage</a>
+      </p>
+    </div>
   </body>
 </html>
-

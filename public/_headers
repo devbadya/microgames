@@ -1,0 +1,7 @@
+# Used by hosts that honor Netlify-style header files (GitHub Pages ignores this).
+# Meta CSP + frame protection here where HTTP headers are available.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

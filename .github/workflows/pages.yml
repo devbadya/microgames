@@ -36,6 +36,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        env:
+          VITE_TANK_PROMO_CLAIM_URL: ${{ secrets.VITE_TANK_PROMO_CLAIM_URL }}
+          VITE_ADMIN_GEM_PASSPHRASE: ${{ secrets.VITE_ADMIN_GEM_PASSPHRASE }}
         run: pnpm build
 
       - name: Setup Pages

@@ -1,190 +1,272 @@
-interface Game {
-  slug: string;
-  title?: string;
-  description?: string;
-  tags?: string[];
-  minutes?: number;
-  thumbnail?: string;
+import "./style.css";
+
+import type { Game } from "./types";
+import {
+  translate,
+  getLang,
+  setLang as persistLang,
+  SupportedLang,
+  applyDataI18n,
+  initLang,
+  setDocumentTitleFromKey,
+  searchResultLine,
+} from "./i18n";
+
+const SETTINGS_OPEN_CLASS = "settingsOpen";
+
+function qs<T extends HTMLElement>(sel: string, root: ParentNode = document): T | null {
+  return root.querySelector(sel) as T | null;
 }
 
-type GameCard = HTMLAnchorElement & {
-  dataset: DOMStringMap & { search: string };
-};
-
-async function loadGames(): Promise<Game[]> {
-  const res = await fetch("./games/games.json", { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to load games.json (${res.status})`);
-  const data: unknown = await res.json();
-  if (!Array.isArray(data)) throw new Error("games.json must be an array");
-  return data as Game[];
+function thumbUrl(rel: string): string {
+  if (rel.startsWith("/")) return rel;
+  return `/${rel.replace(/^\.\//, "")}`;
 }
 
-function normalize(s: unknown): string {
-  return String(s ?? "").trim().toLowerCase();
+async function fetchGames(): Promise<Game[]> {
+  const res = await fetch("/games/games.json", {
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error("games.json fetch failed");
+  return res.json();
 }
 
-function renderCard(game: Game): GameCard {
-  const slug = normalize(game.slug).replace(/\s+/g, "-");
-  const title = String(game.title ?? (slug || "Untitled"));
-  const description = String(game.description ?? "");
-  const tags = Array.isArray(game.tags) ? game.tags : [];
-  const minutes =
-    typeof game.minutes === "number" && Number.isFinite(game.minutes) ? game.minutes : null;
-  const thumbnail = typeof game.thumbnail === "string" ? game.thumbnail : null;
-  const href = `./games/${encodeURIComponent(slug)}/`;
+function updateMetaDescription(): void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+  if (meta) meta.setAttribute("content", translate("metaDesc"));
+}
 
-  const card = document.createElement("a");
-  card.className = "card";
-  card.href = href;
-  card.setAttribute("aria-label", `Play ${title}`);
+function updateLangButtons(lang: SupportedLang): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-set-lang]").forEach((btn) => {
+    const l = btn.getAttribute("data-set-lang") as SupportedLang | null;
+    const on = l === lang;
+    btn.setAttribute("aria-pressed", String(on));
+    btn.classList.toggle("langBtn--active", on);
+  });
+}
 
-  const thumb = document.createElement("div");
-  thumb.className = "cardThumb";
-  if (thumbnail) {
-    const img = document.createElement("img");
-    img.className = "cardImg";
-    img.src = thumbnail;
-    img.alt = "";
-    img.loading = "lazy";
-    img.decoding = "async";
-    thumb.appendChild(img);
-  } else {
-    thumb.classList.add("cardThumb--placeholder");
-    thumb.dataset["initial"] = (title.charAt(0) || "·").toUpperCase();
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function localeTitle(game: Game): string {
+  if (getLang() === "de" && game.title_de?.trim()) return game.title_de.trim();
+  return game.title.trim();
+}
+
+function localeDescription(game: Game): string {
+  if (getLang() === "de" && game.description_de?.trim()) return game.description_de.trim();
+  return game.description.trim();
+}
+
+function tokensFromQuery(raw: string): string[] {
+  return raw
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function gameMatches(game: Game, tokens: string[]): boolean {
+  const blob = [
+    game.title,
+    game.description,
+    game.title_de ?? "",
+    game.description_de ?? "",
+    ...game.tags,
+  ]
+    .join("\n")
+    .toLowerCase();
+  return tokens.every((t) => blob.includes(t));
+}
+
+/** Highlight first occurrence of needle (case-insensitive) in plaintext */
+function highlightFirst(text: string, needleRaw: string): string {
+  const needle = needleRaw.trim().toLowerCase();
+  if (!needle) return escapeHtml(text);
+  const hay = text.toLowerCase();
+  const idx = hay.indexOf(needle);
+  if (idx < 0) return escapeHtml(text);
+  const before = escapeHtml(text.slice(0, idx));
+  const mid = escapeHtml(text.slice(idx, idx + needle.length));
+  const after = escapeHtml(text.slice(idx + needle.length));
+  return `${before}<mark>${mid}</mark>${after}`;
+}
+
+function renderCard(game: Game, queryTrimmed: string): string {
+  const href = `./games/${encodeURIComponent(game.slug)}/`;
+
+  const title = localeTitle(game);
+  const description = localeDescription(game);
+
+  const q = queryTrimmed.trim();
+  const firstToken = q ? tokensFromQuery(q)[0] ?? q : "";
+
+  const titleHtml = highlightFirst(title, firstToken || "");
+  const descHtml = highlightFirst(description, firstToken || "");
+
+  const ariaLabel = translate("ariaPlayGame", { title });
+  const thumb = thumbUrl(game.thumbnail);
+
+  const play = translate("playCta");
+  const minLabel = `${game.minutes} ${translate("minShort")}`;
+  const tagsHtml = game.tags
+    .map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`)
+    .join("");
+
+  return `
+    <a class="card" href="${href}" data-game-slug="${escapeAttr(game.slug)}" aria-label="${escapeAttr(ariaLabel)}">
+      <div class="cardThumb">
+        <img class="cardImg" src="${escapeAttr(thumb)}" alt="" loading="lazy" decoding="async" />
+      </div>
+      <div class="cardBody">
+        <h3 class="cardTitle">${titleHtml}</h3>
+        <p class="cardDesc">${descHtml}</p>
+        <div class="chipRow">${tagsHtml}<span class="chip">${escapeHtml(minLabel)}</span></div>
+        <span class="cardCta">${escapeHtml(play)}</span>
+      </div>
+    </a>
+  `;
+}
+
+function refreshLegalToggleCopy(): void {
+  const toggle = qs<HTMLButtonElement>("#legalToggle");
+  const content = qs<HTMLElement>("#legalContent");
+  const label = toggle?.querySelector<HTMLElement>(".settingsRevealLabel");
+  if (!toggle || !content || !label) return;
+  const expanded = !content.hidden;
+  label.textContent = expanded ? translate("legalToggleHide") : translate("legalToggleShow");
+}
+
+function setUiLanguage(lang: SupportedLang): void {
+  persistLang(lang);
+  updateLangButtons(lang);
+  applyDataI18n(document.body);
+  setDocumentTitleFromKey("pageTitle");
+  updateMetaDescription();
+  refreshLegalToggleCopy();
+}
+
+function attachSearchHandlers(): () => void {
+  const search = qs<HTMLInputElement>("#search");
+  const grid = qs<HTMLElement>("#grid");
+  const statusEl = qs<HTMLElement>("#status");
+  if (!search || !grid || !statusEl) {
+    return () => undefined;
   }
 
-  const body = document.createElement("div");
-  body.className = "cardBody";
+  const apply = () => {
+    const games = cachedGames;
+    const qRaw = search.value;
+    const q = qRaw.trim();
+    const tokens = tokensFromQuery(qRaw);
 
-  const h3 = document.createElement("h3");
-  h3.className = "cardTitle";
-  h3.textContent = title;
-
-  const p = document.createElement("p");
-  p.className = "cardDesc";
-  p.textContent = description;
-
-  const chipRow = document.createElement("div");
-  chipRow.className = "chipRow";
-  if (minutes !== null) {
-    const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = `${minutes} min`;
-    chipRow.appendChild(chip);
-  }
-  for (const t of tags.slice(0, 6)) {
-    const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = String(t);
-    chipRow.appendChild(chip);
-  }
-
-  const cta = document.createElement("span");
-  cta.className = "cardCta";
-  cta.textContent = "Play";
-
-  body.append(h3, p, chipRow, cta);
-  card.append(thumb, body);
-
-  card.dataset["search"] =
-    `${normalize(title)} ${normalize(description)} ${tags.map(normalize).join(" ")}`.trim();
-  return card as GameCard;
-}
-
-function setStatus(text: string): void {
-  const el = document.getElementById("status");
-  if (el) el.textContent = text;
-}
-
-function main(): void {
-  const grid = document.getElementById("grid");
-  const search = document.getElementById("search") as HTMLInputElement | null;
-  if (!grid || !search) return;
-
-  let cards: GameCard[] = [];
-
-  const applyFilter = (): void => {
-    const q = normalize(search.value);
-    let visible = 0;
-    for (const card of cards) {
-      const ok = !q || card.dataset.search.includes(q);
-      card.style.display = ok ? "" : "none";
-      if (ok) visible += 1;
+    let list = games;
+    if (tokens.length) {
+      list = games.filter((g) => gameMatches(g, tokens));
     }
-    setStatus(`${visible} game${visible === 1 ? "" : "s"}`);
+
+    grid.innerHTML = list.map((g) => renderCard(g, q)).join("");
+    statusEl.textContent = searchResultLine(list.length, games.length, q);
+    grid.setAttribute("aria-busy", "false");
   };
 
-  search.addEventListener("input", applyFilter);
+  search.addEventListener("input", apply);
 
-  void (async () => {
-    setStatus("Loading games…");
-    try {
-      const games = await loadGames();
-      cards = games.map(renderCard);
-      grid.replaceChildren(...cards);
-      applyFilter();
-    } catch (e) {
-      grid.replaceChildren();
-      setStatus("Failed to load games. Check games/games.json.");
-      console.error(e);
-    }
-  })();
+  return apply;
 }
 
-const LEGAL_LABEL_SHOW = "Show Germany & EU justice overview";
-const LEGAL_LABEL_HIDE = "Hide Germany & EU justice overview";
-
-function setLegalDisclosureExpanded(expand: boolean, toggle: HTMLButtonElement, content: HTMLElement, label: HTMLElement | null): void {
-  content.hidden = !expand;
-  toggle.setAttribute("aria-expanded", String(expand));
-  if (label) label.textContent = expand ? LEGAL_LABEL_HIDE : LEGAL_LABEL_SHOW;
+function wireLangSwitch(rerenderGames: () => void): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-set-lang]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lang = btn.getAttribute("data-set-lang") as SupportedLang | null;
+      if (lang !== "en" && lang !== "de") return;
+      setUiLanguage(lang);
+      rerenderGames();
+    });
+  });
 }
 
 function wireSettingsPanel(): void {
-  const btn = document.getElementById("settingsBtn");
-  const panel = document.getElementById("settingsPanel");
-  const backdrop = document.getElementById("settingsBackdrop");
-  const closeBtn = document.getElementById("settingsClose");
-  const legalToggle = document.getElementById("legalToggle");
-  const legalContent = document.getElementById("legalContent");
-  const legalLabel = document.querySelector<HTMLElement>(".settingsRevealLabel");
-  if (!btn || !panel || !backdrop || !closeBtn) return;
+  const panel = qs<HTMLElement>("#settingsPanel");
+  const backdrop = qs<HTMLElement>("#settingsBackdrop");
+  const openBtn = qs<HTMLButtonElement>("#settingsBtn");
+  const closeBtn = qs<HTMLButtonElement>("#settingsClose");
 
-  const resetLegal = (): void => {
-    if (legalToggle instanceof HTMLButtonElement && legalContent) {
-      setLegalDisclosureExpanded(false, legalToggle, legalContent, legalLabel);
-    }
-  };
+  if (!panel || !backdrop || !openBtn || !closeBtn) return;
 
-  const setOpen = (open: boolean): void => {
-    btn.setAttribute("aria-expanded", String(open));
+  const setOpen = (open: boolean) => {
+    document.body.classList.toggle(SETTINGS_OPEN_CLASS, open);
     panel.hidden = !open;
     backdrop.hidden = !open;
-    document.body.classList.toggle("settingsOpen", open);
-    if (!open) resetLegal();
+    openBtn.setAttribute("aria-expanded", String(open));
   };
 
-  btn.addEventListener("click", () => {
-    setOpen(panel.hasAttribute("hidden"));
-  });
+  openBtn.addEventListener("click", () => setOpen(true));
   closeBtn.addEventListener("click", () => setOpen(false));
   backdrop.addEventListener("click", () => setOpen(false));
-  document.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Escape" && !panel.hidden) {
-      e.preventDefault();
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains(SETTINGS_OPEN_CLASS)) {
       setOpen(false);
     }
   });
-
-  if (legalToggle instanceof HTMLButtonElement && legalContent) {
-    legalToggle.addEventListener("click", () => {
-      const willExpand = legalContent.hasAttribute("hidden");
-      setLegalDisclosureExpanded(willExpand, legalToggle, legalContent, legalLabel);
-    });
-  }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  main();
+function wireLegalToggle(): void {
+  const toggle = qs<HTMLButtonElement>("#legalToggle");
+  const content = qs<HTMLElement>("#legalContent");
+  if (!toggle || !content) return;
+
+  toggle.addEventListener("click", () => {
+    const opening = content.hidden;
+    content.hidden = !opening;
+    toggle.setAttribute("aria-expanded", String(!content.hidden));
+    refreshLegalToggleCopy();
+    toggle.focus();
+  });
+}
+
+let cachedGames: Game[] = [];
+
+async function main(): Promise<void> {
+  initLang(document.documentElement);
+
+  const lang = getLang();
+  updateLangButtons(lang);
+  applyDataI18n(document.body);
+  setDocumentTitleFromKey("pageTitle");
+  updateMetaDescription();
+  refreshLegalToggleCopy();
+
   wireSettingsPanel();
-});
+  wireLegalToggle();
+
+  const rerenderGames = attachSearchHandlers();
+  wireLangSwitch(() => rerenderGames());
+
+  const statusEl = qs<HTMLElement>("#status");
+  const gridEl = qs<HTMLElement>("#grid");
+
+  try {
+    if (statusEl) statusEl.textContent = translate("statusLoading");
+    if (gridEl) gridEl.setAttribute("aria-busy", "true");
+
+    cachedGames = await fetchGames();
+  } catch {
+    cachedGames = [];
+    if (statusEl) statusEl.textContent = translate("statusError");
+    if (gridEl) gridEl.innerHTML = `<p class="emptyState" role="status">${translate("statusError")}</p>`;
+    return;
+  }
+
+  rerenderGames();
+}
+
+void main();

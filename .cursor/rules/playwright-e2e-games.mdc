@@ -1,0 +1,11 @@
+---
+description: Require Playwright end-to-end tests for game behavior
+alwaysApply: true
+---
+
+# Playwright E2E Game Tests
+
+- When adding or changing game behavior, add or update Playwright end-to-end tests that exercise the user-facing game flow.
+- Cover the core success path for each affected game, including starting the game, making valid moves or interactions, and reaching a win, loss, score, or completion state.
+- Include regression coverage for important edge cases when a bug fix or behavior change affects gameplay.
+- Run the relevant Playwright test command before considering game changes complete. If the command cannot be run locally, call out what still needs verification.
