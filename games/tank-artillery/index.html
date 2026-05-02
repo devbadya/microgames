@@ -64,6 +64,24 @@
                   <p id="taLobbyLeadShort" class="taLobbyLeadShort">
                     Wind · Gelände · Krater — Siege bringen XP und 💎.
                   </p>
+                  <div class="taLobbyMapPrefs" aria-label="Karte und Umgebung">
+                    <label class="taLobbyMapLbl">
+                      Gelände
+                      <select id="taMapDifficulty" class="taLobbyMapSelect">
+                        <option value="easy">Leicht — sanfte Hügel</option>
+                        <option value="normal" selected>Normal — Standard-Welt</option>
+                        <option value="hard">Schwer — steiler &amp; rauer</option>
+                        <option value="insane">Insane — riesig &amp; Chaos (ab 3000 XP)</option>
+                      </select>
+                    </label>
+                    <label class="taLobbyMapLbl">
+                      Look
+                      <select id="taMapTheme" class="taLobbyMapSelect">
+                        <option value="earth" selected>Erde — Tag &amp; Gras</option>
+                        <option value="moon">Mond — Regolith &amp; Sterne</option>
+                      </select>
+                    </label>
+                  </div>
                 </div>
                 <div class="taLobbyFloatReady">
                   <button
@@ -108,6 +126,7 @@
             </div>
             <p class="taShopLead taShopLead--fn">
               <strong>💎 Panzer:</strong> Stärkere Modelle kosten mehr 💎 (steigend mit Feuerkraft); Silber bleibt der kostenlose Starter.
+              <strong> Kosmetik:</strong> Fahr-Spuren nur hier — kaufen, ausrüsten oder mit „Testen“ ohne 💎 ansehen.
             </p>
             <div class="taShopPurseRow taFortnitePurse" aria-label="Fortschritt">
               <span class="taHubPurseItem taFortniteGemPill"><span aria-hidden="true">💎</span> <span id="taShopGems">0</span></span>
@@ -126,6 +145,11 @@
               <h3 id="taShopSecGear" class="taShopSectionTitle">Spezial</h3>
               <ul id="taShopGearList" class="taShopTankList"></ul>
               <p class="taShopTankMsg" id="taShopGearMsg" role="status" aria-live="polite"></p>
+            </section>
+            <section class="taShopSection" aria-labelledby="taShopSecCosmetics">
+              <h3 id="taShopSecCosmetics" class="taShopSectionTitle">Kosmetik</h3>
+              <ul id="taShopCosmeticList" class="taShopTankList"></ul>
+              <p class="taShopTankMsg" id="taShopCosmeticMsg" role="status" aria-live="polite"></p>
             </section>
             <section class="taShopSection" aria-labelledby="taShopSecDaily">
               <h3 id="taShopSecDaily" class="taShopSectionTitle">Tages-Angebote</h3>
@@ -190,13 +214,13 @@
               <div class="taShopTitleBlock">
                 <p class="taShopKicker">Ausrüstung</p>
                 <h2 id="taLockerTitle" class="taShopPanelTitle">Locker</h2>
-                <p class="taShopTimer" aria-hidden="true">Kosmetik · nur Anzeige</p>
+                <p class="taShopTimer" aria-hidden="true">Garage · Panzer</p>
               </div>
               <button type="button" class="taShopCloseGhost" id="taLockerClose" aria-label="Zurück zur Lobby">ESC · Lobby</button>
             </div>
             <p class="taShopLead taShopLead--fn">
               Fahrzeug wählen — jeder Typ schießt mit <strong>eigenem Kaliber</strong> (Munitionsnamen ändern sich).
-              Die Garage speichert gekaufte Modelle im Browser.
+              Die Garage speichert gekaufte Modelle im Browser. <strong>Fahr-Spuren (Kosmetik)</strong> gibt es nur im Shop.
             </p>
             <div class="taShopPurseRow taFortnitePurse" aria-label="Fortschritt">
               <span class="taHubPurseItem taFortniteGemPill"><span aria-hidden="true">💎</span> <span id="taLockerGems">0</span></span>
@@ -223,6 +247,12 @@
 
       <div id="taBottom" class="taBottom" hidden>
         <p id="taFoot" class="taFoot" aria-live="polite"></p>
+        <div id="taBattleTestLeaveRow" class="taBattleTestLeaveRow" hidden>
+          <button type="button" id="taBattleTestLeaveBtn" class="taBattleTestLeaveBtn">
+            Test beenden · Lobby
+          </button>
+          <span class="taBattleTestLeaveKbd"> oder <kbd>Esc</kbd></span>
+        </div>
         <p class="taHint">
           <kbd>←</kbd><kbd>→</kbd> fahren · <kbd>Enter</kbd> zielen · <kbd>A</kbd><kbd>D</kbd> Winkel · <kbd>W</kbd><kbd>S</kbd>
           Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> zuschlagen · bei Wüsten-Panzer: <kbd>5</kbd> Kristallschild (wenn im Shop gekauft) · <kbd>R</kbd> aufgeben

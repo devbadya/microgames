@@ -1,7 +1,11 @@
 # Used by hosts that honor Netlify-style header files (GitHub Pages ignores this).
-# Meta CSP + frame protection here where HTTP headers are available.
+# Mirrors the meta-tag CSP we inject at build time and adds HTTP-only hardeners.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; manifest-src 'self'; media-src 'self'; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; upgrade-insecure-requests

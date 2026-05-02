@@ -40,16 +40,6 @@
     "thumbnail": "./thumbnails/panic-button.svg"
   },
   {
-    "slug": "tank-wars",
-    "title": "Tank Wars",
-    "title_de": "Tank Wars",
-    "description": "Top-down duel vs a bot: five tank types with unique shot behavior · earn XP each win.",
-    "description_de": "Top-down Duell gegen den Bot: fünf Panzertypen mit eigenem Schussverhalten · XP pro Sieg.",
-    "minutes": 4,
-    "tags": ["arcade", "keyboard", "action"],
-    "thumbnail": "./thumbnails/tank-wars.svg"
-  },
-  {
     "slug": "tank-artillery",
     "title": "Tank Artillery",
     "title_de": "Panzer-Artillerie",

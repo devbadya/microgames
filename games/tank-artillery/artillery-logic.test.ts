@@ -11,6 +11,12 @@ import {
   GEM_PRICE_TANK_GREEN,
   GEM_PRICE_TANK_NAVY,
   getPlayerTankDef,
+  MAP_BATTLE_THEME_STORAGE_KEY,
+  MAP_DIFFICULTY_STORAGE_KEY,
+  readMapBattleTheme,
+  readMapDifficulty,
+  setMapBattleTheme,
+  setMapDifficulty,
   readEquippedTankId,
   readOwnedTankIds,
   setEquippedTankId,
@@ -22,6 +28,13 @@ import {
   tryBuyDesertShield,
   readDesertShieldOwned,
   readDesertShieldCharges,
+  MOVE_TRAIL_OWNED_KEY,
+  MOVE_TRAIL_EQUIPPED_KEY,
+  MOVE_TRAIL_FIRE_PRICE_GEMS,
+  readEquippedMoveTrail,
+  readOwnedMoveTrailIds,
+  setEquippedMoveTrail,
+  tryBuyMoveTrailCosmetic,
   consumeDesertShieldActivation,
   DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE,
   getWeapon,
@@ -56,6 +69,7 @@ import {
   TANK_HALF_H,
   TANK_HALF_W,
   WORLD,
+  type TerrainSurface,
 } from "./artillery-logic";
 
 test("terrain build + height interpolation", () => {
@@ -70,6 +84,60 @@ test("simulateUntilImpact lands near terrain height", () => {
   const imp = simulateUntilImpact(t, 120, heightAt(t, 120) - 160, 280, -320, -9, 1 / 200);
   const localG = heightAt(t, imp.x);
   expect(Math.abs(imp.y - localG)).toBeLessThan(3);
+});
+
+function altitudeRange(surface: TerrainSurface): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let x = 0; x < WORLD.W; x++) {
+    const v = surface.y[x]!;
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+  }
+  return hi - lo;
+}
+
+test("buildTerrain: Schwierigkeit hard hat mehr Relief als easy (gleicher Seed)", () => {
+  const seed = 402_917;
+  const easyR = altitudeRange(buildTerrain(seed, { difficulty: "easy" }));
+  const hardR = altitudeRange(buildTerrain(seed, { difficulty: "hard" }));
+  expect(hardR).toBeGreaterThan(easyR * 1.06);
+});
+
+test("buildTerrain: Schwierigkeit insane hat mehr Relief als hard (gleicher Seed)", () => {
+  const seed = 402_917;
+  const hardR = altitudeRange(buildTerrain(seed, { difficulty: "hard" }));
+  const insaneR = altitudeRange(buildTerrain(seed, { difficulty: "insane" }));
+  expect(insaneR).toBeGreaterThan(hardR * 1.06);
+});
+
+test("buildTerrain: normal entspricht früherem Standard (ohne Options)", () => {
+  const seed = 55_055;
+  const legacy = buildTerrain(seed);
+  const normal = buildTerrain(seed, { difficulty: "normal" });
+  expect(legacy.y.every((v, i) => v === normal.y[i])).toBe(true);
+});
+
+test("readMapDifficulty / Theme: Defaults und Persistenz", () => {
+  const ls = globalThis.localStorage;
+  if (!ls || typeof ls.removeItem !== "function") return;
+  ls.removeItem(MAP_DIFFICULTY_STORAGE_KEY);
+  ls.removeItem(MAP_BATTLE_THEME_STORAGE_KEY);
+  expect(readMapDifficulty()).toBe("normal");
+  expect(readMapBattleTheme()).toBe("earth");
+  setMapDifficulty("hard");
+  setMapBattleTheme("moon");
+  expect(readMapDifficulty()).toBe("hard");
+  expect(readMapBattleTheme()).toBe("moon");
+  expect(ls.getItem(MAP_DIFFICULTY_STORAGE_KEY)).toBe("hard");
+  setMapDifficulty("insane");
+  expect(readMapDifficulty()).toBe("insane");
+  setMapDifficulty("invalid");
+  expect(readMapDifficulty()).toBe("normal");
+  setMapBattleTheme("luna");
+  expect(readMapBattleTheme()).toBe("earth");
+  ls.removeItem(MAP_DIFFICULTY_STORAGE_KEY);
+  ls.removeItem(MAP_BATTLE_THEME_STORAGE_KEY);
 });
 
 test("velocityFromElevDeg directional", () => {
@@ -213,6 +281,23 @@ test("describePromoRedeem: Seba1 nur auf Loopback, sonst ungültig", () => {
   }
 });
 
+test("describePromoRedeem: sebaxp nur auf Loopback, gibt 10k XP", () => {
+  const fresh = new Set<string>();
+  vi.stubGlobal("location", { hostname: "pages.github.io" } as Location);
+  try {
+    expect(describePromoRedeem("sebaxp", fresh)).toEqual({ ok: false, reason: "unknown" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  vi.stubGlobal("location", { hostname: "127.0.0.1" } as Location);
+  try {
+    expect(describePromoRedeem(" sebaxp ", fresh)).toEqual({ ok: true, key: "sebaxp", xp: 10_000 });
+    expect(describePromoRedeem("sebaxp", new Set(["sebaxp"]))).toEqual({ ok: false, reason: "used" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test("isLocalTankArtilleryPromoHost: localhost und 127 vs Remote", () => {
   vi.stubGlobal("location", { hostname: "LOCALHOST" } as Location);
   try {
@@ -234,10 +319,11 @@ test("isLocalTankArtilleryPromoHost: localhost und 127 vs Remote", () => {
   }
 });
 
-test("promoSkipsGlobalSlotReserve: nur seba1 + Loopback", () => {
+test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp + Loopback", () => {
   vi.stubGlobal("location", { hostname: "localhost" } as Location);
   try {
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(true);
+    expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("admin1")).toBe(false);
   } finally {
     vi.unstubAllGlobals();
@@ -245,6 +331,7 @@ test("promoSkipsGlobalSlotReserve: nur seba1 + Loopback", () => {
   vi.stubGlobal("location", { hostname: "evil.test" } as Location);
   try {
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(false);
+    expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(false);
   } finally {
     vi.unstubAllGlobals();
   }
@@ -490,4 +577,49 @@ test("tryBuyDesertShield: expensive ohne genug 💎", () => {
   localStorage.removeItem(GEM_STORAGE_KEY);
   localStorage.removeItem(TANK_STORAGE_OWNED);
   localStorage.removeItem(DESERT_SHIELD_STORAGE_KEY);
+});
+
+test("Fahr-Spur Kosmetik: kaufen, besitzen, ausrüsten", () => {
+  try {
+    localStorage.removeItem(GEM_STORAGE_KEY);
+    localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
+    localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
+  } catch {
+    return;
+  }
+  expect(readEquippedMoveTrail()).toBe("none");
+  expect(readOwnedMoveTrailIds()).toEqual([]);
+  addGems(MOVE_TRAIL_FIRE_PRICE_GEMS - 1);
+  expect(tryBuyMoveTrailCosmetic("fire")).toBe("expensive");
+  addGems(2);
+  expect(tryBuyMoveTrailCosmetic("fire")).toBe("ok");
+  expect(readOwnedMoveTrailIds()).toContain("fire");
+  expect(readEquippedMoveTrail()).toBe("fire");
+  expect(tryBuyMoveTrailCosmetic("fire")).toBe("owned");
+  expect(setEquippedMoveTrail("none")).toBe(true);
+  expect(readEquippedMoveTrail()).toBe("none");
+  expect(setEquippedMoveTrail("fire")).toBe(true);
+  expect(readEquippedMoveTrail()).toBe("fire");
+  localStorage.removeItem(GEM_STORAGE_KEY);
+  localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
+  localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
+});
+
+test("readEquippedMoveTrail: nicht besessene Auswahl → none", () => {
+  try {
+    localStorage.setItem(MOVE_TRAIL_OWNED_KEY, JSON.stringify(["fire"]));
+    localStorage.setItem(MOVE_TRAIL_EQUIPPED_KEY, "lightning");
+  } catch {
+    return;
+  }
+  expect(readEquippedMoveTrail()).toBe("none");
+  try {
+    localStorage.setItem(MOVE_TRAIL_OWNED_KEY, JSON.stringify(["fire"]));
+    localStorage.setItem(MOVE_TRAIL_EQUIPPED_KEY, "fire");
+  } catch {
+    return;
+  }
+  expect(readEquippedMoveTrail()).toBe("fire");
+  localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
+  localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
 });

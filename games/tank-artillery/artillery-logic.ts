@@ -35,31 +35,112 @@ function boxBlurHorizontal(y: Float32Array, width: number, radius: number, passe
   }
 }
 
-/** Weiche, rollige Hügel — wenig Hochfrequenz, mehrfach weich gezeichnet */
-export function buildTerrain(seed: number): TerrainSurface {
+/** Gelände-Schwierigkeit: Amplitude und Glättung — „insane“ ist extrem und erst spät freigeschaltet (UI). */
+export type TerrainDifficulty = "easy" | "normal" | "hard" | "insane";
+
+export const MAP_DIFFICULTY_STORAGE_KEY = "tank-artillery-map-difficulty-v1";
+export const MAP_BATTLE_THEME_STORAGE_KEY = "tank-artillery-map-theme-v1";
+
+/** Kampf-Hintergrund — „moon“ = dunkler Himmel + graue Regolith-Farben auf dem Terrain. */
+export type MapBattleTheme = "earth" | "moon";
+
+const TERRAIN_DIFFICULTY_IDS: ReadonlySet<TerrainDifficulty> = new Set(["easy", "normal", "hard", "insane"]);
+const MAP_BATTLE_THEME_IDS: ReadonlySet<MapBattleTheme> = new Set(["earth", "moon"]);
+
+const TERRAIN_PRESETS: Record<
+  TerrainDifficulty,
+  { ampFrac: number; blurR: number; blurP: number; hfMul: number }
+> = {
+  /** Sanfter, weich gezeichnet — gut Zielen lernen */
+  easy: { ampFrac: 0.044, blurR: 17, blurP: 11, hfMul: 0.78 },
+  /** Vorheriges Standard-Gelände */
+  normal: { ampFrac: 0.062, blurR: 14, blurP: 10, hfMul: 1 },
+  /** Steilere Hügel, mehr Kleinkrümmung nach dem Weichzeichnen */
+  hard: { ampFrac: 0.084, blurR: 10, blurP: 7, hfMul: 1.38 },
+  /** Extrem: hoher Relief + rauere Oberfläche */
+  insane: { ampFrac: 0.118, blurR: 7, blurP: 5, hfMul: 1.9 },
+};
+
+export interface BuildTerrainOptions {
+  difficulty?: TerrainDifficulty;
+  /** Optional: alternative Map-Breite (y-Länge). Default = {@link WORLD.W}. */
+  width?: number;
+}
+
+/** Weiche, rollige Hügel — `difficulty` steuert Höhe und Rauheit (Standard: normal). */
+export function buildTerrain(seed: number, opts?: BuildTerrainOptions): TerrainSurface {
+  const preset = TERRAIN_PRESETS[opts?.difficulty ?? "normal"];
   const rnd = mulberry32(seed);
-  const y = new Float32Array(WORLD.W);
+  const width = Math.max(64, Math.floor(opts?.width ?? WORLD.W));
+  const y = new Float32Array(width);
   const base = WORLD.H * 0.52;
-  const amp = WORLD.H * 0.062;
+  const amp = WORLD.H * preset.ampFrac;
   const ph = rnd() * Math.PI * 2;
-  for (let x = 0; x < WORLD.W; x++) {
-    const u = (x / WORLD.W) * Math.PI * 2;
+  const hf = preset.hfMul;
+  for (let x = 0; x < width; x++) {
+    const u = (x / width) * Math.PI * 2;
     const waves =
       Math.sin(u * 1.45 + ph) * 1 +
       Math.sin(u * 2.85 + ph * 1.6) * 0.42 +
-      Math.sin(u * 4.9 + ph * 0.85) * 0.16 +
+      Math.sin(u * 4.9 + ph * 0.85) * (0.16 * hf) +
       Math.sin(u * 0.62 + ph * 0.35) * 0.38;
     const val = base + amp * waves;
     y[x] = Math.min(WORLD.H * 0.88, Math.max(WORLD.H * 0.43, val));
   }
-  /** Extra-Glättung wie mehrere sanfte Wellen übereinander */
-  boxBlurHorizontal(y, WORLD.W, 14, 10);
+  boxBlurHorizontal(y, width, preset.blurR, preset.blurP);
   return { y };
 }
 
+export function readMapDifficulty(): TerrainDifficulty {
+  try {
+    if (typeof localStorage === "undefined") return "normal";
+    const raw = localStorage.getItem(MAP_DIFFICULTY_STORAGE_KEY);
+    if (raw === "easy" || raw === "normal" || raw === "hard" || raw === "insane") return raw;
+  } catch {
+    /** ignore */
+  }
+  return "normal";
+}
+
+export function setMapDifficulty(next: string): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const id: TerrainDifficulty = TERRAIN_DIFFICULTY_IDS.has(next as TerrainDifficulty)
+      ? (next as TerrainDifficulty)
+      : "normal";
+    localStorage.setItem(MAP_DIFFICULTY_STORAGE_KEY, id);
+  } catch {
+    /** ignore */
+  }
+}
+
+export function readMapBattleTheme(): MapBattleTheme {
+  try {
+    if (typeof localStorage === "undefined") return "earth";
+    const raw = localStorage.getItem(MAP_BATTLE_THEME_STORAGE_KEY);
+    if (raw === "earth" || raw === "moon") return raw;
+  } catch {
+    /** ignore */
+  }
+  return "earth";
+}
+
+export function setMapBattleTheme(next: string): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const id: MapBattleTheme = MAP_BATTLE_THEME_IDS.has(next as MapBattleTheme)
+      ? (next as MapBattleTheme)
+      : "earth";
+    localStorage.setItem(MAP_BATTLE_THEME_STORAGE_KEY, id);
+  } catch {
+    /** ignore */
+  }
+}
+
 export function heightAt(surface: TerrainSurface, x: number): number {
+  const w = surface.y.length;
   if (x <= 0) return surface.y[0]!;
-  if (x >= WORLD.W - 1) return surface.y[WORLD.W - 1]!;
+  if (x >= w - 1) return surface.y[w - 1]!;
   const x0 = Math.floor(x);
   const x1 = x0 + 1;
   const t = x - x0;
@@ -589,6 +670,98 @@ export function tryBuyDesertShield(): DesertShieldPurchaseResult {
   return "ok";
 }
 
+/** Shop-Kosmetik: Spur-Effekt in der Fahrphase (← →), nur Optik. */
+export type PurchasableMoveTrailId = "fire" | "lightning";
+export type MoveTrailCosmeticId = "none" | PurchasableMoveTrailId;
+
+export const MOVE_TRAIL_FIRE_PRICE_GEMS = 85;
+export const MOVE_TRAIL_LIGHTNING_PRICE_GEMS = 110;
+export const MOVE_TRAIL_OWNED_KEY = "tank-artillery-move-trails-owned-v1";
+export const MOVE_TRAIL_EQUIPPED_KEY = "tank-artillery-move-trail-equipped-v1";
+
+const PURCHASABLE_TRAIL_IDS: ReadonlySet<PurchasableMoveTrailId> = new Set(["fire", "lightning"]);
+
+function parseOwnedMoveTrails(raw: string | null): PurchasableMoveTrailId[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    const out: PurchasableMoveTrailId[] = [];
+    for (const x of arr) {
+      if (x === "fire" || x === "lightning") out.push(x);
+    }
+    return [...new Set(out)];
+  } catch {
+    return [];
+  }
+}
+
+export function readOwnedMoveTrailIds(): PurchasableMoveTrailId[] {
+  try {
+    if (typeof localStorage === "undefined") return [];
+    return parseOwnedMoveTrails(localStorage.getItem(MOVE_TRAIL_OWNED_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function persistOwnedMoveTrails(ids: readonly PurchasableMoveTrailId[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(MOVE_TRAIL_OWNED_KEY, JSON.stringify([...new Set(ids)]));
+  } catch {
+    /** ignore */
+  }
+}
+
+function addOwnedMoveTrail(id: PurchasableMoveTrailId): void {
+  const cur = readOwnedMoveTrailIds();
+  if (cur.includes(id)) return;
+  cur.push(id);
+  persistOwnedMoveTrails(cur);
+}
+
+export function readEquippedMoveTrail(): MoveTrailCosmeticId {
+  try {
+    if (typeof localStorage === "undefined") return "none";
+    const raw = localStorage.getItem(MOVE_TRAIL_EQUIPPED_KEY)?.trim();
+    if (raw === "fire" || raw === "lightning") {
+      if (readOwnedMoveTrailIds().includes(raw)) return raw;
+    }
+    return "none";
+  } catch {
+    return "none";
+  }
+}
+
+export function setEquippedMoveTrail(id: MoveTrailCosmeticId): boolean {
+  try {
+    if (id === "none") {
+      if (typeof localStorage !== "undefined") localStorage.setItem(MOVE_TRAIL_EQUIPPED_KEY, "none");
+      return true;
+    }
+    if (!PURCHASABLE_TRAIL_IDS.has(id)) return false;
+    if (!readOwnedMoveTrailIds().includes(id)) return false;
+    if (typeof localStorage !== "undefined") localStorage.setItem(MOVE_TRAIL_EQUIPPED_KEY, id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type MoveTrailPurchaseResult = "ok" | "owned" | "expensive" | "invalid";
+
+export function tryBuyMoveTrailCosmetic(id: PurchasableMoveTrailId): MoveTrailPurchaseResult {
+  if (!PURCHASABLE_TRAIL_IDS.has(id)) return "invalid";
+  if (readOwnedMoveTrailIds().includes(id)) return "owned";
+  const price = id === "fire" ? MOVE_TRAIL_FIRE_PRICE_GEMS : MOVE_TRAIL_LIGHTNING_PRICE_GEMS;
+  if (readGems() < price) return "expensive";
+  if (!spendGems(price)) return "expensive";
+  addOwnedMoveTrail(id);
+  void setEquippedMoveTrail(id);
+  return "ok";
+}
+
 export function getWeapon(ix: number): WeaponDef {
   const w = WEAPONS[((ix % WEAPONS.length) + WEAPONS.length) % WEAPONS.length];
   return w!;
@@ -596,9 +769,10 @@ export function getWeapon(ix: number): WeaponDef {
 
 /** Krater: Oberfläche nach unten (Y wird größer) */
 export function applyCrater(surface: TerrainSurface, cx: number, radius: number, depth: number): void {
+  const w = surface.y.length;
   const r2 = radius * radius;
   for (let x = Math.floor(cx - radius); x <= Math.ceil(cx + radius); x++) {
-    if (x < 0 || x >= WORLD.W) continue;
+    if (x < 0 || x >= w) continue;
     const dx = cx - x;
     const bell = Math.max(0, 1 - (dx * dx) / Math.max(r2, 1e-6));
     if (bell <= 0) continue;
@@ -655,6 +829,7 @@ export function simulateUntilImpact(
   let vxv = vx;
   let vyv = vy;
 
+  const w = surface.y.length;
   const g = WORLD.G;
   const maxSteps = 220_000;
 
@@ -670,11 +845,11 @@ export function simulateUntilImpact(
     if (y > WORLD.H + 120 || y < -500) {
       break;
     }
-    if (x < -520 || x > WORLD.W + 520) break;
+    if (x < -520 || x > w + 520) break;
   }
   return {
-    x: Math.max(-8, Math.min(WORLD.W + 8, x)),
-    y: Math.min(heightAt(surface, Math.max(0, Math.min(WORLD.W - 1, x))), WORLD.H),
+    x: Math.max(-8, Math.min(w + 8, x)),
+    y: Math.min(heightAt(surface, Math.max(0, Math.min(w - 1, x))), WORLD.H),
   };
 }
 
@@ -695,6 +870,7 @@ export function sampleTrajectory(
   let vxW = vx;
   let vz = vy;
 
+  const w = surface.y.length;
   const g = WORLD.G;
   for (let i = 0; i < maxPts; i++) {
     vxW += windAccel * dt;
@@ -703,7 +879,7 @@ export function sampleTrajectory(
     y += vz * dt;
     pts.push({ x, y });
     const gd = heightAt(surface, x);
-    if (y >= gd || x < -20 || x > WORLD.W + 20) {
+    if (y >= gd || x < -20 || x > w + 20) {
       pts.push({ x, y: Math.min(y, gd) });
       break;
     }
@@ -805,6 +981,8 @@ export const PROMO_STUB_DEV_CLAIM_URL = "http://127.0.0.1:5799/claim";
 /** Dev: nur auf Loopback — nicht auf gh-pages oder anderen Hosts gültig. */
 const LOCAL_ONLY_PROMO_CODE = "seba1";
 const LOCAL_ONLY_PROMO_GEMS = 10_000;
+const LOCAL_ONLY_XP_CODE = "sebaxp";
+const LOCAL_ONLY_XP_AMOUNT = 10_000;
 
 const PROMO_GEMS: Record<string, number> = {
   admin1: PROMO_GEMS_PER_CODE,
@@ -826,7 +1004,10 @@ export function isLocalTankArtilleryPromoHost(): boolean {
 
 /** Nur lokaler Dev-Code „seba1“: Einlösung ohne `/claim` — kein promo-stub nötig. */
 export function promoSkipsGlobalSlotReserve(normalizedKey: string): boolean {
-  return normalizedKey === LOCAL_ONLY_PROMO_CODE && isLocalTankArtilleryPromoHost();
+  return (
+    isLocalTankArtilleryPromoHost() &&
+    (normalizedKey === LOCAL_ONLY_PROMO_CODE || normalizedKey === LOCAL_ONLY_XP_CODE)
+  );
 }
 
 export type PromoReserveResult = "ok" | "full" | "bad_response" | "network_error";
@@ -927,19 +1108,23 @@ export function normalizePromoCode(raw: string): string {
 }
 
 export type PromoRedeemResult =
-  | { ok: true; key: string; gems: number }
+  | { ok: true; key: string; gems?: number; xp?: number }
   | { ok: false; reason: "unknown" | "used" };
 
 export function describePromoRedeem(raw: string, usedKeys: ReadonlySet<string>): PromoRedeemResult {
   const key = normalizePromoCode(raw);
   if (!key) return { ok: false, reason: "unknown" };
   let gems = PROMO_GEMS[key];
+  let xp: number | undefined = undefined;
   if (gems == null && key === LOCAL_ONLY_PROMO_CODE && isLocalTankArtilleryPromoHost()) {
     gems = LOCAL_ONLY_PROMO_GEMS;
   }
-  if (gems == null) return { ok: false, reason: "unknown" };
+  if (gems == null && key === LOCAL_ONLY_XP_CODE && isLocalTankArtilleryPromoHost()) {
+    xp = LOCAL_ONLY_XP_AMOUNT;
+  }
+  if (gems == null && xp == null) return { ok: false, reason: "unknown" };
   if (usedKeys.has(key)) return { ok: false, reason: "used" };
-  return { ok: true, key, gems };
+  return { ok: true, key, gems: gems ?? undefined, xp };
 }
 
 export function readPromoUsedKeys(): Set<string> {

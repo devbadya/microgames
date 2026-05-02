@@ -16,7 +16,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./assets/style.css" />
@@ -49,6 +49,43 @@
             <button type="button" class="langBtn" data-set-lang="de" id="langDe" aria-pressed="false">
               DE
             </button>
+          </div>
+
+          <button
+            type="button"
+            id="authSignedOutBtn"
+            class="authPill"
+            data-i18n="accountSignIn"
+            aria-haspopup="dialog"
+            aria-controls="authModal"
+          >
+            Sign in
+          </button>
+
+          <div id="authSignedInChip" class="authChip" hidden>
+            <button
+              type="button"
+              class="authChipBtn"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              data-i18n-aria="accountMenuOpen"
+              aria-label="Open account menu"
+            >
+              <span class="authChipAvatar" aria-hidden="true"></span>
+              <span class="authChipName"></span>
+              <span class="authChipCaret" aria-hidden="true">▾</span>
+            </button>
+            <div class="authChipMenu" role="menu">
+              <button
+                type="button"
+                class="authChipMenuItem"
+                role="menuitem"
+                data-auth-signout
+                data-i18n="accountSignOut"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
 
           <button
@@ -124,7 +161,7 @@
           Built for speed, fairness, and a bit of nostalgia.
         </p>
         <div class="footerLinks">
-          <a class="link" href="https://github.com/devbadya/microgames" rel="noopener" data-i18n="footerSource"
+          <a class="link" href="https://github.com/devbadya/microgames" rel="noopener noreferrer" target="_blank" data-i18n="footerSource"
             >Source on GitHub</a
           >
         </div>
@@ -215,6 +252,223 @@
         </div>
       </div>
     </aside>
+
+    <dialog id="authModal" class="authModal" aria-labelledby="authModalHeading">
+      <div class="authModalInner">
+        <header class="authModalHeader">
+          <div class="authModalHeaderText">
+            <h2 id="authModalHeading" class="authModalTitle" data-i18n="accountModalHeading">
+              Your account
+            </h2>
+            <p class="authModalLead" data-i18n="accountModalLeadSignIn">
+              Sign in to save your progress on this device.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="authModalClose"
+            data-auth-close
+            data-i18n-aria="accountModalClose"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="authTabs" role="tablist" aria-label="Account">
+          <button
+            type="button"
+            class="authTab authTab--active"
+            role="tab"
+            aria-selected="true"
+            data-auth-tab="signin"
+            data-i18n="accountTabSignIn"
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            class="authTab"
+            role="tab"
+            aria-selected="false"
+            data-auth-tab="register"
+            data-i18n="accountTabRegister"
+          >
+            Create account
+          </button>
+        </div>
+
+        <form class="authForm" data-auth-form="signin" novalidate>
+          <div
+            class="authError"
+            role="alert"
+            data-auth-error="signin"
+            hidden
+          ></div>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldUsername">Username</span>
+            <input
+              type="text"
+              id="authSignInUsername"
+              class="input authInput"
+              autocomplete="username"
+              spellcheck="false"
+              autocapitalize="none"
+              required
+              minlength="2"
+              maxlength="32"
+            />
+          </label>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldPassword">Password</span>
+            <span class="authPasswordWrap">
+              <input
+                type="password"
+                id="authSignInPassword"
+                class="input authInput"
+                autocomplete="current-password"
+                required
+                minlength="1"
+                maxlength="200"
+              />
+              <button
+                type="button"
+                class="authShowPw"
+                data-auth-toggle-password="authSignInPassword"
+                aria-pressed="false"
+                data-i18n-aria="accountTogglePasswordShow"
+                aria-label="Show password"
+              >
+                <span aria-hidden="true">👁</span>
+              </button>
+            </span>
+          </label>
+
+          <button
+            type="submit"
+            class="authSubmit"
+            data-auth-submit-signin
+            data-i18n="accountSubmitSignIn"
+          >
+            Sign in
+          </button>
+
+          <p class="authSwitch">
+            <button type="button" class="authLinkBtn" data-auth-switch-tab="register" data-i18n="accountSwitchToRegister">
+              No account yet? Create one.
+            </button>
+          </p>
+        </form>
+
+        <form class="authForm" data-auth-form="register" hidden novalidate>
+          <div
+            class="authError"
+            role="alert"
+            data-auth-error="register"
+            hidden
+          ></div>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldUsername">Username</span>
+            <input
+              type="text"
+              id="authRegUsername"
+              class="input authInput"
+              autocomplete="username"
+              spellcheck="false"
+              autocapitalize="none"
+              required
+              minlength="3"
+              maxlength="32"
+              pattern="^[a-zA-Z0-9](?:[a-zA-Z0-9_-]{1,30}[a-zA-Z0-9])?$"
+            />
+            <span class="authFieldHint" data-i18n="accountFieldUsernameHint"></span>
+          </label>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldEmail">Email</span>
+            <input
+              type="email"
+              id="authRegEmail"
+              class="input authInput"
+              autocomplete="email"
+              spellcheck="false"
+              autocapitalize="none"
+              required
+              maxlength="254"
+            />
+            <span class="authFieldHint" data-i18n="accountFieldEmailHint"></span>
+          </label>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldPassword">Password</span>
+            <span class="authPasswordWrap">
+              <input
+                type="password"
+                id="authRegPassword"
+                class="input authInput"
+                autocomplete="new-password"
+                required
+                minlength="10"
+                maxlength="200"
+              />
+              <button
+                type="button"
+                class="authShowPw"
+                data-auth-toggle-password="authRegPassword"
+                aria-pressed="false"
+                data-i18n-aria="accountTogglePasswordShow"
+                aria-label="Show password"
+              >
+                <span aria-hidden="true">👁</span>
+              </button>
+            </span>
+            <div class="authStrength">
+              <span class="authStrengthLabel" data-i18n="accountStrengthLabel">Password strength</span>
+              <span class="authStrengthBar" aria-hidden="true">
+                <span class="authStrengthBarFill" data-score="0"></span>
+              </span>
+              <span class="authStrengthValue" aria-live="polite">—</span>
+            </div>
+            <span class="authFieldHint" data-i18n="accountFieldPasswordHint"></span>
+          </label>
+
+          <label class="authField">
+            <span class="authFieldLabel" data-i18n="accountFieldConfirm">Confirm password</span>
+            <input
+              type="password"
+              id="authRegConfirm"
+              class="input authInput"
+              autocomplete="new-password"
+              required
+              minlength="10"
+              maxlength="200"
+            />
+          </label>
+
+          <button
+            type="submit"
+            class="authSubmit"
+            data-auth-submit-register
+            data-i18n="accountSubmitRegister"
+          >
+            Create account &amp; sign in
+          </button>
+
+          <p class="authSwitch">
+            <button type="button" class="authLinkBtn" data-auth-switch-tab="signin" data-i18n="accountSwitchToLogin">
+              Already have an account? Sign in.
+            </button>
+          </p>
+
+          <p class="authPrivacy" data-i18n="accountInfoLocalOnly"></p>
+        </form>
+      </div>
+    </dialog>
+
+    <div id="authToast" class="authToast" role="status" aria-live="polite"></div>
 
     <script type="module" src="./assets/site.ts"></script>
   </body>

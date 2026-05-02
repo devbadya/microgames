@@ -17,6 +17,12 @@ test("panzer-artillerie: loads, hud present, shot reaches flight or settle", asy
   await expect(page.getByRole("heading", { name: "Locker" })).toBeVisible();
   await page.getByRole("button", { name: "Locker schließen" }).click();
   await expect(page.getByRole("heading", { name: "Locker" })).not.toBeVisible();
+
+  await expect(page.locator("#taMapDifficulty")).toBeVisible();
+  await expect(page.locator('#taMapDifficulty option[value="insane"]')).toHaveAttribute("disabled", "");
+  await page.selectOption("#taMapTheme", "moon");
+  expect(await page.evaluate(() => localStorage.getItem("tank-artillery-map-theme-v1"))).toBe("moon");
+
   await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15000 });
   await page.getByRole("button", { name: "Bereit" }).click();
   await expect(page.locator("#taCanvas")).toBeVisible();
@@ -204,4 +210,50 @@ test("panzer-artillerie: Blitz ohne eigenen Flug (Slot 4, dann Leertaste)", asyn
   await expect(page.locator("#taPhase")).toContainText(/Blitz/i);
   await page.locator("#taCanvas").press("Space");
   await expect(page.locator("#taPhase")).toContainText(/Bot zielt/i, { timeout: 6000 });
+});
+
+test("panzer-artillerie: Feuerspur-Kosmetik im Shop kaufen", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "100");
+    localStorage.removeItem("tank-artillery-move-trails-owned-v1");
+    localStorage.removeItem("tank-artillery-move-trail-equipped-v1");
+  });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.getByRole("heading", { name: "Kosmetik" })).toBeVisible();
+  await page.locator('[data-move-trail-purchase="fire"]').click();
+  await expect(page.locator("#taShopCosmeticMsg")).toContainText(/gekauft|ausgerüstet/i, { timeout: 5000 });
+  await expect(page.locator("#taShopGems")).toHaveText("15");
+  expect(
+    await page.evaluate(() => localStorage.getItem("tank-artillery-move-trails-owned-v1")),
+  ).toContain("fire");
+});
+
+test("panzer-artillerie: Feuerspur im Shop testen (ohne Kauf)", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+  await page.evaluate(() => {
+    localStorage.removeItem("tank-artillery-move-trails-owned-v1");
+    localStorage.removeItem("tank-artillery-move-trail-equipped-v1");
+  });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.getByRole("heading", { name: "Kosmetik" })).toBeVisible();
+  await page.locator('[data-move-trail-test="fire"]').click();
+  await expect(page.locator("#taCanvas")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#taPhase")).toContainText(/TEST.*Feuerspur/i);
+  await expect(page.getByRole("button", { name: "Test beenden · Lobby" })).toBeVisible();
+  await page.getByRole("button", { name: "Test beenden · Lobby" }).click();
+  await expect(page.locator("#taStage")).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
+});
+
+test("panzer-artillerie: Testspiel mit Esc verlassen", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await page.locator('[data-move-trail-test="lightning"]').click();
+  await expect(page.locator("#taCanvas")).toBeVisible({ timeout: 15_000 });
+  await page.locator("#taCanvas").press("Escape");
+  await expect(page.locator("#taStage")).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
 });

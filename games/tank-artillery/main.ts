@@ -18,6 +18,7 @@ import {
   addGems,
   addPromoUsedKey,
   describePromoRedeem,
+  getPlayerTankDef,
   getEquippedPlayerTank,
   promoClaimEndpoint,
   promoSkipsGlobalSlotReserve,
@@ -35,11 +36,24 @@ import {
   heightAt,
   levelFromXp,
   readXp,
+  readMapDifficulty,
+  readMapBattleTheme,
+  setMapDifficulty,
+  setMapBattleTheme,
+  XP_STORAGE_KEY,
   sampleTrajectory,
   simulateUntilImpact,
   splashDamage,
   tryBuyTank,
   tryBuyDesertShield,
+  tryBuyMoveTrailCosmetic,
+  readEquippedMoveTrail,
+  readOwnedMoveTrailIds,
+  setEquippedMoveTrail,
+  MOVE_TRAIL_FIRE_PRICE_GEMS,
+  MOVE_TRAIL_LIGHTNING_PRICE_GEMS,
+  type PurchasableMoveTrailId,
+  type MoveTrailCosmeticId,
   consumeDesertShieldActivation,
   DESERT_SHIELD_ABSORB,
   DESERT_SHIELD_PRICE_GEMS,
@@ -54,6 +68,8 @@ import {
   type TerrainSurface,
   type WeaponDef,
   type PlayerTankId,
+  type PlayerTankDef,
+  type MapBattleTheme,
 } from "./artillery-logic";
 import { currentFullscreenElement, fullscreenToggleStrings, toggleRootFullscreen } from "./fullscreen";
 
@@ -91,6 +107,8 @@ type EnemyTankSkin = "green" | "navy" | "white" | "silver";
 /** Blitz-Splash — Radius aus Logik (gleiche Quelle wie Vitest) */
 const BLITZ_SPLASH_PX = LIGHTNING_SPLASH_PX;
 const LIGHTNING_BOLT_MS = 720;
+const VIEW_W = WORLD.W;
+const VIEW_H = WORLD.H;
 
 /** Aktiver Blitz-Strahl: ein Ableiter von oben (Fork jagA/jagB) */
 let lightningBolt: null | {
@@ -126,9 +144,8 @@ function canUseBlitzNow(): boolean {
 
 function canActivateDesertShieldNow(): boolean {
   return (
-    readEquippedTankId() === "desert" &&
+    activeTankId() === "desert" &&
     readDesertShieldOwned() &&
-    !shieldConsumedThisMatch &&
     playerShieldAbsorb <= 0
   );
 }
@@ -136,7 +153,6 @@ function canActivateDesertShieldNow(): boolean {
 function tryActivateDesertShieldFromKeys(): boolean {
   if (!canActivateDesertShieldNow()) return false;
   playerShieldAbsorb = DESERT_SHIELD_ABSORB;
-  shieldConsumedThisMatch = true;
   consumeDesertShieldActivation();
   const left = readDesertShieldCharges();
   shieldBannerUntil = performance.now() + 2400;
@@ -164,9 +180,16 @@ function pickEnemyTankSkin(): EnemyTankSkin {
 }
 
 let T: TerrainSurface;
+/** Aktives Kampf-Thema (Erde / Mond) — bei `begin()` aus dem Speicher gelesen */
+let mapBattleTheme: MapBattleTheme = "earth";
+let mapDifficulty = readMapDifficulty();
+/** Breite der aktuellen Welt (Insane kann breiter sein). */
+let worldW = WORLD.W;
+/** Kamera-Offset (nur relevant wenn worldW > VIEW_W). */
+let camX = 0;
 let seed = (Date.now() % 1_000_000) >>> 0;
 let px = 156;
-let bx = WORLD.W - 156;
+let bx = VIEW_W - 156;
 /** Max. LP dieser Partie (von ausgerüstetem Panzer — Gegner gleich). */
 let battleMaxHp = DEFAULT_HP;
 let hpP = DEFAULT_HP;
@@ -182,18 +205,55 @@ let selectedSlot: 0 | 1 | 2 | 3 = 0;
 /** Aktives Geschossprofil nur fürs Flug-Sprite (Spieler oder Bot-Zug) */
 let projectileInFlightStyle: ProjectileGlow | null = null;
 
+let testDriveTankId: PlayerTankId | null = null;
+/** Shop-Test einer Fahr-Spur (Feuer/Blitz) ohne Kauf — nur Optik. */
+let testDriveMoveTrailId: PurchasableMoveTrailId | null = null;
+function testDriveActive(): boolean {
+  return testDriveTankId != null;
+}
+function testMoveTrailActive(): boolean {
+  return testDriveMoveTrailId != null;
+}
+/** Panzer- und/oder Spur-Testspiel: normale Welt, keine Belohnungen. */
+function battleTestModeActive(): boolean {
+  return testDriveActive() || testMoveTrailActive();
+}
+function activeTankId(): PlayerTankId {
+  return testDriveTankId ?? readEquippedTankId();
+}
+function activeTankDef(): PlayerTankDef {
+  if (!testDriveTankId) return getEquippedPlayerTank();
+  return getPlayerTankDef(testDriveTankId) ?? getEquippedPlayerTank();
+}
+
+function effectiveMoveTrail(): MoveTrailCosmeticId {
+  if (testDriveMoveTrailId != null) return testDriveMoveTrailId;
+  return readEquippedMoveTrail();
+}
+
+function battleTestOverlaySuffix(): string {
+  const parts: string[] = [];
+  if (testDriveActive()) parts.push(activeTankDef().nameDe);
+  if (testMoveTrailActive()) parts.push(testDriveMoveTrailId === "fire" ? "Feuerspur" : "Blitzspur");
+  return parts.join(" · ");
+}
+
+function hudBattleTestPrefix(): string {
+  if (!battleTestModeActive()) return "";
+  return `TEST · ${battleTestOverlaySuffix()} · Normal · `;
+}
+
 function pw(): WeaponDef[] {
-  return getEquippedPlayerTank().weapons;
+  return activeTankDef().weapons;
 }
 
 function atlasRectPlayer(): { x: number; y: number; w: number; h: number } {
-  const k = getEquippedPlayerTank().atlasSprite;
+  const k = activeTankDef().atlasSprite;
   return ATLAS[k];
 }
 /** In dieser Kampf-Runde bereits abgefeuert (nur relevant wenn Blitz-Welle aktiv) */
 let blitzConsumedThisMatch = false;
-/** Wüsten-Schild: jede Kampf-Runde 1× (wenn Ladungen), nicht an Blitz-Welle gebunden */
-let shieldConsumedThisMatch = false;
+/** Wüsten-Schild: begrenzt nur durch Gesamt-Ladungen (Storage), nicht pro Runde/Kampf. */
 /** Aktueller Schadens-Puffer — kein echtes Max-HP, wird durch Treffer verbraucht */
 let playerShieldAbsorb = 0;
 /** Kurzes Banner beim Schild aktivieren */
@@ -202,7 +262,7 @@ let shieldBannerLines: string[] = [];
 /** Zufälliger Name für Blitz-Banner, pro freigeschalteter Runde neu */
 let blitzBuddyDe = "";
 /** Horizont-Position eines Blitz-Einschlags auf der Map (Welten-X) */
-let blitzStrikeX = WORLD.W * 0.52;
+let blitzStrikeX = VIEW_W * 0.52;
 let wa = 0;
 let ph: Ph = "m";
 let tr: Array<{ x: number; y: number }> = [];
@@ -229,19 +289,187 @@ let muzzleExpire = 0;
 let botMuzzleExpire = 0;
 /** kurzes Zittern nach Einschlag */
 let shakeUntil = 0;
+
+type ImpactBurstStyle = "default" | "electric" | "dust" | "pellet";
+
 type ImpactBurstFx = {
   x: number;
   y: number;
   t0: number;
   splash: number;
-  electric?: boolean;
+  style?: ImpactBurstStyle;
 };
-/** Einschlags-Particles (+ optional elektrischer Ring bei Blitz) */
-let impactBurst: ImpactBurstFx | null = null;
+
+const IMPACT_BURST_CAP = 40;
+
+type DriveTrailParticle = {
+  x: number;
+  y: number;
+  born: number;
+  vx: number;
+  vy: number;
+  kind: "ember" | "spark";
+};
+/** Kräftigere Spur: mehr Partikel, längere Lebensdauer. */
+const DRIVE_TRAIL_MAX = 96;
+const DRIVE_TRAIL_MAX_AGE_MS = 820;
+let driveTrailParticles: DriveTrailParticle[] = [];
+
+function clearDriveTrailParticles(): void {
+  driveTrailParticles = [];
+}
+
+function spawnDriveTrailForMove(deltaPx: number): void {
+  const trail = effectiveMoveTrail();
+  if (trail === "none") return;
+  const sign = Math.sign(deltaPx);
+  if (sign === 0) return;
+  const rearX = px - sign * 46;
+  const rearBaseY = pv(px) + 14;
+  const now = performance.now();
+  const count = trail === "fire" ? 11 : 9;
+  const kind: DriveTrailParticle["kind"] = trail === "fire" ? "ember" : "spark";
+  for (let i = 0; i < count; i++) {
+    driveTrailParticles.push({
+      x: rearX + (roll() - 0.5) * 22,
+      y: rearBaseY + (roll() - 0.5) * 16,
+      born: now,
+      vx: -sign * (1.2 + roll() * 3.4) + (roll() - 0.5) * 1.2,
+      vy: -1.4 - roll() * 3.2,
+      kind,
+    });
+  }
+  if (driveTrailParticles.length > DRIVE_TRAIL_MAX) {
+    driveTrailParticles.splice(0, driveTrailParticles.length - DRIVE_TRAIL_MAX);
+  }
+}
+
+function tickDriveTrailParticles(): void {
+  const now = performance.now();
+  driveTrailParticles = driveTrailParticles.filter((p) => now - p.born < DRIVE_TRAIL_MAX_AGE_MS);
+  for (const p of driveTrailParticles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += p.kind === "ember" ? 0.09 : 0.05;
+    p.vx *= p.kind === "ember" ? 0.965 : 0.97;
+  }
+}
+
+function drawDriveTrailParticlesLayer(now: number): void {
+  if (driveTrailParticles.length === 0) return;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const life = DRIVE_TRAIL_MAX_AGE_MS;
+  for (const p of driveTrailParticles) {
+    const age = now - p.born;
+    const t = age / life;
+    const a = Math.max(0, 1 - t * 1.05);
+    if (a <= 0.02) continue;
+    if (p.kind === "ember") {
+      const r = 5 + t * 16;
+      ctx.globalAlpha = a * 0.55;
+      const outer = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 1.15);
+      outer.addColorStop(0, `rgba(254,215,170,${0.5 * a})`);
+      outer.addColorStop(0.45, `rgba(251,113,133,${0.35 * a})`);
+      outer.addColorStop(0.75, `rgba(220,38,38,${0.2 * a})`);
+      outer.addColorStop(1, "rgba(69,10,10,0)");
+      ctx.fillStyle = outer;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 1.12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a * 0.98;
+      const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      grd.addColorStop(0, `rgba(255,255,255,${a})`);
+      grd.addColorStop(0.18, `rgba(254,249,195,${0.98 * a})`);
+      grd.addColorStop(0.42, `rgba(250,204,21,${0.85 * a})`);
+      grd.addColorStop(0.68, `rgba(249,115,22,${0.65 * a})`);
+      grd.addColorStop(0.88, `rgba(185,28,28,${0.28 * a})`);
+      grd.addColorStop(1, "rgba(69,10,10,0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a * 0.45;
+      ctx.fillStyle = `rgba(254,240,138,${a})`;
+      ctx.beginPath();
+      ctx.arc(p.x - r * 0.22, p.y - r * 0.28, Math.max(1.8, r * 0.22), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const zig = 12 * Math.sin(age / 28 + p.x * 0.11);
+      ctx.globalAlpha = a * 0.55;
+      ctx.strokeStyle = `rgba(59,130,246,${0.65 * a})`;
+      ctx.lineWidth = 6;
+      ctx.shadowBlur = 26;
+      ctx.shadowColor = "rgba(147,197,253,0.95)";
+      ctx.beginPath();
+      ctx.moveTo(p.x - 7, p.y + zig * 0.35);
+      ctx.lineTo(p.x + 1, p.y - zig);
+      ctx.lineTo(p.x + 9, p.y + zig * 0.2);
+      ctx.stroke();
+      ctx.globalAlpha = a * 0.88;
+      ctx.strokeStyle = `rgba(224,242,254,${0.75 + 0.25 * (1 - t)})`;
+      ctx.lineWidth = 3.2;
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = "rgba(56,189,248,0.9)";
+      ctx.beginPath();
+      ctx.moveTo(p.x - 5, p.y + zig * 0.4);
+      ctx.lineTo(p.x + 2, p.y - zig * 0.92);
+      ctx.lineTo(p.x + 7, p.y + zig * 0.22);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = a * 0.95;
+      ctx.strokeStyle = `rgba(255,255,255,${a})`;
+      ctx.lineWidth = 1.35;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, p.y + 1);
+      ctx.lineTo(p.x + 5, p.y - 4);
+      ctx.stroke();
+      ctx.globalAlpha = a * 0.7;
+      ctx.strokeStyle = `rgba(196,181,253,${a})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(p.x + 3, p.y - 2);
+      ctx.lineTo(p.x + 11, p.y + zig * 0.5);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function impactFxStyle(W: WeaponDef): ImpactBurstStyle {
+  const pb = W.pelletBurst;
+  if (pb && pb.spreadHalfDeg >= 11) return "dust";
+  if (pb) return "pellet";
+  return "default";
+}
+
+function maxImpactBurstAgeMs(style: ImpactBurstStyle | undefined): number {
+  switch (style) {
+    case "dust":
+      return 880;
+    case "pellet":
+      return 720;
+    case "electric":
+      return 700;
+    default:
+      return 640;
+  }
+}
+
+/** Überlappende Einschlags-Particles — bei Pellet-Waffen nacheinander, sonst nur ein Burst sichtbar. */
+let impactBursts: ImpactBurstFx[] = [];
+
+function pushImpactBurst(b: ImpactBurstFx): void {
+  impactBursts.push(b);
+  if (impactBursts.length > IMPACT_BURST_CAP) {
+    impactBursts.splice(0, impactBursts.length - IMPACT_BURST_CAP);
+  }
+}
 
 function clampBlitzAim(): void {
   const pad = TANK_HALF_W + 92;
-  blitzStrikeX = Math.max(pad, Math.min(WORLD.W - pad, blitzStrikeX));
+  blitzStrikeX = Math.max(pad, Math.min(worldW - pad, blitzStrikeX));
 }
 
 /** Setzt Position wenn Spieler auf 4 für Blitz wechselt */
@@ -484,7 +712,7 @@ function gy(x: number): number {
 const HULL_FOOTPRINT_HALF = 44;
 
 function hullClampX(cx: number): number {
-  return Math.max(2, Math.min(WORLD.W - 3, cx));
+  return Math.max(2, Math.min(worldW - 3, cx));
 }
 
 function hullGroundY(tx: number): number {
@@ -564,12 +792,32 @@ function tickBarrelVis(): void {
 }
 function sx(c: number, o: number): number {
   const lo = TANK_HALF_W + 130;
-  const hi = WORLD.W - TANK_HALF_W - 130;
-  const minGap = Math.min(520, WORLD.W * 0.32);
+  const hi = worldW - TANK_HALF_W - 130;
+  const minGap = Math.min(520, worldW * 0.32);
   let z = Math.max(lo, Math.min(hi, c));
   let i = 0;
   while (i++ < 52 && Math.abs(z - o) < minGap) z += z < o ? -92 : 92;
   return Math.max(lo, Math.min(hi, z));
+}
+
+function clampCamX(x: number): number {
+  return Math.max(0, Math.min(Math.max(0, worldW - VIEW_W), x));
+}
+
+function tickCamera(): void {
+  if (worldW <= VIEW_W + 1) {
+    camX = 0;
+    return;
+  }
+  if (mapDifficulty === "insane") {
+    /** Insane: Kamera bleibt fix, damit beide Panzer links/rechts sichtbar bleiben. */
+    return;
+  }
+  /** Tanks sollen wie früher immer sichtbar bleiben: Kamera folgt dem Mittelpunkt zwischen beiden. */
+  const mid = (px + bx) / 2;
+  const tgt = clampCamX(mid - VIEW_W * 0.5);
+  camX += (tgt - camX) * 0.08;
+  if (Math.abs(tgt - camX) < 0.25) camX = tgt;
 }
 function flightPath(
   mu: { x: number; y: number },
@@ -597,12 +845,16 @@ function spl(ix: number, iy: number, W: WeaponDef): void {
   );
   hpB -= Math.round(splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg));
   hpB = Math.max(0, hpB);
-  impactBurst = {
+  const sty = impactFxStyle(W);
+  const splashVis =
+    sty === "dust" ? W.splashPx * 2.05 : sty === "pellet" ? W.splashPx * 1.52 : W.splashPx;
+  pushImpactBurst({
     x: ix,
     y: iy + 2,
     t0: performance.now(),
-    splash: W.splashPx,
-  };
+    splash: splashVis,
+    style: sty === "default" ? undefined : sty,
+  });
   shakeUntil = performance.now() + 260;
 }
 
@@ -612,48 +864,59 @@ function shakeOffset(now: number): { x: number; y: number } {
   return { x: (roll() - 0.5) * amp * 2, y: (roll() - 0.45) * amp * 2 };
 }
 
-function drawImpactBurstLayer(now: number): void {
-  if (!impactBurst) return;
-  const age = now - impactBurst.t0;
-  const maxAge = 640;
-  if (age > maxAge) {
-    impactBurst = null;
-    return;
-  }
-  const { x, y, splash, electric } = impactBurst;
-  const ez = !!electric;
+function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
+  const age = now - b.t0;
+  const maxAge = maxImpactBurstAgeMs(b.style);
+  if (age > maxAge || age < 0) return;
+
+  const { x, y, splash } = b;
+  const sty = b.style ?? "default";
+  const ez = sty === "electric";
+  const du = sty === "dust";
+  const pl = sty === "pellet";
   const k = age / maxAge;
   ctx.save();
 
-  for (let r = 0; r < 3; r++) {
-    const kk = Math.max(0, k - r * 0.08);
+  const nRings = du ? 4 : pl ? 4 : 3;
+  const ringBoost = du ? 1.12 : pl ? 1.06 : 1;
+  for (let r = 0; r < nRings; r++) {
+    const kk = Math.max(0, k - r * (du ? 0.06 : 0.08));
     if (kk <= 0) continue;
-    const R = splash * (0.52 + kk * 1.75);
-    ctx.globalAlpha = (1 - kk) * (0.72 - r * 0.18);
-    ctx.lineWidth = 5 - r;
-    ctx.strokeStyle = ez
-      ? r === 0
-        ? "#93c5fd"
-        : r === 1
-          ? "#38bdf8"
-          : "#0ea5e9"
-      : r === 0
-        ? "#fde047"
-        : r === 1
-          ? "#fb923c"
-          : "#fcd34d";
+    const R = splash * ringBoost * (0.52 + kk * (du ? 2.05 : 1.75));
+    ctx.globalAlpha = (1 - kk) * (du ? 0.82 : pl ? 0.78 : 0.72) - r * (du ? 0.12 : 0.18);
+    ctx.lineWidth = (du ? 6.5 : pl ? 5.5 : 5) - r * (du ? 1.1 : 1);
+    if (ez) {
+      ctx.strokeStyle = r === 0 ? "#93c5fd" : r === 1 ? "#38bdf8" : "#0ea5e9";
+    } else if (du) {
+      ctx.strokeStyle = r === 0 ? "#fbbf24" : r === 1 ? "#f59e0b" : r === 2 ? "#d97706" : "#fcd34d";
+    } else if (pl) {
+      ctx.strokeStyle = r === 0 ? "#fde047" : r === 1 ? "#fdba74" : r === 2 ? "#f97316" : "#fcd34d";
+    } else {
+      ctx.strokeStyle = r === 0 ? "#fde047" : r === 1 ? "#fb923c" : "#fcd34d";
+    }
     ctx.beginPath();
     ctx.arc(x, y, R, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  ctx.globalAlpha = 1 - k * 0.55;
-  const g = ctx.createRadialGradient(x, y, 6, x, y, splash * 0.95);
+  ctx.globalAlpha = 1 - k * (du ? 0.42 : 0.55);
+  const rg = splash * (du ? 1.06 : 0.95);
+  const g = ctx.createRadialGradient(x, y, 6, x, y, rg);
   if (ez) {
     g.addColorStop(0, "rgba(224,242,254,0.98)");
     g.addColorStop(0.42, "rgba(125,211,252,0.62)");
     g.addColorStop(0.75, "rgba(14,165,233,0.38)");
     g.addColorStop(1, "rgba(59,130,246,0)");
+  } else if (du) {
+    g.addColorStop(0, "rgba(254,252,232,0.96)");
+    g.addColorStop(0.38, "rgba(251,191,36,0.72)");
+    g.addColorStop(0.72, "rgba(180,83,9,0.38)");
+    g.addColorStop(1, "rgba(120,53,15,0)");
+  } else if (pl) {
+    g.addColorStop(0, "rgba(255,251,235,0.96)");
+    g.addColorStop(0.42, "rgba(253,224,71,0.62)");
+    g.addColorStop(0.75, "rgba(249,115,22,0.28)");
+    g.addColorStop(1, "rgba(239,68,68,0)");
   } else {
     g.addColorStop(0, "rgba(255,255,230,0.95)");
     g.addColorStop(0.42, "rgba(253,224,71,0.55)");
@@ -662,26 +925,73 @@ function drawImpactBurstLayer(now: number): void {
   }
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(x, y, splash * (0.9 + k * 0.65), 0, Math.PI * 2);
+  ctx.arc(x, y, splash * (du ? 1.02 : 0.9) + k * splash * (du ? 0.76 : 0.65), 0, Math.PI * 2);
   ctx.fill();
 
-  const nSpark = 22;
+  if (du) {
+    const upBias = -Math.PI / 2;
+    const dustPhase = x * 0.0097 + y * 0.0113;
+    for (let w = 0; w < 5; w++) {
+      const rot = dustPhase + w * 1.17 + k * 2.1;
+      const rx = splash * (0.55 + w * 0.22 + k * 0.95);
+      const ry = splash * (0.18 + w * 0.05 + k * 0.38);
+      ctx.globalAlpha = (1 - k) * (0.35 - w * 0.05);
+      ctx.fillStyle = w % 2 === 0 ? "rgba(254,243,199,0.55)" : "rgba(217,119,6,0.32)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.35) * splash * 0.12,
+        y + Math.sin(upBias) * splash * (0.18 + k * 0.55 + w * 0.08),
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+  }
+
+  const nSpark = du ? 48 : pl ? 36 : 22;
   const sparkSpread = k;
   for (let i = 0; i < nSpark; i++) {
-    const a = ((i / nSpark) * Math.PI + k * 3.9 + i * 7.71) % (Math.PI * 2);
-    const spd = splash * (0.35 + (i % 5) * 0.06) * sparkSpread;
-    const sx = x + Math.cos(a) * spd * 1.1;
-    const sy = y + Math.sin(a) * spd * 0.85 + sparkSpread * splash * 0.12;
-    ctx.globalAlpha = (1 - k) * (0.5 + roll() * 0.35);
-    ctx.fillStyle = ez ? (i % 2 === 0 ? "#dbeafe" : "#e0f2fe") : i % 2 === 0 ? "#fff7ed" : "#fed7aa";
+    let a: number;
+    let radial: number;
+    if (du) {
+      const fan = Math.PI * 1.55;
+      a = -Math.PI / 2 + (i / Math.max(1, nSpark - 1) - 0.5) * fan + Math.sin(k * 4 + i * 0.31) * 0.35;
+      radial = splash * (0.42 + ((i * 29) % 7) * 0.07) * (0.85 + sparkSpread * 1.05);
+    } else {
+      a = ((i / nSpark) * Math.PI * 2 + k * 3.9 + i * 7.71) % (Math.PI * 2);
+      radial = splash * (0.35 + (i % 5) * 0.06) * sparkSpread;
+      if (pl) radial *= 1.08;
+    }
+    const sx = x + Math.cos(a) * radial * 1.05;
+    const sy = y + Math.sin(a) * radial * (du ? 1.08 : 0.85) + sparkSpread * splash * (du ? 0.2 : 0.12);
+    ctx.globalAlpha = (1 - k) * (du ? 0.62 : pl ? 0.55 : 0.5) * (0.65 + roll() * 0.35);
+    if (ez) {
+      ctx.fillStyle = i % 2 === 0 ? "#dbeafe" : "#e0f2fe";
+    } else if (du) {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#fef3c7" : i % 3 === 1 ? "#fde68a" : "rgba(180,83,9,0.85)";
+    } else if (pl) {
+      ctx.fillStyle = i % 2 === 0 ? "#fffbeb" : "#fed7aa";
+    } else {
+      ctx.fillStyle = i % 2 === 0 ? "#fff7ed" : "#fed7aa";
+    }
     ctx.strokeStyle = "rgba(15,23,42,0.35)";
-    ctx.lineWidth = 1.25;
+    ctx.lineWidth = du || pl ? 1.55 : 1.25;
+    const pr = (du ? 2.85 : pl ? 2.6 : 2.2) + sparkSpread * (du ? 6.2 : pl ? 5.5 : 5);
     ctx.beginPath();
-    ctx.arc(sx, sy, 2.2 + sparkSpread * 5, 0, Math.PI * 2);
+    ctx.arc(sx, sy, pr, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawImpactBurstLayer(now: number): void {
+  impactBursts = impactBursts.filter((b) => now - b.t0 <= maxImpactBurstAgeMs(b.style));
+  for (const b of impactBursts) drawSingleImpactBurst(now, b);
 }
 
 function drawRadialMuzzle(mu: { x: number; y: number }, radGun: number, flip: boolean): void {
@@ -737,7 +1047,7 @@ function abortActiveCombatFlightState(): void {
   ti = 0;
   playerPelletFlights = null;
   projectileInFlightStyle = null;
-  impactBurst = null;
+  impactBursts = [];
   muzzleExpire = 0;
   botMuzzleExpire = 0;
   shakeUntil = 0;
@@ -749,11 +1059,16 @@ function abortActiveCombatFlightState(): void {
   bwI = 0;
   bWait = 0;
   surrenderStep = 0;
+  clearDriveTrailParticles();
 }
 
 function begin(): void {
   rngSeed = (seed ^ 200_003) >>> 0;
-  T = buildTerrain(seed);
+  mapBattleTheme = readMapBattleTheme();
+  /** Testspiel: immer normale Welt (kein Insane‑Chaos / keine Extra‑Breite). Echter Modus bleibt im Speicher. */
+  mapDifficulty = battleTestModeActive() ? "normal" : readMapDifficulty();
+  worldW = mapDifficulty === "insane" ? Math.max(VIEW_W, Math.floor(VIEW_W * 1.6)) : VIEW_W;
+  T = buildTerrain(seed, { difficulty: mapDifficulty, width: worldW });
   seed = (seed ^ 104_793) >>> 0;
   resetMatchRound();
 }
@@ -761,7 +1076,6 @@ function begin(): void {
 function resetMatchRound(): void {
   kampfNr += 1;
   blitzConsumedThisMatch = false;
-  shieldConsumedThisMatch = false;
   playerShieldAbsorb = 0;
   shieldBannerUntil = 0;
   shieldBannerLines = [];
@@ -772,11 +1086,18 @@ function resetMatchRound(): void {
   }
   enemyTankSkin = pickEnemyTankSkin();
   wa = (roll() - 0.5) * 64;
-  battleMaxHp = getEquippedPlayerTank().maxHp;
+  battleMaxHp = activeTankDef().maxHp;
   hpP = battleMaxHp;
   hpB = battleMaxHp;
-  px = sx(WORLD.W * 0.145 + roll() * WORLD.W * 0.05, WORLD.W / 2);
-  bx = sx(WORLD.W * 0.855 - roll() * WORLD.W * 0.05, WORLD.W / 2);
+  if (mapDifficulty === "insane") {
+    camX = clampCamX((worldW - VIEW_W) / 2);
+    px = sx(camX + VIEW_W * 0.145 + roll() * VIEW_W * 0.05, camX + VIEW_W / 2);
+    bx = sx(camX + VIEW_W * 0.855 - roll() * VIEW_W * 0.05, camX + VIEW_W / 2);
+  } else {
+    camX = 0;
+    px = sx(VIEW_W * 0.145 + roll() * VIEW_W * 0.05, VIEW_W / 2);
+    bx = sx(VIEW_W * 0.855 - roll() * VIEW_W * 0.05, VIEW_W / 2);
+  }
   ang = 50 + Math.floor(seed % 22);
   barrelVisAng = ang;
   pow = 520 + Math.floor(seed % 180);
@@ -787,7 +1108,7 @@ function resetMatchRound(): void {
   tr = [];
   playerPelletFlights = null;
   ti = 0;
-  impactBurst = null;
+  impactBursts = [];
   muzzleExpire = 0;
   botMuzzleExpire = 0;
   shakeUntil = 0;
@@ -796,8 +1117,10 @@ function resetMatchRound(): void {
   lightningBolt = null;
   lightningBannerUntil = 0;
   lightningBannerLines = [];
-  blitzStrikeX = WORLD.W * 0.52;
+  blitzStrikeX = mapDifficulty === "insane" ? camX + VIEW_W * 0.52 : worldW * 0.52;
   enemyBarrelVisDeg = bθ;
+  if (mapDifficulty !== "insane") camX = clampCamX((px + bx) / 2 - VIEW_W * 0.5);
+  clearDriveTrailParticles();
 }
 
 function buildBoltOffsets(len: number): number[] {
@@ -814,7 +1137,7 @@ function applySkyBolt(nowMs: number): void {
   clampBlitzAim();
   const ix = Math.round(blitzStrikeX);
   const iy = heightAt(T, ix);
-  const mul = getEquippedPlayerTank().blitzMul;
+  const mul = activeTankDef().blitzMul;
 
   applyCrater(T, ix, LIGHTNING_CRATER_PX, LIGHTNING_CRATER_DEPTH);
   applyDamageToPlayerRounded(
@@ -831,13 +1154,13 @@ function applySkyBolt(nowMs: number): void {
   const jagA = buildBoltOffsets(jagLen).map((v) => v - 22);
   const jagB = buildBoltOffsets(jagLen).map((v) => v + 22);
 
-  impactBurst = {
+  pushImpactBurst({
     x: ix,
     y: iy + 2,
     t0: nowMs,
     splash: Math.min(236, LIGHTNING_CRATER_PX * 0.68),
-    electric: true,
-  };
+    style: "electric",
+  });
   lightningBolt = { t0: nowMs, cx: ix, gy: iy, jagA, jagB };
   shakeUntil = nowMs + 420;
 
@@ -853,6 +1176,107 @@ function cacheDefaultLobbyLeadShort(): void {
   const el = document.getElementById("taLobbyLeadShort");
   const t = el?.textContent?.trim();
   if (t) defaultLobbyLeadShort = t;
+}
+
+let mapPrefsWired = false;
+
+function syncMapPrefsUi(): void {
+  const dSel = document.getElementById("taMapDifficulty") as HTMLSelectElement | null;
+  const tSel = document.getElementById("taMapTheme") as HTMLSelectElement | null;
+  const xp = readXp();
+  if (dSel) {
+    const insaneOpt = dSel.querySelector('option[value="insane"]') as HTMLOptionElement | null;
+    if (insaneOpt) insaneOpt.disabled = xp < 3000;
+    const cur = readMapDifficulty();
+    const next = cur === "insane" && xp < 3000 ? "hard" : cur;
+    if (dSel.value !== next) dSel.value = next;
+    if (next !== cur) setMapDifficulty(next);
+  }
+  if (tSel) {
+    const curT = readMapBattleTheme();
+    if (tSel.value !== curT) tSel.value = curT;
+  }
+}
+
+function wireMapPrefsFromLobby(): void {
+  if (mapPrefsWired) return;
+  mapPrefsWired = true;
+  const dSel = document.getElementById("taMapDifficulty") as HTMLSelectElement | null;
+  const tSel = document.getElementById("taMapTheme") as HTMLSelectElement | null;
+  if (dSel) {
+    dSel.addEventListener("change", () => {
+      const want = dSel.value;
+      if (want === "insane" && readXp() < 3000) {
+        dSel.value = "hard";
+        setMapDifficulty("hard");
+        syncMapPrefsUi();
+        return;
+      }
+      setMapDifficulty(want);
+      syncMapPrefsUi();
+    });
+  }
+  if (tSel) {
+    tSel.addEventListener("change", () => {
+      setMapBattleTheme(tSel.value);
+      syncMapPrefsUi();
+    });
+  }
+  syncMapPrefsUi();
+}
+
+function drawAirplanes(now: number): void {
+  const yBase = WORLD.H * 0.14;
+  const tint = mapBattleTheme === "moon" ? "rgba(226,232,240,0.62)" : "rgba(15,23,42,0.55)";
+  const rim = mapBattleTheme === "moon" ? "rgba(125,211,252,0.22)" : "rgba(255,255,255,0.18)";
+
+  const drawOne = (k: number, dir: 1 | -1): void => {
+    const sp = 0.038 + k * 0.012;
+    const u = (now * sp * dir) % (VIEW_W + 420);
+    const x = dir === 1 ? -210 + u : VIEW_W + 210 - u;
+    const y = yBase + k * 34 + Math.sin(now * (0.00065 + k * 0.00012) + k * 5.2) * (8 + k * 2.5);
+    const sc = 0.78 + k * 0.18;
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir === -1) ctx.scale(-1, 1);
+    ctx.scale(sc, sc);
+    ctx.rotate(Math.sin(now * 0.00048 + k) * 0.08);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = tint;
+    ctx.strokeStyle = rim;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    // Simple silhouette: fuselage + wings + tail
+    ctx.beginPath();
+    ctx.moveTo(-26, 0);
+    ctx.lineTo(18, -2);
+    ctx.quadraticCurveTo(34, 0, 18, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(6, 0);
+    ctx.lineTo(-4, 10);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(-14, 0);
+    ctx.lineTo(-22, -10);
+    ctx.lineTo(-18, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  drawOne(0, 1);
+  drawOne(1, -1);
+  drawOne(2, 1);
 }
 
 /** Nach Aufgeben („Weiter zur Lobby“): Purse, Showcase-Flash, Kurztext — Game-Over-Overlay bleibt bis dahin aktiv. */
@@ -935,6 +1359,45 @@ function polishReturnToLobbyAfterLoss(): void {
   }
 }
 
+/** Sichtbarkeit: Test verlassen — nur während aktivem Testspiel und ohne Game-Over-Overlay. */
+function syncBattleTestLeaveUi(): void {
+  const row = document.getElementById("taBattleTestLeaveRow");
+  if (!row) return;
+  row.hidden = !(battleTestModeActive() && matchResult === null);
+}
+
+/** Testspiel sofort beenden — ohne Aufgeben-Dialog (Esc oder Button). */
+function leaveBattleTestToLobby(): void {
+  if (!battleTestModeActive()) return;
+  closeSurrenderDialog(false);
+  abortActiveCombatFlightState();
+  matchResult = null;
+  testDriveTankId = null;
+  testDriveMoveTrailId = null;
+  const ft = document.getElementById("taFoot");
+  if (ft) ft.textContent = "";
+  syncBattleTestLeaveUi();
+  document.getElementById("taStage")!.hidden = true;
+  document.getElementById("taBottom")!.hidden = true;
+  const hub = document.getElementById("taHub");
+  if (hub) hub.hidden = false;
+  setHubTab("lobby");
+  begin();
+  skipBeginOnceOnEnterGame = true;
+  refreshPurseDisplays();
+  syncFortniteRail();
+  const lead = document.getElementById("taLobbyLeadShort");
+  if (lead) {
+    lead.textContent = "Test beendet — wieder in der Lobby (ohne Aufgeben mit R).";
+    window.clearTimeout(lobbyLeadResetTimer);
+    lobbyLeadResetTimer = window.setTimeout(() => {
+      lead.textContent = defaultLobbyLeadShort;
+    }, 5500);
+  }
+  resumeLobbyTankIfNoOverlay();
+  document.getElementById("taLobbyReadyBtn")?.focus();
+}
+
 /** Spielfeld zu, Fortnite-Lobby zeigen — inkl. rotierende Panzer-Vorschau neu anwerfen */
 function revealTankLobbyAfterEndingMatch(polishUi: () => void): void {
   const st = document.getElementById("taStage");
@@ -1004,31 +1467,42 @@ function openGameOverOverlay(kind: "win" | "lose" | "surrender", winGems?: numbe
   const btn = document.getElementById("taGameOverBtn") as HTMLButtonElement | null;
   const lobbyBtn = document.getElementById("taGameOverLobbyBtn");
   const ft = document.getElementById("taFoot");
+  const isTest = battleTestModeActive();
   if (title) {
     title.textContent =
       kind === "win"
-        ? "Du hast gewonnen!"
+        ? isTest
+          ? "Testspiel gewonnen"
+          : "Du hast gewonnen!"
         : kind === "surrender"
           ? "Du hast aufgegeben"
-          : "Du hast verloren!";
+          : isTest
+            ? "Testspiel verloren"
+            : "Du hast verloren!";
   }
   if (sub) {
+    const testLine = `Testmodus (${battleTestOverlaySuffix()}) · keine Belohnungen`;
     sub.textContent =
       kind === "win"
-        ? `Sieg · +${XP_WIN} XP · +${winGems ?? 0} 💎 · Level ${levelFromXp(readXp())}`
+        ? isTest
+          ? testLine
+          : `Sieg · +${XP_WIN} XP · +${winGems ?? 0} 💎 · Level ${levelFromXp(readXp())}`
         : kind === "surrender"
           ? "Der Gegner gewinnt diese Runde. XP und 💎 bleiben unverändert. „Ins Spiel“ startet eine neue Runde."
-          : "Nochmal oder „Zurück zur Lobby“ — XP und 💎 bleiben gleich.";
+          : isTest
+            ? testLine
+            : "Nochmal oder „Zurück zur Lobby“ — XP und 💎 bleiben gleich.";
   }
   if (kind === "win" || kind === "lose") {
     lobbyBtn?.removeAttribute("hidden");
-    if (btn) btn.textContent = kind === "win" ? "Nochmal spielen" : "Nochmal versuchen";
+    if (btn) btn.textContent = isTest ? "Nochmal testen" : kind === "win" ? "Nochmal spielen" : "Nochmal versuchen";
   } else {
     lobbyBtn?.setAttribute("hidden", "");
     if (btn) btn.textContent = "Weiter zur Lobby";
   }
   if (ft) ft.textContent = "";
   if (root) root.hidden = false;
+  syncBattleTestLeaveUi();
   btn?.focus();
 }
 
@@ -1037,6 +1511,7 @@ function closeGameOverOverlay(focusCanvas = true): void {
   if (root) root.hidden = true;
   matchResult = null;
   document.getElementById("taGameOverLobbyBtn")?.setAttribute("hidden", "");
+  syncBattleTestLeaveUi();
   if (focusCanvas) cv?.focus();
 }
 
@@ -1061,6 +1536,8 @@ function handleGameOverReturnToLobbyFromUi(): void {
   const ending = matchResult;
   if (ending !== "win" && ending !== "lose") return;
   closeGameOverOverlay(false);
+  if (testDriveActive()) testDriveTankId = null;
+  if (testMoveTrailActive()) testDriveMoveTrailId = null;
   begin();
   skipBeginOnceOnEnterGame = true;
   revealTankLobbyAfterEndingMatch(ending === "win" ? polishReturnToLobbyAfterWin : polishReturnToLobbyAfterLoss);
@@ -1082,6 +1559,7 @@ function handleGameOverWinToLobby(): void {
 function refreshTankShopAndLocker(): void {
   refreshShopTankOffers();
   refreshShopGearOffers();
+  refreshShopCosmeticOffers();
   refreshLockerTankOffers();
 }
 
@@ -1119,6 +1597,19 @@ function refreshShopTankOffers(): void {
 
     const actions = document.createElement("div");
     actions.className = "taShopTankActions";
+
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "taLockerEquipBtn";
+    testBtn.textContent = "Testspielen";
+    testBtn.addEventListener("click", () => {
+      testDriveMoveTrailId = null;
+      testDriveTankId = def.id;
+      closeShopOverlay();
+      closeLockerOverlay();
+      enterGameFromHub();
+    });
+    actions.appendChild(testBtn);
 
     if (def.priceGems <= 0) {
       const tag = document.createElement("span");
@@ -1230,11 +1721,134 @@ function refreshShopGearOffers(): void {
   ul.appendChild(li);
 }
 
+const MOVE_TRAIL_SHOP_ROWS: readonly {
+  id: PurchasableMoveTrailId;
+  title: string;
+  meta: string;
+  price: number;
+}[] = [
+  {
+    id: "fire",
+    title: "Feuerspur",
+    meta: "Glut und Funken hinter den Ketten (← → Fahren). Kaufen, ausrüsten oder mit „Testen“ ansehen — kein Gameplay-Bonus.",
+    price: MOVE_TRAIL_FIRE_PRICE_GEMS,
+  },
+  {
+    id: "lightning",
+    title: "Blitzspur",
+    meta: "Kleine Funken und Lichtbögen beim Rangieren. Kaufen, ausrüsten oder „Testen“ — nur Optik.",
+    price: MOVE_TRAIL_LIGHTNING_PRICE_GEMS,
+  },
+];
+
+function refreshShopCosmeticOffers(): void {
+  const ul = document.getElementById("taShopCosmeticList");
+  if (!ul) return;
+  ul.replaceChildren();
+  const gems = readGems();
+  const owned = new Set(readOwnedMoveTrailIds());
+  const equipped = readEquippedMoveTrail();
+
+  const noneLi = document.createElement("li");
+  noneLi.className = "taShopCard taShopCard--fn taShopCard--rare taShopTankCard";
+  const noneTitle = document.createElement("span");
+  noneTitle.className = "taShopCardTitle";
+  noneTitle.textContent = "Standard — keine Spur";
+  const noneMeta = document.createElement("span");
+  noneMeta.className = "taShopCardMeta";
+  noneMeta.textContent = "Immer verfügbar. Keine Partikel — nur hier im Shop umschalten.";
+  const nonePrice = document.createElement("span");
+  nonePrice.className = "taShopCardPrice";
+  nonePrice.textContent = "0 💎";
+  const noneAct = document.createElement("div");
+  noneAct.className = "taShopTankActions";
+  const noneBtn = document.createElement("button");
+  noneBtn.type = "button";
+  noneBtn.className = "taShopTankBuyBtn";
+  noneBtn.textContent = equipped === "none" ? "Aktiv" : "Ausrüsten";
+  noneBtn.disabled = equipped === "none";
+  noneBtn.addEventListener("click", () => {
+    void setEquippedMoveTrail("none");
+    refreshTankShopAndLocker();
+    const msg = document.getElementById("taShopCosmeticMsg");
+    if (msg) msg.textContent = "Keine Fahr-Spur aktiv.";
+  });
+  noneAct.appendChild(noneBtn);
+  noneLi.append(noneTitle, noneMeta, nonePrice, noneAct);
+  ul.appendChild(noneLi);
+
+  for (const row of MOVE_TRAIL_SHOP_ROWS) {
+    const isOwned = owned.has(row.id);
+    const li = document.createElement("li");
+    li.className = `taShopCard taShopCard--fn taShopCard--epic taShopTankCard${isOwned ? " taShopTankCard--owned" : ""}`;
+    const title = document.createElement("span");
+    title.className = "taShopCardTitle";
+    title.textContent = row.title;
+    const meta = document.createElement("span");
+    meta.className = "taShopCardMeta";
+    meta.textContent = row.meta;
+    const priceRow = document.createElement("span");
+    priceRow.className = "taShopCardPrice";
+    if (isOwned) priceRow.textContent = `Im Besitz · gekauft für ${row.price} 💎`;
+    else priceRow.textContent = `${row.price} 💎`;
+    const actions = document.createElement("div");
+    actions.className = "taShopTankActions";
+    const testTr = document.createElement("button");
+    testTr.type = "button";
+    testTr.className = "taLockerEquipBtn";
+    testTr.textContent = "Testen";
+    testTr.dataset.moveTrailTest = row.id;
+    testTr.addEventListener("click", () => {
+      testDriveMoveTrailId = row.id;
+      closeShopOverlay();
+      closeLockerOverlay();
+      enterGameFromHub();
+    });
+    actions.appendChild(testTr);
+    if (isOwned) {
+      const eq = document.createElement("button");
+      eq.type = "button";
+      eq.className = "taShopTankBuyBtn";
+      eq.textContent = equipped === row.id ? "Aktiv" : "Ausrüsten";
+      eq.disabled = equipped === row.id;
+      eq.dataset.moveTrailEquip = row.id;
+      eq.addEventListener("click", () => {
+        void setEquippedMoveTrail(row.id);
+        refreshTankShopAndLocker();
+        const msg = document.getElementById("taShopCosmeticMsg");
+        if (msg) msg.textContent = `${row.title} ist jetzt deine Fahr-Spur.`;
+      });
+      actions.appendChild(eq);
+    } else {
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.className = "taShopTankBuyBtn";
+      buy.dataset.moveTrailPurchase = row.id;
+      buy.textContent = `Kaufen (${row.price} 💎)`;
+      buy.disabled = gems < row.price;
+      buy.addEventListener("click", () => {
+        const r = tryBuyMoveTrailCosmetic(row.id);
+        const msg = document.getElementById("taShopCosmeticMsg");
+        if (msg) {
+          if (r === "ok") msg.textContent = `${row.title} gekauft und ausgerüstet!`;
+          else if (r === "expensive") msg.textContent = "Nicht genug 💎.";
+          else if (r === "owned") msg.textContent = "Hast du schon.";
+          else msg.textContent = "";
+        }
+        refreshPurseDisplays();
+      });
+      actions.appendChild(buy);
+    }
+    li.append(title, meta, priceRow, actions);
+    ul.appendChild(li);
+  }
+}
+
 function refreshLockerTankOffers(): void {
   const ul = document.getElementById("taLockerTankList");
   if (!ul) return;
   ul.replaceChildren();
-  const equipped = getEquippedPlayerTank().id;
+  const equipped = readEquippedTankId();
   const ownedSet = new Set(readOwnedTankIds());
 
   for (const def of PLAYER_TANKS) {
@@ -1265,6 +1879,21 @@ function refreshLockerTankOffers(): void {
       li.appendChild(val);
       li.appendChild(right);
     } else {
+      const wrap = document.createElement("span");
+      wrap.className = "taShopTankActions";
+
+      const testBtn = document.createElement("button");
+      testBtn.type = "button";
+      testBtn.className = "taLockerEquipBtn";
+      testBtn.textContent = "Testspielen";
+      testBtn.addEventListener("click", () => {
+        testDriveMoveTrailId = null;
+        testDriveTankId = def.id;
+        closeLockerOverlay();
+        closeShopOverlay();
+        enterGameFromHub();
+      });
+
       const b = document.createElement("button");
       b.type = "button";
       b.className = "taLockerEquipBtn";
@@ -1272,9 +1901,12 @@ function refreshLockerTankOffers(): void {
       b.addEventListener("click", () => {
         if (setEquippedTankId(def.id)) refreshTankShopAndLocker();
       });
+
+      wrap.appendChild(testBtn);
+      wrap.appendChild(b);
       li.appendChild(lbl);
       li.appendChild(val);
-      li.appendChild(b);
+      li.appendChild(wrap);
     }
     ul.appendChild(li);
   }
@@ -1304,6 +1936,8 @@ function refreshPurseDisplays(): void {
     if (el) el.textContent = v;
   }
   refreshTankShopAndLocker();
+  /** Insane freischalten sobald XP >= 3000 erreicht (ohne Reload). */
+  syncMapPrefsUi();
 }
 
 function blitzLoadoutHudLine(): string {
@@ -1323,7 +1957,6 @@ function shieldLoadoutHudLine(): string | null {
   if (playerShieldAbsorb > 0) {
     return `5. Kristallschild · aktiv (${playerShieldAbsorb}/${DESERT_SHIELD_ABSORB}) · ${chLabel} Akt.`;
   }
-  if (shieldConsumedThisMatch) return `5. Kristallschild · diese Runde verbraucht · ${chLabel} Akt.`;
   return `5. Kristallschild · Taste 5 · +${DESERT_SHIELD_ABSORB} · ${chLabel} Akt.`;
 }
 
@@ -1353,19 +1986,150 @@ function hudTxt(): void {
       playerShieldAbsorb > 0 ? ` · Schild ${playerShieldAbsorb}` : "";
     hHp.textContent = "Du " + hpP + sh + " · Gegner " + hpB;
   }
-  if (ph === "m") hPh.textContent = "Fahren · Treibstoff " + fuelP;
+  const testPrefix = hudBattleTestPrefix();
+  if (ph === "m") hPh.textContent = testPrefix + "Fahren · Treibstoff " + fuelP;
   else if (ph === "aim")
     hPh.textContent =
       selectedSlot === 3
         ? canUseBlitzNow()
-          ? `Blitz · ${blitzBuddyDe ? blitzBuddyDe + " · " : ""}A/D Platz · Klick · Leertaste`
-          : "Blitz nicht verfügbar — andere Wahl mit 1–3"
-        : "Zielen · A/D Winkel · W/S Kraft · " + ang.toFixed(1) + "° · " + Math.round(pow) + " · Shift fein";
+          ? testPrefix + `Blitz · ${blitzBuddyDe ? blitzBuddyDe + " · " : ""}A/D Platz · Klick · Leertaste`
+          : testPrefix + "Blitz nicht verfügbar — andere Wahl mit 1–3"
+        : testPrefix + "Zielen · A/D Winkel · W/S Kraft · " + ang.toFixed(1) + "° · " + Math.round(pow) + " · Shift fein";
   else if (ph === "pf" || ph === "bf") hPh.textContent = "Flug…";
   else hPh.textContent = "Bot zielt …";
 }
 
-function drawSkyAndClouds(): void {
+function hash01(n: number): number {
+  const x = Math.sin(n) * 10_000;
+  return x - Math.floor(x);
+}
+
+function drawInsaneFireAndSmoke(now: number): void {
+  // Feuerpunkte entlang des Bodens – deterministisch nach x, flackert über Zeit.
+  const t = now * 0.001;
+  const nFires = 18;
+  for (let i = 0; i < nFires; i++) {
+    const u = (i + 1) / (nFires + 1);
+    const x = Math.floor(camX + u * (VIEW_W - 1));
+    const y = gy(x);
+    const h = 18 + hash01(i * 91.7) * 22;
+    const flick = 0.65 + 0.35 * Math.sin(t * (2.6 + i * 0.2) + i * 1.9);
+    const w = 10 + hash01(i * 17.3) * 18;
+
+    // Rauch
+    ctx.save();
+    ctx.globalAlpha = 0.22 + 0.18 * flick;
+    ctx.fillStyle = "rgba(15,23,42,0.85)";
+    for (let k = 0; k < 4; k++) {
+      const ry = (h * 0.8 + k * 10) * (0.7 + hash01(i * 33.1 + k * 7.2) * 0.55);
+      const rx = (w * 0.6 + k * 5) * (0.7 + hash01(i * 77.2 + k * 3.1) * 0.6);
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.sin(t * 0.7 + i) * (4 + k * 1.5),
+        y - (22 + k * 18) - Math.sin(t * 0.9 + k) * 2,
+        rx,
+        ry,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Flamme
+    ctx.save();
+    ctx.translate(x, y + 2);
+    ctx.globalAlpha = 0.9;
+    const g = ctx.createRadialGradient(0, -h * 0.35, 2, 0, -h * 0.25, Math.max(18, h * 1.2));
+    g.addColorStop(0, "rgba(255,251,235,0.98)");
+    g.addColorStop(0.35, "rgba(251,191,36,0.92)");
+    g.addColorStop(0.62, "rgba(249,115,22,0.75)");
+    g.addColorStop(0.82, "rgba(239,68,68,0.35)");
+    g.addColorStop(1, "rgba(239,68,68,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(0, -h * 0.35, w * 0.55, h * flick, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawInsaneEndOverlay(): void {
+  // "Background am Ende": dunkle Vignette + leichter Staubschleier oben.
+  ctx.save();
+  const vg = ctx.createRadialGradient(WORLD.W * 0.52, WORLD.H * 0.42, WORLD.H * 0.25, WORLD.W * 0.5, WORLD.H * 0.5, WORLD.H * 0.92);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+
+  const haze = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.42);
+  haze.addColorStop(0, "rgba(253,230,138,0.16)");
+  haze.addColorStop(0.55, "rgba(148,163,184,0.04)");
+  haze.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, 0, WORLD.W, WORLD.H * 0.5);
+  ctx.restore();
+}
+
+function drawSkyAndClouds(now: number): void {
+  if (mapDifficulty === "insane") {
+    // Apokalyptischer Himmel für Insane (egal ob Erde/Mond gewählt).
+    const sky = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.62);
+    sky.addColorStop(0, "#1b0b12");
+    sky.addColorStop(0.3, "#3b0f12");
+    sky.addColorStop(0.62, "#5b1b14");
+    sky.addColorStop(1, "#0b1020");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+    ctx.fillStyle = "rgba(234,88,12,0.12)";
+    ctx.fillRect(0, WORLD.H * 0.22, WORLD.W, WORLD.H * 0.26);
+    drawAirplanes(now);
+    return;
+  }
+  if (mapBattleTheme === "moon") {
+    const sky = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.52);
+    sky.addColorStop(0, "#070a12");
+    sky.addColorStop(0.35, "#12182a");
+    sky.addColorStop(0.72, "#1c2436");
+    sky.addColorStop(1, "#252e42");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+
+    for (let i = 0; i < 96; i++) {
+      const sx = ((i * 1409) % (WORLD.W - 14)) + 7;
+      const sy = ((i * 877) % Math.max(1, Math.floor(WORLD.H * 0.4))) + 6;
+      const br = i % 11 === 0 ? 2.2 : i % 4 === 0 ? 1.6 : 1.05;
+      ctx.fillStyle = i % 9 === 0 ? "rgba(254, 243, 199, 0.92)" : "rgba(226, 232, 240, 0.72)";
+      ctx.beginPath();
+      ctx.arc(sx, sy, br, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    /* Ferne Erde am Himmel */
+    ctx.save();
+    const ex = 86;
+    const ey = 72;
+    ctx.beginPath();
+    ctx.arc(ex, ey, 28, 0, Math.PI * 2);
+    const eg = ctx.createRadialGradient(ex - 9, ey - 9, 4, ex, ey, 30);
+    eg.addColorStop(0, "#5b8fd4");
+    eg.addColorStop(0.45, "#2d6a9f");
+    eg.addColorStop(0.72, "#1e3d5c");
+    eg.addColorStop(1, "#0f172a");
+    ctx.fillStyle = eg;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(148,163,184,0.45)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
+    ctx.fillRect(0, WORLD.H * 0.34, WORLD.W, WORLD.H * 0.22);
+    return;
+  }
+
   const sky = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.5);
   sky.addColorStop(0, "#38bdf8");
   sky.addColorStop(0.35, "#7dd3fc");
@@ -1415,17 +2179,18 @@ function drawSkyBlitzAimPreview(): void {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.setLineDash([7, 12]);
-  ctx.shadowColor = "rgba(15, 23, 42, 0.36)";
-  ctx.shadowBlur = 5;
+  ctx.shadowColor = mapBattleTheme === "moon" ? "rgba(56, 189, 248, 0.35)" : "rgba(15, 23, 42, 0.36)";
+  ctx.shadowBlur = mapBattleTheme === "moon" ? 8 : 5;
   ctx.beginPath();
   ctx.moveTo(xx, topY);
   ctx.lineTo(xx, gy0 + 4);
-  ctx.strokeStyle = "rgba(125, 211, 252, 0.98)";
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = mapBattleTheme === "moon" ? "rgba(186, 230, 253, 0.98)" : "rgba(125, 211, 252, 0.98)";
+  ctx.lineWidth = mapBattleTheme === "moon" ? 4.5 : 4;
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.lineWidth = 2.25;
-  ctx.strokeStyle = "rgba(14, 165, 233, 0.65)";
+  ctx.strokeStyle =
+    mapBattleTheme === "moon" ? "rgba(224, 242, 254, 0.82)" : "rgba(14, 165, 233, 0.65)";
   ctx.beginPath();
   ctx.moveTo(xx - 11, gy0 + 3);
   ctx.lineTo(xx + 11, gy0 + 3);
@@ -1448,22 +2213,24 @@ function drawAimTrajectoryPreview(): void {
   const pb = Wp.pelletBurst;
 
   if (pb && pb.count >= 2) {
+    const dustFan = pb.spreadHalfDeg >= 11;
     const nFan = Math.min(11, Math.max(5, Math.floor(pb.count / 2)));
     ctx.save();
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.setLineDash([5, 9]);
-    ctx.shadowColor = "rgba(15, 23, 42, 0.25)";
-    ctx.shadowBlur = 4;
-    ctx.lineWidth = 2;
+    ctx.shadowColor = dustFan ? "rgba(180, 83, 9, 0.22)" : "rgba(15, 23, 42, 0.25)";
+    ctx.shadowBlur = dustFan ? 6 : 4;
+    ctx.lineWidth = dustFan ? 2.6 : 2;
 
     for (let q = 0; q < nFan; q++) {
       const k = nFan <= 1 ? 0 : (q / (nFan - 1)) * 2 - 1;
       const v = velocityFromElevDeg(true, ang + k * pb.spreadHalfDeg, pow, Wp.velMul);
       const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1000, FLIGHT_DT);
       if (pts.length < 2) continue;
-      ctx.globalAlpha = 0.22 + (q === ((nFan - 1) >> 1) ? 0.38 : 0);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.88)";
+      const center = q === ((nFan - 1) >> 1);
+      ctx.globalAlpha = (dustFan ? 0.34 : 0.24) + (center ? (dustFan ? 0.34 : 0.38) : 0);
+      ctx.strokeStyle = dustFan ? "rgba(253, 230, 138, 0.95)" : "rgba(255, 255, 255, 0.88)";
       ctx.beginPath();
       ctx.moveTo(mu.x, mu.y);
       for (let i = 0; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
@@ -1501,11 +2268,82 @@ function drawAimTrajectoryPreview(): void {
 }
 
 function drawTerrainMass(): void {
+  const x0 = Math.max(0, Math.floor(camX) - 2);
+  const x1 = Math.min(worldW - 1, x0 + VIEW_W + 4);
   ctx.beginPath();
-  ctx.moveTo(0, WORLD.H);
-  for (let x = 0; x < WORLD.W; x++) ctx.lineTo(x, T.y[x]!);
-  ctx.lineTo(WORLD.W - 1, WORLD.H);
+  ctx.moveTo(x0, WORLD.H);
+  for (let x = x0; x <= x1; x++) ctx.lineTo(x, heightAt(T, x));
+  ctx.lineTo(x1, WORLD.H);
   ctx.closePath();
+
+  if (mapDifficulty === "insane") {
+    // Nur Erde: verbrannte, braune Schichten – kein Grün/Gras.
+    const reg = ctx.createLinearGradient(0, 80, 0, WORLD.H);
+    reg.addColorStop(0, "#b45309");
+    reg.addColorStop(0.14, "#92400e");
+    reg.addColorStop(0.42, "#78350f");
+    reg.addColorStop(0.74, "#451a03");
+    reg.addColorStop(1, "#1f1307");
+    ctx.fillStyle = reg;
+    ctx.fill();
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(15,23,42,0.7)";
+    ctx.lineWidth = 5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.shadowColor = "rgba(249,115,22,0.18)";
+    ctx.shadowBlur = 7;
+    ctx.beginPath();
+    ctx.moveTo(x0, heightAt(T, x0));
+    for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x));
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(253,224,71,0.14)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, heightAt(T, x0) + 9);
+    for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x) + 9);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  if (mapBattleTheme === "moon") {
+    const reg = ctx.createLinearGradient(0, 70, 0, WORLD.H);
+    reg.addColorStop(0, "#b8bcc4");
+    reg.addColorStop(0.14, "#9599a3");
+    reg.addColorStop(0.42, "#6f737c");
+    reg.addColorStop(0.74, "#52555c");
+    reg.addColorStop(1, "#3a3d44");
+    ctx.fillStyle = reg;
+    ctx.fill();
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(15,23,42,0.55)";
+    ctx.lineWidth = 5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.shadowColor = "rgba(226,232,240,0.12)";
+    ctx.shadowBlur = 5;
+    ctx.beginPath();
+    ctx.moveTo(x0, heightAt(T, x0));
+    for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x));
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(203,213,225,0.35)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, heightAt(T, x0) + 9);
+    for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x) + 9);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
 
   const earth = ctx.createLinearGradient(0, 80, 0, WORLD.H);
   earth.addColorStop(0, "#bef264");
@@ -1524,8 +2362,8 @@ function drawTerrainMass(): void {
   ctx.shadowColor = "rgba(234,179,8,0.25)";
   ctx.shadowBlur = 6;
   ctx.beginPath();
-  ctx.moveTo(0, T.y[0]!);
-  for (let x = 1; x < WORLD.W; x++) ctx.lineTo(x, T.y[x]!);
+  ctx.moveTo(x0, heightAt(T, x0));
+  for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x));
   ctx.stroke();
   ctx.restore();
 
@@ -1533,8 +2371,8 @@ function drawTerrainMass(): void {
   ctx.strokeStyle = "rgba(212,231,146,0.55)";
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(0, T.y[0]! + 8);
-  for (let x = 1; x < WORLD.W; x++) ctx.lineTo(x, T.y[x]! + 8);
+  ctx.moveTo(x0, heightAt(T, x0) + 8);
+  for (let x = x0 + 1; x <= x1; x++) ctx.lineTo(x, heightAt(T, x) + 8);
   ctx.stroke();
   ctx.restore();
 }
@@ -1614,7 +2452,13 @@ function drawSmokeTrailAhead(j: number): void {
   if (tr.length >= 4) drawSmokeTrailOnPath(tr, j, 26);
 }
 
-function drawSmokeTrailOnPath(path: Array<{ x: number; y: number }>, j: number, spanMax = 18): void {
+/** Rauch-/Staubspur hinter Streukügeln oder Direktgeschoss (Farbe abhängig von Waffe). */
+function drawSmokeTrailOnPath(
+  path: Array<{ x: number; y: number }>,
+  j: number,
+  spanMax = 18,
+  tone: "warm" | "dust" | "pellet" = "warm",
+): void {
   if (j < 3 || path.length < 4) return;
   const span = Math.min(spanMax, j);
   const lo = Math.max(0, j - span);
@@ -1622,11 +2466,19 @@ function drawSmokeTrailOnPath(path: Array<{ x: number; y: number }>, j: number, 
   for (let i = lo; i < j; i++) {
     const p = path[i]!;
     const t = (i - lo) / Math.max(1, j - lo);
-    ctx.globalAlpha = 0.1 + t * 0.32;
-    ctx.fillStyle = i % 3 === 0 ? "#fffde4" : "#fde68a";
-    ctx.strokeStyle = "rgba(15,23,42,0.2)";
-    ctx.lineWidth = 1.5;
-    const r = 1.8 + t * 2.6;
+    const baseA = tone === "dust" ? 0.16 : tone === "pellet" ? 0.14 : 0.1;
+    const topA = tone === "dust" ? 0.48 : tone === "pellet" ? 0.44 : 0.32;
+    ctx.globalAlpha = baseA + t * topA;
+    if (tone === "dust") {
+      ctx.fillStyle = i % 3 === 0 ? "#fef9c3" : i % 3 === 1 ? "#fde68a" : "#d4a574";
+    } else if (tone === "pellet") {
+      ctx.fillStyle = i % 3 === 0 ? "#fffef0" : i % 3 === 1 ? "#fef08a" : "#fed7aa";
+    } else {
+      ctx.fillStyle = i % 3 === 0 ? "#fffde4" : "#fde68a";
+    }
+    ctx.strokeStyle = tone === "dust" ? "rgba(120,53,15,0.22)" : "rgba(15,23,42,0.2)";
+    ctx.lineWidth = tone === "dust" || tone === "pellet" ? 2 : 1.5;
+    const r = (tone === "dust" ? 2.2 : tone === "pellet" ? 2 : 1.8) + t * (tone === "dust" ? 3.4 : tone === "pellet" ? 3.2 : 2.6);
     ctx.beginPath();
     ctx.arc(p.x, p.y + 1, r, 0, Math.PI * 2);
     ctx.fill();
@@ -1943,8 +2795,12 @@ function paint(): void {
   ctx.save();
   ctx.translate(sk.x, sk.y);
 
-  drawSkyAndClouds();
+  drawSkyAndClouds(now);
+
+  ctx.save();
+  ctx.translate(-camX, 0);
   drawTerrainMass();
+  drawDriveTrailParticlesLayer(now);
   drawAimTrajectoryPreview();
   drawTankPlaced(px, atlasRectPlayer(), true);
   drawTankPlaced(bx, atlasRectForEnemySkin(enemyTankSkin), false);
@@ -1955,14 +2811,25 @@ function paint(): void {
   drawMuzzleFlashes(now);
 
   const gFly = projectileInFlightStyle ?? DEFAULT_PROJECTILE_GLOW;
+  const siPf = selectedSlot > 2 ? 0 : selectedSlot;
+  const wpPf = pw()[siPf];
+  const pbPreview = wpPf?.pelletBurst;
+  const trailTone: "warm" | "dust" | "pellet" = pbPreview
+    ? pbPreview.spreadHalfDeg >= 11
+      ? "dust"
+      : "pellet"
+    : "warm";
+  const pelletTrailSpan = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 30 : 24) : 14;
+  const pelletBulletScale = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 0.62 : 0.58) : 0.48;
+
   if (ph === "pf" && playerPelletFlights?.length) {
     for (const pe of playerPelletFlights) {
       if (pe.applied || pe.pts.length < 2) continue;
       const j = Math.min(pe.ti, pe.pts.length - 1);
-      drawSmokeTrailOnPath(pe.pts, j, 14);
+      drawSmokeTrailOnPath(pe.pts, j, pelletTrailSpan, trailTone);
       const p = pe.pts[j]!;
       const prev = j > 0 ? pe.pts[j - 1]! : null;
-      drawProjectileSized(p, prev, gFly, 0.48);
+      drawProjectileSized(p, prev, gFly, pelletBulletScale);
     }
   } else if ((ph === "pf" || ph === "bf") && tr.length) {
     const j = Math.min(ti, tr.length - 1);
@@ -1973,7 +2840,13 @@ function paint(): void {
   }
   drawImpactBurstLayer(now);
   drawLightningBoltLayer(now);
+  if (mapDifficulty === "insane") {
+    drawInsaneFireAndSmoke(now);
+  }
+  ctx.restore();
+
   drawCartoonHudOverlay(now);
+  if (mapDifficulty === "insane") drawInsaneEndOverlay();
 
   ctx.restore();
 }
@@ -2006,6 +2879,10 @@ function finishBot(): void {
 
 function chk(): boolean {
   if (hpB <= 0) {
+    if (battleTestModeActive()) {
+      openGameOverOverlay("win", 0);
+      return true;
+    }
     addXp(XP_WIN);
     const gems = rollGemsForWin(Math.random);
     addGems(gems);
@@ -2097,6 +2974,8 @@ function frame(): void {
     if (ph === "bw" && nowFrame > bWait) pickBotShot();
     tickBarrelVis();
     tickEnemyBarrelVis();
+    tickCamera();
+    tickDriveTrailParticles();
     if ((ph === "pf" || ph === "bf") && (playerPelletFlights?.length || tr.length)) {
       if (ph === "pf" && playerPelletFlights?.length) {
         const si = selectedSlot > 2 ? 0 : selectedSlot;
@@ -2177,6 +3056,8 @@ function openShopOverlay(): void {
   syncFortniteRail();
   const st = document.getElementById("taShopTankMsg");
   if (st) st.textContent = "";
+  const cMsg = document.getElementById("taShopCosmeticMsg");
+  if (cMsg) cMsg.textContent = "";
   refreshPurseDisplays();
   document.getElementById("taShopClose")?.focus();
 }
@@ -2252,10 +3133,16 @@ async function applyPromoFromShopUi(): Promise<void> {
   }
 
   if (promoSkipsGlobalSlotReserve(r.key)) {
-    addGems(r.gems);
+    if (typeof r.gems === "number") addGems(r.gems);
+    if (typeof r.xp === "number") addXp(r.xp);
     addPromoUsedKey(r.key);
     refreshPurseDisplays();
-    msg.textContent = `+${r.gems} 💎 — eingelöst!`;
+    msg.textContent =
+      typeof r.gems === "number"
+        ? `+${r.gems} 💎 — eingelöst!`
+        : typeof r.xp === "number"
+          ? `+${r.xp} XP — eingelöst!`
+          : "Eingelöst!";
     input.value = "";
     return;
   }
@@ -2285,10 +3172,16 @@ async function applyPromoFromShopUi(): Promise<void> {
         "Promo-Server antwortet ungewöhnlich (/claim mit JSON { ok:true } erwarten — URL oder Worker prüfen).";
       return;
     }
-    addGems(r.gems);
+    if (typeof r.gems === "number") addGems(r.gems);
+    if (typeof r.xp === "number") addXp(r.xp);
     addPromoUsedKey(r.key);
     refreshPurseDisplays();
-    msg.textContent = `+${r.gems} 💎 — eingelöst!`;
+    msg.textContent =
+      typeof r.gems === "number"
+        ? `+${r.gems} 💎 — eingelöst!`
+        : typeof r.xp === "number"
+          ? `+${r.xp} XP — eingelöst!`
+          : "Eingelöst!";
     input.value = "";
   } finally {
     promoApplyInFlight = false;
@@ -2351,6 +3244,7 @@ function enterGameFromHub(): void {
     rafStarted = true;
     requestAnimationFrame(frame);
   }
+  syncBattleTestLeaveUi();
 }
 
 function syncFullscreenControl(): void {
@@ -2374,6 +3268,7 @@ document.addEventListener("DOMContentLoaded", () => {
   lobbyTankCx = lobbyTankCv?.getContext("2d") ?? null;
   refreshPurseDisplays();
   cacheDefaultLobbyLeadShort();
+  wireMapPrefsFromLobby();
 
   const taRootEl = document.getElementById("taRoot") as HTMLElement | null;
   document.getElementById("taFullscreenBtn")?.addEventListener("click", () => {
@@ -2437,6 +3332,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  document.getElementById("taBattleTestLeaveBtn")?.addEventListener("click", () => leaveBattleTestToLobby());
+
   document.getElementById("taSurrenderJa")?.addEventListener("click", onSurrenderJa);
   document.getElementById("taSurrenderNein")?.addEventListener("click", onSurrenderNein);
   document.getElementById("taSurrenderBackdrop")?.addEventListener("click", onSurrenderNein);
@@ -2462,7 +3359,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (surrenderStep !== 0 || matchResult !== null) return;
       if (ph !== "aim" || selectedSlot !== 3) return;
       const rect = cv.getBoundingClientRect();
-      blitzStrikeX = ((e.clientX - rect.left) / rect.width) * WORLD.W;
+      blitzStrikeX = camX + ((e.clientX - rect.left) / rect.width) * VIEW_W;
       clampBlitzAim();
       e.preventDefault();
     },
@@ -2505,6 +3402,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         return;
       }
+      if (battleTestModeActive() && e.code === "Escape") {
+        e.preventDefault();
+        leaveBattleTestToLobby();
+        return;
+      }
       if (hpP <= 0 || hpB <= 0) return;
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -2518,12 +3420,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         /** Nur Pfeile fahren — A/D bleiben für die Zielphase frei */
         if (e.code === 'ArrowLeft' && fuelP > 9) {
+          const prevPx = px;
           px = sx(px - 5, bx);
+          if (px !== prevPx) spawnDriveTrailForMove(-5);
           fuelP -= 9;
           e.preventDefault();
         }
         if (e.code === 'ArrowRight' && fuelP > 9) {
+          const prevPx = px;
           px = sx(px + 5, bx);
+          if (px !== prevPx) spawnDriveTrailForMove(5);
           fuelP -= 9;
           e.preventDefault();
         }
