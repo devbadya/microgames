@@ -6,9 +6,23 @@ import { securityHeadersPlugin } from "./vite-plugin-security-headers";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
+/**
+ * GitHub Pages project sites are served from https://<user>.github.io/<repo>/.
+ * In CI we use `/${repo}/`. Locally we use `/` (not `./`): a relative base breaks nested
+ * routes like `/games/tank-artillery/` because `new Image().src = ./games/...` resolves
+ * relative to the page URL and duplicates path segments (sprites 404 → empty lobby canvas).
+ */
+function viteBase(): string {
+  if (process.env.GITHUB_ACTIONS === "true") {
+    const repo = process.env.GITHUB_REPOSITORY?.split("/")[1];
+    if (repo) return `/${repo}/`;
+  }
+  return "/";
+}
+
 export default defineConfig({
   plugins: [securityHeadersPlugin()],
-  base: "./",
+  base: viteBase(),
   publicDir: "public",
   server: {
     headers: {

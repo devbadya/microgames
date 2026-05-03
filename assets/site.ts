@@ -11,44 +11,26 @@ import {
   setDocumentTitleFromKey,
   searchResultLine,
 } from "./i18n";
+import { publicAssetUrl, thumbUrl } from "./site-paths";
 const SETTINGS_OPEN_CLASS = "settingsOpen";
 
 function qs<T extends HTMLElement>(sel: string, root: ParentNode = document): T | null {
   return root.querySelector(sel) as T | null;
 }
 
-/**
- * Convert a manifest thumbnail reference to a safe URL.
- *
- * Hardened against javascript:/data: scheme abuse — only relative paths and
- * same-origin absolute paths are honoured. Anything suspicious collapses to
- * a transparent placeholder so a poisoned games.json can't smuggle script.
- */
-export function thumbUrl(rel: string): string {
-  const trimmed = String(rel ?? "").trim();
-  if (!trimmed) return "data:image/svg+xml;utf8,%3Csvg/%3E";
-  // Reject any explicit scheme — only local/relative is allowed.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
-    return "data:image/svg+xml;utf8,%3Csvg/%3E";
-  }
-  if (trimmed.startsWith("//")) return "data:image/svg+xml;utf8,%3Csvg/%3E";
-  if (trimmed.startsWith("/")) return trimmed;
-  return `/${trimmed.replace(/^\.\//, "")}`;
+function updateMetaDescription(): void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+  if (meta) meta.setAttribute("content", translate("metaDesc"));
 }
 
 async function fetchGames(): Promise<Game[]> {
-  const res = await fetch("/games/games.json", {
+  const res = await fetch(publicAssetUrl("games/games.json"), {
     credentials: "same-origin",
     cache: "no-store",
     headers: { Accept: "application/json" },
   });
   if (!res.ok) throw new Error("games.json fetch failed");
   return res.json();
-}
-
-function updateMetaDescription(): void {
-  const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-  if (meta) meta.setAttribute("content", translate("metaDesc"));
 }
 
 function updateLangButtons(lang: SupportedLang): void {
@@ -190,7 +172,16 @@ function attachSearchHandlers(): () => void {
     grid.setAttribute("aria-busy", "false");
   };
 
-  search.addEventListener("input", apply);
+  let searchRaf = 0;
+  const scheduleApplyFromInput = () => {
+    if (searchRaf !== 0) return;
+    searchRaf = requestAnimationFrame(() => {
+      searchRaf = 0;
+      apply();
+    });
+  };
+
+  search.addEventListener("input", scheduleApplyFromInput);
 
   return apply;
 }
