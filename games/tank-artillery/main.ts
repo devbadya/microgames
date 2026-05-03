@@ -92,7 +92,6 @@ import {
   lockerMaxSpecialAttackUnlocked,
 } from "./artillery-logic";
 import { currentFullscreenElement, fullscreenToggleStrings, toggleRootFullscreen } from "./fullscreen";
-import { endPvpClientSession, resolveTankPvpWsUrl, startPvpSearch } from "./pvp-matchmaking";
 
 declare global {
   interface Window {
@@ -4039,24 +4038,6 @@ function syncFullscreenControl(): void {
   btn.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
-/** Online-Matchmaking (Beta): Button nur aktiv, wenn `VITE_TANK_PVP_WS_URL` o. Ä. gesetzt. */
-function syncPvpLobbyUi(): void {
-  const find = document.getElementById("taHubPvpFind") as HTMLButtonElement | null;
-  const cancel = document.getElementById("taHubPvpCancel") as HTMLButtonElement | null;
-  const status = document.getElementById("taHubPvpStatus");
-  const url = resolveTankPvpWsUrl();
-  if (find) {
-    find.hidden = false;
-    find.disabled = !url;
-  }
-  if (cancel) cancel.hidden = true;
-  if (status) {
-    status.textContent = url
-      ? "Global (Beta): Zwei Spieler werden automatisch gepaart. Echter gemeinsamer Kampf ist noch in Arbeit."
-      : "Online: VITE_TANK_PVP_WS_URL setzen (z. B. ws://127.0.0.1:8788) und `npm run pvp-server` starten.";
-  }
-}
-
 document.addEventListener("DOMContentLoaded", () => {
   cv = document.getElementById("taCanvas") as HTMLCanvasElement;
   cv.tabIndex = 0;
@@ -4067,7 +4048,6 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshPurseDisplays();
   cacheDefaultLobbyLeadShort();
   wireMapPrefsFromLobby();
-  syncPvpLobbyUi();
 
   const taRootEl = document.getElementById("taRoot") as HTMLElement | null;
   document.getElementById("taFullscreenBtn")?.addEventListener("click", () => {
@@ -4082,49 +4062,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("taHubTabShop")?.addEventListener("click", () => setHubTab("shop"));
   document.getElementById("taHubTabLocker")?.addEventListener("click", () => setHubTab("locker"));
   document.getElementById("taHubPlay")?.addEventListener("click", enterGameFromHub);
-
-  document.getElementById("taHubPvpFind")?.addEventListener("click", () => {
-    const status = document.getElementById("taHubPvpStatus");
-    const find = document.getElementById("taHubPvpFind") as HTMLButtonElement | null;
-    const cancel = document.getElementById("taHubPvpCancel") as HTMLButtonElement | null;
-    if (!resolveTankPvpWsUrl()) {
-      if (status) status.textContent = "Keine WebSocket-URL konfiguriert.";
-      return;
-    }
-    if (find) {
-      find.hidden = true;
-      find.disabled = true;
-    }
-    if (cancel) cancel.hidden = false;
-    if (status) status.textContent = "Verbindung wird aufgebaut …";
-
-    startPvpSearch({
-      onQueued: (pos) => {
-        if (status) status.textContent = `In der Warteschlange (Platz ca. ${pos}) …`;
-      },
-      onMatched: (rid, r) => {
-        if (status) {
-          status.textContent = `Gegner gefunden · Raum ${rid.slice(0, 8)}… · Du bist Spieler ${r + 1} von 2. (PvP-Sync folgt — „Trennen“ beendet die Sitzung.)`;
-        }
-      },
-      onPeerLeft: (reason) => {
-        if (status) status.textContent = `Der andere Spieler ist weg (${reason}).`;
-        syncPvpLobbyUi();
-      },
-      onError: (_code, msg) => {
-        if (status) status.textContent = msg;
-        syncPvpLobbyUi();
-      },
-      onDisconnected: () => {
-        syncPvpLobbyUi();
-      },
-    });
-  });
-
-  document.getElementById("taHubPvpCancel")?.addEventListener("click", () => {
-    endPvpClientSession();
-    syncPvpLobbyUi();
-  });
 
   const onShopBackdropOrClose = () => closeShopOverlay();
   document.getElementById("taShopBackdrop")?.addEventListener("click", onShopBackdropOrClose);
@@ -4186,7 +4123,6 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshPurseDisplays();
     const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = false;
-    syncPvpLobbyUi();
     startLobbyTankShowcase();
   });
   cv.addEventListener(
