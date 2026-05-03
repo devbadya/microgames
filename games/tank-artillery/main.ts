@@ -844,8 +844,11 @@ function loadSpritesheet(onReady: () => void): void {
   const im = new Image();
   im.decoding = "async";
   im.onload = () => {
-    spriteSheet = im;
-    loadGeneratedTankSprites(onReady);
+    const proceed = () => {
+      spriteSheet = im;
+      loadGeneratedTankSprites(onReady);
+    };
+    void im.decode().then(proceed).catch(proceed);
   };
   im.onerror = () => {
     console.warn("Panzer-Artillerie: Kenney-Bogen konnte nicht geladen werden.");

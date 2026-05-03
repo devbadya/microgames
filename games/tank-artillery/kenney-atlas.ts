@@ -1,9 +1,11 @@
 /**
- * Kenney „Tanks“ — Retina-Bogen `tanks_spritesheetRetina.png` (1024×2048).
+ * Kenney „Tanks“ — Retina-Bogen `tanks_spritesheetRetina.png` (1024×2048, RGBA).
  *
- * WICHTIG: Die Kachelpositionen **weichen vom** `tanks_spritesheetDefault.xml` ab —
- * Retina ist **nicht** schlicht 2× dieselben (x,y)-Werte wie `sprites.png`.
- * Die Rechtecke wurden an der echten PNG vermessen (gleiche Kachelbreite ~172 px).
+ * Das Sheet liegt absichtlich als **Truecolor RGBA** im Repo (nicht als 8‑Bit-INDEXED):
+ * Safari/WebKit kann bei palettisierten PNGs `drawImage` auf dem Canvas fehlerhaft rendern
+ * (Panzer-Körper „unsichtbar“, nur UI/Vektor sichtbar).
+ *
+ * Die Kachelpositionen **weichen vom** `tanks_spritesheetDefault.xml` ab — Rechtecke an der echten PNG vermessen.
  */
 export const SPRITESHEET_REL = `${import.meta.env.BASE_URL}games/tank-artillery/kenney/tanks_spritesheetRetina.png`;
 
