@@ -177,3 +177,127 @@ describe("startRun and createDinoState", () => {
     expect(s.best).toBe(5);
   });
 });
+
+import {
+  DINO_LEVELS,
+  applyDinoHit,
+  applyDinoScore,
+  clampDinoLevel,
+  dinoLevelById,
+  levelMinGap,
+  levelSpeed,
+  readDinoBest,
+  readDinoUnlocked,
+  recordDinoBest,
+  startLevelRun,
+  unlockNextDinoLevel,
+  writeDinoBest,
+  writeDinoUnlocked,
+  type StorageLike,
+} from "./dino-logic";
+
+function memStorage(): StorageLike {
+  const map = new Map<string, string>();
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k)! : null),
+    setItem: (k, v) => {
+      map.set(k, v);
+    },
+  };
+}
+
+describe("dino campaign levels", () => {
+  it("ships 10 monotonically harder levels", () => {
+    expect(DINO_LEVELS.length).toBe(10);
+    for (let i = 1; i < DINO_LEVELS.length; i++) {
+      expect(DINO_LEVELS[i]!.speedFactor).toBeGreaterThanOrEqual(DINO_LEVELS[i - 1]!.speedFactor - 0.001);
+      expect(DINO_LEVELS[i]!.goalScore).toBeGreaterThanOrEqual(DINO_LEVELS[i - 1]!.goalScore);
+    }
+    expect(DINO_LEVELS[0]!.id).toBe(1);
+    expect(DINO_LEVELS.at(-1)!.id).toBe(10);
+  });
+
+  it("clampDinoLevel keeps ids inside the campaign", () => {
+    expect(clampDinoLevel(0)).toBe(1);
+    expect(clampDinoLevel(11)).toBe(10);
+    expect(clampDinoLevel(Number.NaN)).toBe(1);
+  });
+
+  it("dinoLevelById returns the matching level", () => {
+    expect(dinoLevelById(7)?.modifier).toBe("fastBirds");
+    expect(dinoLevelById(99)).toBeUndefined();
+  });
+
+  it("levelSpeed scales base by levelFactor", () => {
+    const def = dinoLevelById(2)!;
+    expect(levelSpeed(def, 0)).toBeGreaterThan(speedForScore(0) - 0.001);
+  });
+
+  it("levelMinGap honours gap factor", () => {
+    const easy = dinoLevelById(1)!;
+    const tight = dinoLevelById(8)!;
+    expect(levelMinGap(easy, 5)).toBeGreaterThan(levelMinGap(tight, 5));
+  });
+});
+
+describe("dino level run state", () => {
+  it("scores up to goal sets cleared", () => {
+    const def = dinoLevelById(1)!;
+    let s = startLevelRun(def.id);
+    s = applyDinoScore(s, def.goalScore);
+    expect(s.cleared).toBe(true);
+  });
+
+  it("ignores backwards score updates", () => {
+    let s = startLevelRun(2);
+    s = applyDinoScore(s, 5);
+    const same = applyDinoScore(s, 3);
+    expect(same).toBe(s);
+  });
+
+  it("hp depletes on hit and fails at zero", () => {
+    let s = startLevelRun(1); // hp 1
+    s = applyDinoHit(s);
+    expect(s.failed).toBe(true);
+    expect(s.hp).toBe(0);
+  });
+
+  it("multi-hp levels survive one hit", () => {
+    let s = startLevelRun(5); // hp 2
+    s = applyDinoHit(s);
+    expect(s.failed).toBe(false);
+    s = applyDinoHit(s);
+    expect(s.failed).toBe(true);
+  });
+});
+
+describe("dino persistence", () => {
+  it("unlock chain", () => {
+    const st = memStorage();
+    expect(readDinoUnlocked(st)).toBe(1);
+    expect(unlockNextDinoLevel(st, 1)).toBe(2);
+    expect(unlockNextDinoLevel(st, 5)).toBe(6);
+    writeDinoUnlocked(st, 50);
+    expect(readDinoUnlocked(st)).toBe(10);
+  });
+
+  it("recordDinoBest only keeps improvements", () => {
+    const st = memStorage();
+    recordDinoBest(st, 1, 12);
+    recordDinoBest(st, 1, 5);
+    recordDinoBest(st, 2, 20);
+    expect(readDinoBest(st)).toEqual({ 1: 12, 2: 20 });
+  });
+
+  it("ignores corrupted JSON", () => {
+    const st = memStorage();
+    st.setItem("microgames.dinoRun.best", "{not-json");
+    expect(readDinoBest(st)).toEqual({});
+  });
+
+  it("writeDinoBest survives roundtrip", () => {
+    const st = memStorage();
+    writeDinoBest(st, { 3: 12, 4: 200 });
+    expect(readDinoBest(st)).toEqual({ 3: 12, 4: 200 });
+  });
+});

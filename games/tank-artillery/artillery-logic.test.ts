@@ -6,10 +6,14 @@ import {
   buildTerrain,
   DEFAULT_HP,
   GEM_PRICE_TANK_DESERT,
+  GEM_PRICE_TANK_BUNKER,
+  GEM_PRICE_TANK_CRIMSON,
   DESERT_SHIELD_PRICE_GEMS,
+  DESERT_SHIELD_ABSORB,
   DESERT_SHIELD_STORAGE_KEY,
   GEM_PRICE_TANK_GREEN,
   GEM_PRICE_TANK_NAVY,
+  GEM_PRICE_TANK_VIPER,
   getPlayerTankDef,
   MAP_BATTLE_THEME_STORAGE_KEY,
   MAP_DIFFICULTY_STORAGE_KEY,
@@ -37,8 +41,23 @@ import {
   tryBuyMoveTrailCosmetic,
   consumeDesertShieldActivation,
   DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE,
+  LOCKER_UPGRADES_STORAGE_KEY,
+  LOCKER_UPGRADE_MAX_LEVEL,
+  readLockerUpgradeLevels,
+  readLockerUpgradeLevelsFor,
+  readLockerUpgradeMap,
+  tryBuyLockerUpgrade,
+  lockerUpgradeStepCostGems,
+  lockerUpgradeFuelBonus,
+  lockerUpgradeDamageMul,
+  lockerUpgradePowMaxDelta,
   getWeapon,
+  lockerMaxBonusWeaponFor,
+  lockerMaxSpecialAttackUnlocked,
+  VIPER_GIFT_BOMB_WEAPON,
   heightAt,
+  terrainBlocksBarrelRay,
+  terrainHullPose,
   levelFromXp,
   LIGHTNING_CRATER_DEPTH,
   LIGHTNING_CRATER_PX,
@@ -72,6 +91,65 @@ import {
   type TerrainSurface,
 } from "./artillery-logic";
 
+test("terrainBlocksBarrelRay true when ridge crosses bore line", () => {
+  const w = 800;
+  const y = new Float32Array(w);
+  y.fill(430);
+  for (let xi = 130; xi < 220; xi++) y[xi] = 318;
+  const surf: TerrainSurface = { y };
+  const blocked = terrainBlocksBarrelRay(surf, 100, 394, 38, true, 61, { marginPx: 4, sampleStep: 2 });
+  expect(blocked).toBe(true);
+});
+
+test("terrainBlocksBarrelRay false for steep shot over ridge", () => {
+  const w = 800;
+  const y = new Float32Array(w);
+  y.fill(430);
+  for (let xi = 130; xi < 220; xi++) y[xi] = 318;
+  const surf: TerrainSurface = { y };
+  const clear = terrainBlocksBarrelRay(surf, 100, 394, 72, true, 61, { marginPx: 4, sampleStep: 2 });
+  expect(clear).toBe(false);
+});
+
+test("terrainBlocksBarrelRay for right-facing tank (enemy)", () => {
+  const w = 800;
+  const y = new Float32Array(w);
+  y.fill(430);
+  for (let xi = 580; xi < 670; xi++) y[xi] = 318;
+  const surf: TerrainSurface = { y };
+  const blocked = terrainBlocksBarrelRay(surf, 700, 394, 38, false, 61, { marginPx: 4, sampleStep: 2 });
+  expect(blocked).toBe(true);
+});
+
+test("terrainHullPose keeps hull support line above jagged terrain", () => {
+  const w = 400;
+  const y = new Float32Array(w);
+  y.fill(420);
+  for (let xi = 190; xi < 230; xi++) y[xi] = 365;
+  for (let xi = 245; xi < 270; xi++) y[xi] = 455;
+  const surf: TerrainSurface = { y };
+  const pose = terrainHullPose(surf, 230, 44, { maxSlopeRad: Math.PI / 9, sampleCount: 11 });
+  const tan = Math.tan(pose.slope);
+  for (let i = 0; i < 11; i++) {
+    const x = 186 + (88 * i) / 10;
+    const supportY = pose.groundY + tan * (x - 230);
+    expect(supportY + 0.001).toBeGreaterThanOrEqual(heightAt(surf, x));
+  }
+  expect(Math.abs(pose.slope)).toBeLessThanOrEqual(Math.PI / 9);
+  expect(pose.maxClearancePx).toBeGreaterThan(0);
+});
+
+test("terrainHullPose clamps extreme cliff tilt", () => {
+  const w = 300;
+  const y = new Float32Array(w);
+  y.fill(430);
+  for (let xi = 150; xi < w; xi++) y[xi] = 260;
+  const surf: TerrainSurface = { y };
+  const pose = terrainHullPose(surf, 150, 44, { maxSlopeRad: 0.22, sampleCount: 9 });
+  expect(Math.abs(pose.rawSlope)).toBeGreaterThan(0.22);
+  expect(Math.abs(pose.slope)).toBeLessThanOrEqual(0.22);
+});
+
 test("terrain build + height interpolation", () => {
   const t = buildTerrain(9001);
   expect(t.y.length).toBe(WORLD.W);
@@ -83,7 +161,31 @@ test("simulateUntilImpact lands near terrain height", () => {
   const t = buildTerrain(4242);
   const imp = simulateUntilImpact(t, 120, heightAt(t, 120) - 160, 280, -320, -9, 1 / 200);
   const localG = heightAt(t, imp.x);
-  expect(Math.abs(imp.y - localG)).toBeLessThan(3);
+  expect(Math.abs(imp.y - localG)).toBeLessThan(5);
+});
+
+test("higher ballisticDragMul shortens forward reach (same shot)", () => {
+  const t = buildTerrain(55_432);
+  const x0 = 200;
+  const y0 = heightAt(t, x0) - 140;
+  const wind = 2;
+  const loose = simulateUntilImpact(t, x0, y0, 580, -400, wind, 1 / 200, 0.35);
+  const tight = simulateUntilImpact(t, x0, y0, 580, -400, wind, 1 / 200, 2.8);
+  expect(tight.x).toBeLessThan(loose.x);
+});
+
+test("sampleTrajectory last point matches simulateUntilImpact (same dt and drag)", () => {
+  const t = buildTerrain(77);
+  const x0 = 300;
+  const y0 = heightAt(t, x0) - 120;
+  const v = velocityFromElevDeg(true, 52, 700, 1);
+  const dragMul = 1;
+  const dt = 1 / 180;
+  const imp = simulateUntilImpact(t, x0, y0, v.x, v.y, -4, dt, dragMul);
+  const pts = sampleTrajectory(t, x0, y0, v.x, v.y, -4, 8000, dt, dragMul);
+  const last = pts[pts.length - 1]!;
+  expect(Math.abs(last.x - imp.x)).toBeLessThan(16);
+  expect(Math.abs(last.y - imp.y)).toBeLessThan(20);
 });
 
 function altitudeRange(surface: TerrainSurface): number {
@@ -169,7 +271,7 @@ test("sampleTrajectory produces terminating path", () => {
   const x0 = 400;
   const y0 = heightAt(t, x0) - 130;
   const v = velocityFromElevDeg(true, 54, 480, WEAPONS[0]!.velMul);
-  const pts = sampleTrajectory(t, x0, y0, v.x, v.y, 3, 280, 1 / 140);
+  const pts = sampleTrajectory(t, x0, y0, v.x, v.y, 3, 280, 1 / 140, 1);
   expect(pts.length).toBeGreaterThan(10);
 });
 
@@ -281,6 +383,24 @@ test("describePromoRedeem: Seba1 nur auf Loopback, sonst ungültig", () => {
   }
 });
 
+test("describePromoRedeem: AdminS/admins nur auf Loopback, 1M Gems", () => {
+  const fresh = new Set<string>();
+  vi.stubGlobal("location", { hostname: "example.com" } as Location);
+  try {
+    expect(describePromoRedeem("AdminS", fresh)).toEqual({ ok: false, reason: "unknown" });
+    expect(describePromoRedeem("admins", fresh)).toEqual({ ok: false, reason: "unknown" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  vi.stubGlobal("location", { hostname: "localhost" } as Location);
+  try {
+    expect(describePromoRedeem(" AdminS ", fresh)).toEqual({ ok: true, key: "admins", gems: 1_000_000 });
+    expect(describePromoRedeem("admins", new Set(["admins"]))).toEqual({ ok: false, reason: "used" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test("describePromoRedeem: sebaxp nur auf Loopback, gibt 10k XP", () => {
   const fresh = new Set<string>();
   vi.stubGlobal("location", { hostname: "pages.github.io" } as Location);
@@ -319,11 +439,12 @@ test("isLocalTankArtilleryPromoHost: localhost und 127 vs Remote", () => {
   }
 });
 
-test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp + Loopback", () => {
+test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp/admins + Loopback", () => {
   vi.stubGlobal("location", { hostname: "localhost" } as Location);
   try {
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(true);
+    expect(promoSkipsGlobalSlotReserve("admins")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("admin1")).toBe(false);
   } finally {
     vi.unstubAllGlobals();
@@ -332,6 +453,7 @@ test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp + Loopback", () => {
   try {
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(false);
     expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(false);
+    expect(promoSkipsGlobalSlotReserve("admins")).toBe(false);
   } finally {
     vi.unstubAllGlobals();
   }
@@ -422,14 +544,26 @@ test("Silber-Panzer Munition schwächer als Feld-Green", () => {
   expect(GEM_PRICE_TANK_GREEN).toBe(100);
   expect(GEM_PRICE_TANK_NAVY).toBeGreaterThan(GEM_PRICE_TANK_GREEN);
   expect(GEM_PRICE_TANK_DESERT).toBeGreaterThan(GEM_PRICE_TANK_NAVY);
+  expect(GEM_PRICE_TANK_CRIMSON).toBeGreaterThan(GEM_PRICE_TANK_DESERT);
+  expect(GEM_PRICE_TANK_BUNKER).toBeGreaterThan(GEM_PRICE_TANK_CRIMSON);
+  expect(GEM_PRICE_TANK_VIPER).toBeGreaterThan(GEM_PRICE_TANK_BUNKER);
   expect(getPlayerTankDef("navy")!.priceGems).toBe(GEM_PRICE_TANK_NAVY);
   expect(getPlayerTankDef("desert")!.priceGems).toBe(GEM_PRICE_TANK_DESERT);
+  expect(getPlayerTankDef("crimson")!.priceGems).toBe(GEM_PRICE_TANK_CRIMSON);
+  expect(getPlayerTankDef("bunker")!.priceGems).toBe(GEM_PRICE_TANK_BUNKER);
+  expect(getPlayerTankDef("viper")!.priceGems).toBe(GEM_PRICE_TANK_VIPER);
+  expect(getPlayerTankDef("crimson")!.customSprite).toBe("redStriker");
+  expect(getPlayerTankDef("bunker")!.customSprite).toBe("bunkerShield");
+  expect(getPlayerTankDef("viper")!.customSprite).toBe("viperEnergy");
 });
 
 test("Panzer maxHp steigt mit Stufe; Silber Basis", () => {
   expect(getPlayerTankDef("silver")!.maxHp).toBeLessThan(getPlayerTankDef("green")!.maxHp);
   expect(getPlayerTankDef("green")!.maxHp).toBeLessThan(getPlayerTankDef("navy")!.maxHp);
   expect(getPlayerTankDef("navy")!.maxHp).toBeLessThan(getPlayerTankDef("desert")!.maxHp);
+  expect(getPlayerTankDef("desert")!.maxHp).toBeLessThan(getPlayerTankDef("crimson")!.maxHp);
+  expect(getPlayerTankDef("crimson")!.maxHp).toBeLessThan(getPlayerTankDef("bunker")!.maxHp);
+  expect(getPlayerTankDef("bunker")!.maxHp).toBeLessThan(getPlayerTankDef("viper")!.maxHp);
   expect(getPlayerTankDef("silver")!.maxHp).toBe(DEFAULT_HP);
 });
 
@@ -442,6 +576,26 @@ test("Silber Einstreu: viele Kügelchen à 7 Schaden", () => {
   const nd = getPlayerTankDef("green")!.weapons.find((w) => w.nameDe === "Nadelwald")!;
   expect(nd.pelletBurst).toEqual({ count: 10, spreadHalfDeg: 9 });
   expect(nd.dmg).toBe(8);
+  const vip = getPlayerTankDef("viper")!.weapons.find((w) => w.nameDe === "Giftwolke")!;
+  expect(vip.pelletBurst).toEqual({ count: 16, spreadHalfDeg: 10 });
+  expect(vip.dmg).toBe(13);
+  expect(VIPER_GIFT_BOMB_WEAPON.nameDe).toBe("Giftbombe");
+  expect(VIPER_GIFT_BOMB_WEAPON.id).toBe("viper_gift_bomb");
+  expect(lockerMaxBonusWeaponFor("viper")).toBe(VIPER_GIFT_BOMB_WEAPON);
+  expect(lockerMaxBonusWeaponFor("silver").nameDe).toBe("Silbersterne");
+  expect(lockerMaxBonusWeaponFor("green").nameDe).toBe("Waldkanone");
+  expect(lockerMaxBonusWeaponFor("bunker").nameDe).toBe("Festungsbrecher");
+});
+
+test("Spezialattacke bei jedem Panzer, wenn Locker voll", () => {
+  const max = {
+    fuel: LOCKER_UPGRADE_MAX_LEVEL,
+    damage: LOCKER_UPGRADE_MAX_LEVEL,
+    power: LOCKER_UPGRADE_MAX_LEVEL,
+  };
+  expect(lockerMaxSpecialAttackUnlocked(max)).toBe(true);
+  expect(lockerMaxSpecialAttackUnlocked({ ...max, fuel: 9 })).toBe(false);
+  expect(lockerMaxSpecialAttackUnlocked({ fuel: 0, damage: 0, power: 0 })).toBe(false);
 });
 
 test("jitteredShotVelocity variiert gegenüber geradem Schuss", () => {
@@ -478,6 +632,10 @@ test("tryBuyTank und setEquippedTankId", () => {
   expect(setEquippedTankId("silver")).toBe(true);
   expect(readEquippedTankId()).toBe("silver");
   expect(setEquippedTankId("navy")).toBe(false);
+  addGems(GEM_PRICE_TANK_CRIMSON);
+  expect(tryBuyTank("crimson")).toBe("ok");
+  expect(readEquippedTankId()).toBe("crimson");
+  expect(readOwnedTankIds().includes("crimson")).toBe(true);
 
   localStorage.removeItem(GEM_STORAGE_KEY);
   localStorage.removeItem(TANK_STORAGE_OWNED);
@@ -495,6 +653,7 @@ test("tryBuyDesertShield: missing_tank vs ok", () => {
     return;
   }
   addGems(DESERT_SHIELD_PRICE_GEMS + 100);
+  expect(DESERT_SHIELD_ABSORB).toBe(80);
   expect(tryBuyDesertShield()).toBe("missing_tank");
   expect(readGems()).toBe(DESERT_SHIELD_PRICE_GEMS + 100);
 
@@ -622,4 +781,79 @@ test("readEquippedMoveTrail: nicht besessene Auswahl → none", () => {
   expect(readEquippedMoveTrail()).toBe("fire");
   localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
   localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
+});
+
+test("Locker-Upgrades: Kosten steigen pro Stufe; Kauf & Maximum 10", () => {
+  try {
+    localStorage.removeItem(GEM_STORAGE_KEY);
+    localStorage.removeItem(LOCKER_UPGRADES_STORAGE_KEY);
+  } catch {
+    return;
+  }
+  const c0 = lockerUpgradeStepCostGems("fuel", 0);
+  const c1 = lockerUpgradeStepCostGems("fuel", 1);
+  expect(c1).toBeGreaterThan(c0);
+  expect(lockerUpgradeStepCostGems("fuel", LOCKER_UPGRADE_MAX_LEVEL)).toBe(0);
+
+  addGems(10_000);
+  expect(tryBuyLockerUpgrade("fuel")).toBe("ok");
+  expect(readLockerUpgradeLevelsFor("silver").fuel).toBe(1);
+  expect(readLockerUpgradeLevelsFor("silver").damage).toBe(0);
+
+  for (let i = readLockerUpgradeLevelsFor("silver").fuel; i < LOCKER_UPGRADE_MAX_LEVEL; i++) {
+    expect(tryBuyLockerUpgrade("fuel")).toBe("ok");
+  }
+  expect(readLockerUpgradeLevelsFor("silver").fuel).toBe(LOCKER_UPGRADE_MAX_LEVEL);
+  expect(tryBuyLockerUpgrade("fuel")).toBe("max");
+
+  expect(lockerUpgradeFuelBonus(10)).toBe(180);
+  expect(lockerUpgradeDamageMul(10)).toBeCloseTo(1 + 0.036 * 10, 5);
+  expect(lockerUpgradePowMaxDelta(10)).toBe(160);
+
+  try {
+    localStorage.setItem(
+      LOCKER_UPGRADES_STORAGE_KEY,
+      JSON.stringify({ silver: { fuel: 99, damage: -3, power: "x" } }),
+    );
+  } catch {
+    return;
+  }
+  const clamped = readLockerUpgradeLevelsFor("silver");
+  expect(clamped.fuel).toBe(LOCKER_UPGRADE_MAX_LEVEL);
+  expect(clamped.damage).toBe(0);
+  expect(clamped.power).toBe(0);
+
+  localStorage.removeItem(GEM_STORAGE_KEY);
+  localStorage.removeItem(LOCKER_UPGRADES_STORAGE_KEY);
+});
+
+test("Locker: jeder Panzer eigene Stufen; früher flacher Save → alle 0", () => {
+  try {
+    localStorage.removeItem(GEM_STORAGE_KEY);
+    localStorage.removeItem(LOCKER_UPGRADES_STORAGE_KEY);
+    localStorage.setItem(TANK_STORAGE_OWNED, JSON.stringify(["silver", "green"]));
+    localStorage.setItem(TANK_STORAGE_EQUIPPED, "silver");
+  } catch {
+    return;
+  }
+  addGems(50_000);
+  expect(tryBuyLockerUpgrade("damage")).toBe("ok");
+  expect(readLockerUpgradeLevelsFor("silver").damage).toBe(1);
+  expect(readLockerUpgradeLevelsFor("green").damage).toBe(0);
+
+  setEquippedTankId("green");
+  expect(readLockerUpgradeLevels().damage).toBe(0);
+  expect(tryBuyLockerUpgrade("damage")).toBe("ok");
+  expect(readLockerUpgradeLevelsFor("green").damage).toBe(1);
+  expect(readLockerUpgradeLevelsFor("silver").damage).toBe(1);
+
+  localStorage.setItem(LOCKER_UPGRADES_STORAGE_KEY, JSON.stringify({ fuel: 5, damage: 5, power: 5 }));
+  const m = readLockerUpgradeMap();
+  expect(m.silver.fuel).toBe(0);
+  expect(m.green.fuel).toBe(0);
+
+  localStorage.removeItem(GEM_STORAGE_KEY);
+  localStorage.removeItem(LOCKER_UPGRADES_STORAGE_KEY);
+  localStorage.removeItem(TANK_STORAGE_OWNED);
+  localStorage.removeItem(TANK_STORAGE_EQUIPPED);
 });

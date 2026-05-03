@@ -2,6 +2,33 @@
  * Welt breit wie mobiles Artillery (lange Distanz), etwas weniger G für hängenden Bogen */
 export const WORLD = { W: 1680, H: 720, G: 1580 };
 
+/** Quadratischer Luftwiderstand: `v *= max(ε, 1 - K * |v| * dt * dragMul)` pro Schritt — gleiche Form in Sim und Vorschau. */
+export const BALLISTIC_DRAG_K = 1.65e-4;
+
+/** Wind schwankt leicht entlang der Flugbahn (deterministisch aus Startpunkt + Schritt). */
+export const BALLISTIC_WIND_GUST_AMP = 0.095;
+export const BALLISTIC_WIND_GUST_FREQ = 0.0082;
+
+function gustPhase(x0: number, y0: number, windBase: number): number {
+  let p = (x0 * 0.0193 + y0 * 0.0117 + windBase * 0.37) % (Math.PI * 2);
+  if (p < 0) p += Math.PI * 2;
+  return p;
+}
+
+function windAccelAtStep(windBase: number, stepIndex: number, x0: number, y0: number): number {
+  const phase = gustPhase(x0, y0, windBase);
+  const gust = 1 + BALLISTIC_WIND_GUST_AMP * Math.sin(stepIndex * BALLISTIC_WIND_GUST_FREQ + phase);
+  return windBase * gust;
+}
+
+function applyQuadraticAirDrag(vx: number, vy: number, dt: number, dragMul: number): { vx: number; vy: number } {
+  const sp = Math.hypot(vx, vy);
+  if (sp < 1e-5) return { vx, vy };
+  const damp = BALLISTIC_DRAG_K * dragMul * sp * dt;
+  const factor = Math.max(0.02, 1 - damp);
+  return { vx: vx * factor, vy: vy * factor };
+}
+
 export interface TerrainSurface {
   /** Oberflächen-Y für jede Ganzzahl x ∈ [0, W−1]; größer = tiefer im Bildschirm */
   y: Float32Array;
@@ -57,8 +84,8 @@ const TERRAIN_PRESETS: Record<
   normal: { ampFrac: 0.062, blurR: 14, blurP: 10, hfMul: 1 },
   /** Steilere Hügel, mehr Kleinkrümmung nach dem Weichzeichnen */
   hard: { ampFrac: 0.084, blurR: 10, blurP: 7, hfMul: 1.38 },
-  /** Extrem: hoher Relief + rauere Oberfläche */
-  insane: { ampFrac: 0.118, blurR: 7, blurP: 5, hfMul: 1.9 },
+  /** Extrem: sehr hohes Relief, weniger Glättung, starke HF-Krümmung — bewusst „unfair schwer“. */
+  insane: { ampFrac: 0.162, blurR: 5, blurP: 4, hfMul: 2.52 },
 };
 
 export interface BuildTerrainOptions {
@@ -155,6 +182,122 @@ export function terrainSlope(surface: TerrainSurface, x: number): number {
   return Math.atan2(yr - yl, dl * 2);
 }
 
+export interface TerrainHullPoseOptions {
+  sampleCount?: number;
+  maxSlopeRad?: number;
+}
+
+export interface TerrainHullPose {
+  groundY: number;
+  slope: number;
+  rawSlope: number;
+  maxClearancePx: number;
+}
+
+function clampNumber(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function averageHeightAt(surface: TerrainSurface, centerX: number, radiusPx: number): number {
+  const samples = 5;
+  let sum = 0;
+  for (let i = 0; i < samples; i++) {
+    const t = i / (samples - 1);
+    sum += heightAt(surface, centerX + (t * 2 - 1) * radiusPx);
+  }
+  return sum / samples;
+}
+
+/**
+ * Computes a stable pose for a tank hull on uneven terrain.
+ *
+ * The hull bottom is treated as a straight support line over several terrain
+ * samples. This keeps the sprite from sinking into cliffs or sharp bumps while
+ * still allowing it to follow normal hills.
+ */
+export function terrainHullPose(
+  surface: TerrainSurface,
+  centerX: number,
+  footprintHalfPx: number,
+  opts?: TerrainHullPoseOptions,
+): TerrainHullPose {
+  const width = surface.y.length;
+  const half = Math.max(4, footprintHalfPx);
+  const cx = clampNumber(centerX, 0, width - 1);
+  const left = clampNumber(cx - half, 0, width - 1);
+  const right = clampNumber(cx + half, 0, width - 1);
+  const span = Math.max(1, right - left);
+  const band = Math.max(3, Math.min(half * 0.24, 14));
+  const leftY = averageHeightAt(surface, left, band);
+  const rightY = averageHeightAt(surface, right, band);
+  const rawSlope = Math.atan2(rightY - leftY, span);
+  const maxSlopeRad = opts?.maxSlopeRad ?? Math.PI / 6;
+  const slope = clampNumber(rawSlope, -maxSlopeRad, maxSlopeRad);
+  const tan = Math.tan(slope);
+  const sampleCount = Math.max(3, Math.min(17, Math.floor(opts?.sampleCount ?? 9)));
+
+  let groundY = -Infinity;
+  const samples: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < sampleCount; i++) {
+    const t = sampleCount === 1 ? 0.5 : i / (sampleCount - 1);
+    const x = left + span * t;
+    const y = heightAt(surface, x);
+    samples.push({ x, y });
+    groundY = Math.max(groundY, y - tan * (x - cx));
+  }
+
+  let maxClearancePx = 0;
+  for (const s of samples) {
+    const supportY = groundY + tan * (s.x - cx);
+    maxClearancePx = Math.max(maxClearancePx, supportY - s.y);
+  }
+
+  return { groundY, slope, rawSlope, maxClearancePx };
+}
+
+export interface BarrelRayBlockOptions {
+  /** Toleranz unterhalb der Oberfläche (px), um Gleitkomma-Rauschen zu vermeiden. */
+  marginPx?: number;
+  /** Schrittweite entlang des Rohrs (Welt-px). */
+  sampleStep?: number;
+}
+
+/**
+ * Prüft, ob die Rohrachse (Turm‑Pivot → Mündung) die Terrain-Oberfläche schneidet oder die Mündung im Boden liegt.
+ * Koordinaten wie im Spiel: größeres Y = tiefer im Bild; Luft liegt oberhalb der Oberfläche (kleineres Y).
+ */
+export function terrainBlocksBarrelRay(
+  surface: TerrainSurface,
+  hullX: number,
+  pivotScreenY: number,
+  angleDeg: number,
+  isLeft: boolean,
+  barrelLenPx: number,
+  opts?: BarrelRayBlockOptions,
+): boolean {
+  const marginPx = opts?.marginPx ?? 4;
+  const sampleStep = Math.max(1.5, opts?.sampleStep ?? 3);
+  const r = Math.max(13, Math.min(88, angleDeg)) * (Math.PI / 180);
+  const dirX = Math.cos(r) * (isLeft ? 1 : -1);
+  const dirY = -Math.sin(r);
+  const w = surface.y.length;
+
+  const tipX = hullX + dirX * barrelLenPx;
+  if (tipX >= 0 && tipX < w) {
+    const tipY = pivotScreenY + dirY * barrelLenPx;
+    if (tipY >= heightAt(surface, tipX) - marginPx) return true;
+  }
+
+  for (let s = sampleStep; s < barrelLenPx - 0.5; s += sampleStep) {
+    const x = hullX + dirX * s;
+    if (x < 0 || x >= w) continue;
+    const y = pivotScreenY + dirY * s;
+    const g = heightAt(surface, x);
+    if (y >= g - marginPx) return true;
+  }
+  return false;
+}
+
 /** Viele kleine Geschosse (z. B. Silber „Einstreu“); `dmg`/`splashPx`/… gelten **pro** Kugel. */
 export interface PelletBurstConfig {
   count: number;
@@ -173,6 +316,8 @@ export interface WeaponDef {
   craterPx: number;
   craterLift: number;
   velMul: number;
+  /** >1 = mehr Luftwiderstand, <1 = strömungsgünstiger (schweres Geschoss). Default 1. */
+  ballisticDragMul?: number;
   /** Leucht-Farben für Geschoss-In-Flight (Panzer-spezifische Optik) */
   glow?: ProjectileGlow;
   pelletBurst?: PelletBurstConfig;
@@ -219,6 +364,7 @@ export const WEAPONS: WeaponDef[] = [
     craterPx: 68,
     craterLift: 55,
     velMul: 0.92,
+    ballisticDragMul: 0.88,
   },
   {
     id: "streuer",
@@ -230,6 +376,7 @@ export const WEAPONS: WeaponDef[] = [
     craterPx: 28,
     craterLift: 18,
     velMul: 1.06,
+    ballisticDragMul: 1.06,
   },
 ];
 
@@ -251,6 +398,30 @@ const GLOW_DESERT: ProjectileGlow = {
   rim: "rgba(239,68,68,0)",
   shadow: "rgba(251,113,133,0.78)",
 };
+const GLOW_CRIMSON: ProjectileGlow = {
+  core: "rgba(255,237,213,0.98)",
+  mid: "rgba(248,113,113,0.56)",
+  rim: "rgba(185,28,28,0)",
+  shadow: "rgba(239,68,68,0.82)",
+};
+const GLOW_BUNKER: ProjectileGlow = {
+  core: "rgba(226,232,240,0.96)",
+  mid: "rgba(129,140,248,0.5)",
+  rim: "rgba(67,56,202,0)",
+  shadow: "rgba(99,102,241,0.78)",
+};
+const GLOW_VIPER: ProjectileGlow = {
+  core: "rgba(240,253,244,0.97)",
+  mid: "rgba(74,222,128,0.52)",
+  rim: "rgba(22,101,52,0)",
+  shadow: "rgba(34,197,94,0.86)",
+};
+const GLOW_VIPER_POISON: ProjectileGlow = {
+  core: "rgba(220,252,231,0.97)",
+  mid: "rgba(34,197,94,0.54)",
+  rim: "rgba(20,83,45,0)",
+  shadow: "rgba(22,101,52,0.84)",
+};
 
 const GLOW_GREEN_A: ProjectileGlow = {
   core: "rgba(220,252,231,0.96)",
@@ -271,10 +442,18 @@ const GLOW_GREEN_C: ProjectileGlow = {
   shadow: "rgba(16,185,129,0.65)",
 };
 
-export type PlayerTankId = "silver" | "green" | "navy" | "desert";
+export type PlayerTankId = "silver" | "green" | "navy" | "desert" | "crimson" | "bunker" | "viper";
+export type PlayerTankCustomSprite = "redStriker" | "viperEnergy" | "bunkerShield";
 
 /** ATLAS-Schlüssel Kenney „Tanks“ */
-export type PlayerTankAtlasKey = "tankGrey" | "tankPlayerGreen" | "tankNavy" | "tankDesert";
+export type PlayerTankAtlasKey =
+  | "tankGrey"
+  | "tankPlayerGreen"
+  | "tankNavy"
+  | "tankDesert"
+  | "tankCrimson"
+  | "tankBunker"
+  | "tankViper";
 
 export interface PlayerTankDef {
   id: PlayerTankId;
@@ -286,6 +465,8 @@ export interface PlayerTankDef {
   /** Max. LP zu Partiebeginn (Spieler & Gegner gleich für faires Match) */
   maxHp: number;
   weapons: WeaponDef[];
+  /** Optionales 4-Frame-Sprite-Sheet für animierte Premium-Panzer. */
+  customSprite?: PlayerTankCustomSprite;
   /** Blitz relativ zu LIGHTNING_DAMAGE */
   blitzMul: number;
 }
@@ -296,6 +477,12 @@ export const GEM_PRICE_TANK_GREEN = 100;
 export const GEM_PRICE_TANK_NAVY = 280;
 /** Wüsten-Speer — stärkstes Kit */
 export const GEM_PRICE_TANK_DESERT = 550;
+/** Roter Keil — schweres Angriffschassis */
+export const GEM_PRICE_TANK_CRIMSON = 760;
+/** Bunker-Titan — dicke Panzerung und Krater-Munition */
+export const GEM_PRICE_TANK_BUNKER = 1080;
+/** Viper-Green — spätes Schnellfeuer-Modell */
+export const GEM_PRICE_TANK_VIPER = 1450;
 
 /** @deprecated Alias für {@link GEM_PRICE_TANK_GREEN} */
 export const GEM_PRICE_NEW_TANK = GEM_PRICE_TANK_GREEN;
@@ -312,6 +499,7 @@ const SILVER_WEAPONS: WeaponDef[] = [
     craterLift: 15,
     velMul: 1.1,
     glow: GLOW_SILVER,
+    ballisticDragMul: 1.04,
   },
   {
     id: "silv_med",
@@ -337,6 +525,7 @@ const SILVER_WEAPONS: WeaponDef[] = [
     velMul: 1.1,
     glow: GLOW_SILVER,
     pelletBurst: { count: 16, spreadHalfDeg: 7 },
+    ballisticDragMul: 1.07,
   },
 ];
 
@@ -353,6 +542,7 @@ const GREEN_WEAPONS: WeaponDef[] = [
     craterLift: 24,
     velMul: 1.15,
     glow: GLOW_GREEN_A,
+    ballisticDragMul: 1.05,
   },
   {
     id: "gr_bunker",
@@ -365,6 +555,7 @@ const GREEN_WEAPONS: WeaponDef[] = [
     craterLift: 50,
     velMul: 0.93,
     glow: GLOW_GREEN_B,
+    ballisticDragMul: 0.87,
   },
   {
     id: "gr_needle",
@@ -378,6 +569,7 @@ const GREEN_WEAPONS: WeaponDef[] = [
     velMul: 1.07,
     glow: GLOW_GREEN_C,
     pelletBurst: { count: 10, spreadHalfDeg: 9 },
+    ballisticDragMul: 1.08,
   },
 ];
 
@@ -393,6 +585,7 @@ const NAVY_WEAPONS: WeaponDef[] = [
     craterLift: 36,
     velMul: 1.02,
     glow: GLOW_NAVY,
+    ballisticDragMul: 0.97,
   },
   {
     id: "nav_h",
@@ -405,6 +598,7 @@ const NAVY_WEAPONS: WeaponDef[] = [
     craterLift: 60,
     velMul: 0.93,
     glow: GLOW_NAVY,
+    ballisticDragMul: 0.86,
   },
   {
     id: "nav_s",
@@ -418,6 +612,7 @@ const NAVY_WEAPONS: WeaponDef[] = [
     velMul: 1.08,
     glow: GLOW_NAVY,
     pelletBurst: { count: 14, spreadHalfDeg: 6.5 },
+    ballisticDragMul: 1.05,
   },
 ];
 
@@ -433,6 +628,7 @@ const DESERT_WEAPONS: WeaponDef[] = [
     craterLift: 40,
     velMul: 1.01,
     glow: GLOW_DESERT,
+    ballisticDragMul: 0.96,
   },
   {
     id: "des_h",
@@ -445,6 +641,7 @@ const DESERT_WEAPONS: WeaponDef[] = [
     craterLift: 64,
     velMul: 0.91,
     glow: GLOW_DESERT,
+    ballisticDragMul: 0.84,
   },
   {
     id: "des_s",
@@ -458,14 +655,256 @@ const DESERT_WEAPONS: WeaponDef[] = [
     velMul: 1.02,
     glow: GLOW_DESERT,
     pelletBurst: { count: 8, spreadHalfDeg: 14 },
+    ballisticDragMul: 1.04,
   },
 ];
+
+const CRIMSON_WEAPONS: WeaponDef[] = [
+  {
+    id: "cr_he",
+    name: "Redline HE",
+    nameDe: "Rotkeil-HE",
+    packLabel: "tank_bullet1.png",
+    dmg: 60,
+    splashPx: 62,
+    craterPx: 52,
+    craterLift: 39,
+    velMul: 1.08,
+    glow: GLOW_CRIMSON,
+    ballisticDragMul: 0.93,
+  },
+  {
+    id: "cr_breaker",
+    name: "Molten breaker",
+    nameDe: "Glutbrecher",
+    packLabel: "tank_bullet3.png",
+    dmg: 84,
+    splashPx: 54,
+    craterPx: 86,
+    craterLift: 68,
+    velMul: 0.9,
+    glow: GLOW_CRIMSON,
+    ballisticDragMul: 0.8,
+  },
+  {
+    id: "cr_sparks",
+    name: "Spark fan",
+    nameDe: "Funkenfächer",
+    packLabel: "tank_bulletFly3.png",
+    dmg: 11,
+    splashPx: 28,
+    craterPx: 14,
+    craterLift: 9,
+    velMul: 1.1,
+    glow: GLOW_CRIMSON,
+    pelletBurst: { count: 10, spreadHalfDeg: 11 },
+    ballisticDragMul: 1.02,
+  },
+];
+
+const BUNKER_WEAPONS: WeaponDef[] = [
+  {
+    id: "bnk_he",
+    name: "Siege HE",
+    nameDe: "Belagerer",
+    packLabel: "tank_bullet1.png",
+    dmg: 64,
+    splashPx: 66,
+    craterPx: 60,
+    craterLift: 44,
+    velMul: 0.98,
+    glow: GLOW_BUNKER,
+    ballisticDragMul: 0.88,
+  },
+  {
+    id: "bnk_core",
+    name: "Core hammer",
+    nameDe: "Kernhammer",
+    packLabel: "tank_bullet3.png",
+    dmg: 92,
+    splashPx: 62,
+    craterPx: 98,
+    craterLift: 76,
+    velMul: 0.84,
+    glow: GLOW_BUNKER,
+    ballisticDragMul: 0.74,
+  },
+  {
+    id: "bnk_shards",
+    name: "Shard wall",
+    nameDe: "Splittermauer",
+    packLabel: "tank_bulletFly3.png",
+    dmg: 10,
+    splashPx: 31,
+    craterPx: 16,
+    craterLift: 10,
+    velMul: 1.02,
+    glow: GLOW_BUNKER,
+    pelletBurst: { count: 14, spreadHalfDeg: 8 },
+    ballisticDragMul: 1.02,
+  },
+];
+
+const VIPER_WEAPONS: WeaponDef[] = [
+  {
+    id: "vip_lance",
+    name: "Viper lance",
+    nameDe: "Viper-Lanze",
+    packLabel: "tank_bullet1.png",
+    dmg: 70,
+    splashPx: 55,
+    craterPx: 44,
+    craterLift: 30,
+    velMul: 1.2,
+    glow: GLOW_VIPER,
+    ballisticDragMul: 0.94,
+  },
+  {
+    id: "vip_fang",
+    name: "Iron fang",
+    nameDe: "Eisenzahn",
+    packLabel: "tank_bullet3.png",
+    dmg: 96,
+    splashPx: 52,
+    craterPx: 92,
+    craterLift: 70,
+    velMul: 0.88,
+    glow: GLOW_VIPER,
+    ballisticDragMul: 0.75,
+  },
+  {
+    id: "vip_swarm",
+    name: "Venom swarm",
+    nameDe: "Giftwolke",
+    packLabel: "tank_bulletFly3.png",
+    dmg: 13,
+    splashPx: 29,
+    craterPx: 13,
+    craterLift: 8,
+    velMul: 1.12,
+    glow: GLOW_VIPER,
+    pelletBurst: { count: 16, spreadHalfDeg: 10 },
+    ballisticDragMul: 1.01,
+  },
+];
+
+/** Viper-Spezial bei vollem Locker (auch in {@link LOCKER_MAX_SPECIAL_WEAPONS}). */
+export const VIPER_GIFT_BOMB_WEAPON: WeaponDef = {
+  id: "viper_gift_bomb",
+  name: "Poison bomb",
+  nameDe: "Giftbombe",
+  packLabel: "tank_bullet3.png",
+  dmg: 58,
+  splashPx: 78,
+  craterPx: 52,
+  craterLift: 42,
+  velMul: 0.93,
+  glow: GLOW_VIPER_POISON,
+  ballisticDragMul: 0.9,
+};
+
+/** Vierte Waffe pro Panzer, wenn alle Locker-Äste auf Max (Spiel: Taste 6). */
+const LOCKER_MAX_SPECIAL_WEAPONS: Record<PlayerTankId, WeaponDef> = {
+  silver: {
+    id: "silv_lock_special",
+    name: "Silver stars",
+    nameDe: "Silbersterne",
+    packLabel: "tank_bullet3.png",
+    dmg: 56,
+    splashPx: 76,
+    craterPx: 46,
+    craterLift: 36,
+    velMul: 0.96,
+    glow: GLOW_SILVER,
+    ballisticDragMul: 0.93,
+  },
+  green: {
+    id: "grn_lock_special",
+    name: "Forest howitzer",
+    nameDe: "Waldkanone",
+    packLabel: "tank_bullet3.png",
+    dmg: 57,
+    splashPx: 77,
+    craterPx: 50,
+    craterLift: 38,
+    velMul: 0.95,
+    glow: GLOW_GREEN_B,
+    ballisticDragMul: 0.92,
+  },
+  navy: {
+    id: "nvy_lock_special",
+    name: "Abyss shell",
+    nameDe: "Tiefseegranate",
+    packLabel: "tank_bullet3.png",
+    dmg: 58,
+    splashPx: 78,
+    craterPx: 50,
+    craterLift: 40,
+    velMul: 0.94,
+    glow: GLOW_NAVY,
+    ballisticDragMul: 0.91,
+  },
+  desert: {
+    id: "dst_lock_special",
+    name: "Sun spike",
+    nameDe: "Sonnenstich",
+    packLabel: "tank_bullet3.png",
+    dmg: 59,
+    splashPx: 79,
+    craterPx: 52,
+    craterLift: 41,
+    velMul: 0.93,
+    glow: GLOW_DESERT,
+    ballisticDragMul: 0.9,
+  },
+  crimson: {
+    id: "crm_lock_special",
+    name: "Scorch wave",
+    nameDe: "Sengschlag",
+    packLabel: "tank_bullet3.png",
+    dmg: 60,
+    splashPx: 80,
+    craterPx: 54,
+    craterLift: 42,
+    velMul: 0.92,
+    glow: GLOW_CRIMSON,
+    ballisticDragMul: 0.89,
+  },
+  bunker: {
+    id: "bnk_lock_special",
+    name: "Bastion breaker",
+    nameDe: "Festungsbrecher",
+    packLabel: "tank_bullet3.png",
+    dmg: 61,
+    splashPx: 81,
+    craterPx: 56,
+    craterLift: 44,
+    velMul: 0.91,
+    glow: GLOW_BUNKER,
+    ballisticDragMul: 0.88,
+  },
+  viper: VIPER_GIFT_BOMB_WEAPON,
+};
+
+/** `true`, wenn Treibstoff-, Schadens- und Kraft-Ast je auf {@link LOCKER_UPGRADE_MAX_LEVEL}. */
+export function lockerMaxSpecialAttackUnlocked(levels: Record<LockerUpgradeBranchId, number>): boolean {
+  return (
+    levels.fuel >= LOCKER_UPGRADE_MAX_LEVEL &&
+    levels.damage >= LOCKER_UPGRADE_MAX_LEVEL &&
+    levels.power >= LOCKER_UPGRADE_MAX_LEVEL
+  );
+}
+
+/** Spezialwaffe für diesen Panzer (immer definiert; im Spiel nur angehängt wenn {@link lockerMaxSpecialAttackUnlocked}). */
+export function lockerMaxBonusWeaponFor(tankId: PlayerTankId): WeaponDef {
+  return LOCKER_MAX_SPECIAL_WEAPONS[tankId]!;
+}
 
 export const PLAYER_TANKS: readonly PlayerTankDef[] = [
   {
     id: "silver",
     nameDe: "Silber-Chassis",
-    subtitleDe: "Starter — feine Silber-Spur · Einstreu: 16 Treffer zu je 7.",
+    subtitleDe: "Starter — feine Silber-Spur · Einstreu: 16 Treffer zu je 7. Voller Locker: Spezial Silbersterne (Taste 6).",
     priceGems: 0,
     atlasSprite: "tankGrey",
     maxHp: 118,
@@ -475,7 +914,8 @@ export const PLAYER_TANKS: readonly PlayerTankDef[] = [
   {
     id: "green",
     nameDe: "Feld-Green",
-    subtitleDe: "Waldgrün · Raschsatz (schnell) · Panzerfaust‑X (Knall) · Nadelwald (10 Splitter).",
+    subtitleDe:
+      "Waldgrün · Raschsatz (schnell) · Panzerfaust‑X (Knall) · Nadelwald (10 Splitter). Voller Locker: Spezial Waldkanone (Taste 6).",
     priceGems: GEM_PRICE_TANK_GREEN,
     atlasSprite: "tankPlayerGreen",
     maxHp: 124,
@@ -485,7 +925,8 @@ export const PLAYER_TANKS: readonly PlayerTankDef[] = [
   {
     id: "navy",
     nameDe: "Marine",
-    subtitleDe: "Deckgranate / Schiffsartillerie / Granatsalve mit 14 Seekügeln — alles marines Leuchten.",
+    subtitleDe:
+      "Deckgranate / Schiffsartillerie / Granatsalve mit 14 Seekügeln — alles marines Leuchten. Voller Locker: Spezial Tiefseegranate (Taste 6).",
     priceGems: GEM_PRICE_TANK_NAVY,
     atlasSprite: "tankNavy",
     maxHp: 130,
@@ -495,12 +936,49 @@ export const PLAYER_TANKS: readonly PlayerTankDef[] = [
   {
     id: "desert",
     nameDe: "Wüsten-Speer",
-    subtitleDe: "Wüsten-HE / Panzerjäger / Sandsturm: breite Splitter-Kegel wie ein Staubteufel.",
+    subtitleDe:
+      "Wüsten-HE / Panzerjäger / Sandsturm: breite Splitter-Kegel wie ein Staubteufel. Voller Locker: Spezial Sonnenstich (Taste 6).",
     priceGems: GEM_PRICE_TANK_DESERT,
     atlasSprite: "tankDesert",
     maxHp: 136,
     weapons: DESERT_WEAPONS,
     blitzMul: 1.14,
+  },
+  {
+    id: "crimson",
+    nameDe: "Roter Keil",
+    subtitleDe:
+      "Aggressiver Sturm-Panzer · Glutbrecher schlägt tiefe Krater · Funkenfächer streut breit. Voller Locker: Spezial Sengschlag (Taste 6).",
+    priceGems: GEM_PRICE_TANK_CRIMSON,
+    atlasSprite: "tankCrimson",
+    customSprite: "redStriker",
+    maxHp: 142,
+    weapons: CRIMSON_WEAPONS,
+    blitzMul: 1.2,
+  },
+  {
+    id: "bunker",
+    nameDe: "Bunker-Titan",
+    subtitleDe:
+      "Schweres Chassis · Kernhammer gräbt massiv · Splittermauer deckt Hügelkanten ab. Voller Locker: Spezial Festungsbrecher (Taste 6).",
+    priceGems: GEM_PRICE_TANK_BUNKER,
+    atlasSprite: "tankBunker",
+    customSprite: "bunkerShield",
+    maxHp: 150,
+    weapons: BUNKER_WEAPONS,
+    blitzMul: 1.28,
+  },
+  {
+    id: "viper",
+    nameDe: "Viper-Green",
+    subtitleDe:
+      "Schnellfeuer-Endgame · Viper-Lanze fliegt flach und schnell · Giftwolke bringt 16 Splitter. Voller Locker: Spezial Giftbombe (Taste 6).",
+    priceGems: GEM_PRICE_TANK_VIPER,
+    atlasSprite: "tankViper",
+    customSprite: "viperEnergy",
+    maxHp: 158,
+    weapons: VIPER_WEAPONS,
+    blitzMul: 1.34,
   },
 ];
 
@@ -511,7 +989,7 @@ export function getPlayerTankDef(id: PlayerTankId): PlayerTankDef | undefined {
 export const TANK_STORAGE_OWNED = "tank-artillery-tanks-owned-v1";
 export const TANK_STORAGE_EQUIPPED = "tank-artillery-tank-equipped-v1";
 
-const ALL_TANK_IDS: ReadonlySet<PlayerTankId> = new Set(["silver", "green", "navy", "desert"]);
+const ALL_TANK_IDS: ReadonlySet<PlayerTankId> = new Set(PLAYER_TANKS.map((t) => t.id));
 
 function parseOwnedTankList(raw: string | null): PlayerTankId[] {
   if (!raw) return ["silver"];
@@ -560,9 +1038,10 @@ export function readEquippedTankId(): PlayerTankId {
     if (typeof localStorage === "undefined") return "silver";
     const raw = localStorage.getItem(TANK_STORAGE_EQUIPPED);
     const rid = typeof raw === "string" ? raw.trim() : "";
-    if (rid === "silver" || rid === "green" || rid === "navy" || rid === "desert") {
+    if (ALL_TANK_IDS.has(rid as PlayerTankId)) {
+      const tankId = rid as PlayerTankId;
       const owned = readOwnedTankIds();
-      if (owned.includes(rid)) return rid;
+      if (owned.includes(tankId)) return tankId;
     }
     return readOwnedTankIds()[0] ?? "silver";
   } catch {
@@ -612,9 +1091,9 @@ export function tryBuyTank(id: PlayerTankId): TankPurchaseResult {
   return "ok";
 }
 
-/** Wüsten-Panzer Kristallschild (Shop) — 500 💎, je Aktivierung +50 Absorption diese Runde · pro Kauf 3 Aktivierungen (unabhängig von Blitz/Runden-Rhythmus). */
+/** Wüsten-Panzer Kristallschild (Shop) — 500 💎, je Aktivierung +80 Absorption diese Runde · pro Kauf 3 Aktivierungen (unabhängig von Blitz/Runden-Rhythmus). */
 export const DESERT_SHIELD_PRICE_GEMS = 500;
-export const DESERT_SHIELD_ABSORB = 50;
+export const DESERT_SHIELD_ABSORB = 80;
 /** Aktivierungen (Taste 5 in erlaubter Runde), danach wieder kaufen. */
 export const DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE = 3;
 export const DESERT_SHIELD_STORAGE_KEY = "tank-artillery-desert-shield-v1";
@@ -762,6 +1241,169 @@ export function tryBuyMoveTrailCosmetic(id: PurchasableMoveTrailId): MoveTrailPu
   return "ok";
 }
 
+/** Locker: permanente 💎-Upgrades **pro Panzer** (Stufe 1…10 pro Ast; Kauf gilt für den ausgerüsteten Panzer). */
+export const LOCKER_UPGRADE_MAX_LEVEL = 10;
+export const LOCKER_UPGRADES_STORAGE_KEY = "tank-artillery-locker-upgrades-v1";
+
+export type LockerUpgradeBranchId = "fuel" | "damage" | "power";
+
+const LOCKER_UPGRADE_BRANCH_IDS: ReadonlySet<LockerUpgradeBranchId> = new Set(["fuel", "damage", "power"]);
+
+const LOCKER_UPGRADE_COST_GROWTH = 1.52;
+
+export const LOCKER_UPGRADE_META: Record<
+  LockerUpgradeBranchId,
+  { titleDe: string; subtitleDe: string; baseCost: number }
+> = {
+  fuel: {
+    titleDe: "Treibstoff-Tank",
+    subtitleDe: "Mehr Treibstoff pro Runde fürs Fahren (← →).",
+    baseCost: 28,
+  },
+  damage: {
+    titleDe: "Kaliber",
+    subtitleDe: "Stärkere Treffer gegen den Gegner (Granaten, Streu, Blitz, Spezial).",
+    baseCost: 40,
+  },
+  power: {
+    titleDe: "Kraft-Regler",
+    subtitleDe: "Höheres Kraft-Maximum beim Zielen (W/S).",
+    baseCost: 34,
+  },
+};
+
+function clampLockerUpgradeLevel(n: unknown): number {
+  const k = Math.floor(Number(n));
+  if (!Number.isFinite(k)) return 0;
+  return Math.max(0, Math.min(LOCKER_UPGRADE_MAX_LEVEL, k));
+}
+
+const LOCKER_ZERO: Record<LockerUpgradeBranchId, number> = { fuel: 0, damage: 0, power: 0 };
+
+function emptyLockerMap(): Record<PlayerTankId, Record<LockerUpgradeBranchId, number>> {
+  const out = {} as Record<PlayerTankId, Record<LockerUpgradeBranchId, number>>;
+  for (const t of PLAYER_TANKS) {
+    out[t.id] = { ...LOCKER_ZERO };
+  }
+  return out;
+}
+
+function mergeTankLevelsFromJson(
+  out: Record<PlayerTankId, Record<LockerUpgradeBranchId, number>>,
+  tankId: PlayerTankId,
+  src: unknown,
+): void {
+  if (!src || typeof src !== "object" || Array.isArray(src)) return;
+  const tr = src as Record<string, unknown>;
+  out[tankId] = {
+    fuel: clampLockerUpgradeLevel(tr.fuel),
+    damage: clampLockerUpgradeLevel(tr.damage),
+    power: clampLockerUpgradeLevel(tr.power),
+  };
+}
+
+function looksLikePerTankLockerJson(o: Record<string, unknown>): boolean {
+  for (const tid of ALL_TANK_IDS) {
+    const v = o[tid];
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const tr = v as Record<string, unknown>;
+      if ("fuel" in tr || "damage" in tr || "power" in tr) return true;
+    }
+  }
+  return false;
+}
+
+function persistLockerUpgradeMap(map: Record<PlayerTankId, Record<LockerUpgradeBranchId, number>>): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(LOCKER_UPGRADES_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /** ignore */
+  }
+}
+
+/**
+ * Alle Locker-Stufen pro Panzer (je Ast 0…10). Alte flache Saves `{ fuel, damage, power }` werden
+ * beim ersten Lesen verworfen — jeder Panzer startet dann bei 0.
+ */
+export function readLockerUpgradeMap(): Record<PlayerTankId, Record<LockerUpgradeBranchId, number>> {
+  const defaults = emptyLockerMap();
+  try {
+    if (typeof localStorage === "undefined") return defaults;
+    const raw = localStorage.getItem(LOCKER_UPGRADES_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return defaults;
+    const o = parsed as Record<string, unknown>;
+
+    if (looksLikePerTankLockerJson(o)) {
+      for (const tid of ALL_TANK_IDS) {
+        mergeTankLevelsFromJson(defaults, tid, o[tid]);
+      }
+      return defaults;
+    }
+
+    if ("fuel" in o || "damage" in o || "power" in o) {
+      persistLockerUpgradeMap(emptyLockerMap());
+      return emptyLockerMap();
+    }
+
+    return defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+export function readLockerUpgradeLevelsFor(tankId: PlayerTankId): Record<LockerUpgradeBranchId, number> {
+  const m = readLockerUpgradeMap();
+  const row = m[tankId];
+  return row ?? { ...LOCKER_ZERO };
+}
+
+/** Stufen des **ausgerüsteten** Panzers (Locker-UI, Käufe im Hub). */
+export function readLockerUpgradeLevels(): Record<LockerUpgradeBranchId, number> {
+  return readLockerUpgradeLevelsFor(readEquippedTankId());
+}
+
+/** Kosten für einen Schritt von `currentLevel` → `currentLevel + 1` (`currentLevel` 0…9). */
+export function lockerUpgradeStepCostGems(branch: LockerUpgradeBranchId, currentLevel: number): number {
+  if (currentLevel < 0 || currentLevel >= LOCKER_UPGRADE_MAX_LEVEL) return 0;
+  const base = LOCKER_UPGRADE_META[branch].baseCost;
+  return Math.round(base * Math.pow(LOCKER_UPGRADE_COST_GROWTH, currentLevel));
+}
+
+/** Additiv zu {@link FUEL_MOVE} bei Stufe `L`. */
+export function lockerUpgradeFuelBonus(L: number): number {
+  return clampLockerUpgradeLevel(L) * 18;
+}
+
+/** Schadens-Faktor des Spielers gegen den Bot. */
+export function lockerUpgradeDamageMul(L: number): number {
+  return 1 + 0.036 * clampLockerUpgradeLevel(L);
+}
+
+/** Additiv zur Kraft-Obergrenze (Basis 1220). */
+export function lockerUpgradePowMaxDelta(L: number): number {
+  return clampLockerUpgradeLevel(L) * 16;
+}
+
+export type LockerUpgradePurchaseResult = "ok" | "expensive" | "max";
+
+export function tryBuyLockerUpgrade(branch: LockerUpgradeBranchId): LockerUpgradePurchaseResult {
+  if (!LOCKER_UPGRADE_BRANCH_IDS.has(branch)) return "max";
+  const tankId = readEquippedTankId();
+  const map = readLockerUpgradeMap();
+  const levels = { ...map[tankId]! };
+  const cur = levels[branch];
+  if (cur >= LOCKER_UPGRADE_MAX_LEVEL) return "max";
+  const cost = lockerUpgradeStepCostGems(branch, cur);
+  if (!spendGems(cost)) return "expensive";
+  levels[branch] = cur + 1;
+  map[tankId] = levels;
+  persistLockerUpgradeMap(map);
+  return "ok";
+}
+
 export function getWeapon(ix: number): WeaponDef {
   const w = WEAPONS[((ix % WEAPONS.length) + WEAPONS.length) % WEAPONS.length];
   return w!;
@@ -823,6 +1465,7 @@ export function simulateUntilImpact(
   vy: number,
   windAccel: number,
   dt = 1 / 220,
+  dragMul = 1,
 ): ImpactResult {
   let x = x0;
   let y = y0;
@@ -834,8 +1477,9 @@ export function simulateUntilImpact(
   const maxSteps = 220_000;
 
   for (let s = 0; s < maxSteps; s++) {
-    vxv += windAccel * dt;
+    vxv += windAccelAtStep(windAccel, s, x0, y0) * dt;
     vyv += g * dt;
+    ({ vx: vxv, vy: vyv } = applyQuadraticAirDrag(vxv, vyv, dt, dragMul));
     x += vxv * dt;
     y += vyv * dt;
     const ground = heightAt(surface, x);
@@ -863,6 +1507,7 @@ export function sampleTrajectory(
   windAccel: number,
   maxPts = 200,
   dt = 1 / 150,
+  dragMul = 1,
 ): Vec2[] {
   const pts: Vec2[] = [];
   let x = x0;
@@ -873,8 +1518,9 @@ export function sampleTrajectory(
   const w = surface.y.length;
   const g = WORLD.G;
   for (let i = 0; i < maxPts; i++) {
-    vxW += windAccel * dt;
+    vxW += windAccelAtStep(windAccel, i, x0, y0) * dt;
     vz += g * dt;
+    ({ vx: vxW, vy: vz } = applyQuadraticAirDrag(vxW, vz, dt, dragMul));
     x += vxW * dt;
     y += vz * dt;
     pts.push({ x, y });
@@ -983,6 +1629,9 @@ const LOCAL_ONLY_PROMO_CODE = "seba1";
 const LOCAL_ONLY_PROMO_GEMS = 10_000;
 const LOCAL_ONLY_XP_CODE = "sebaxp";
 const LOCAL_ONLY_XP_AMOUNT = 10_000;
+/** Nur Loopback: große 💎-Menge fürs lokale Testen (Shop → Code, ohne Stub). */
+const LOCAL_ONLY_MEGA_GEMS_CODE = "admins";
+const LOCAL_ONLY_MEGA_GEMS = 1_000_000;
 
 const PROMO_GEMS: Record<string, number> = {
   admin1: PROMO_GEMS_PER_CODE,
@@ -1002,11 +1651,13 @@ export function isLocalTankArtilleryPromoHost(): boolean {
   }
 }
 
-/** Nur lokaler Dev-Code „seba1“: Einlösung ohne `/claim` — kein promo-stub nötig. */
+/** Nur lokale Dev-Codes (seba1, sebaxp, admins): Einlösung ohne `/claim` — kein promo-stub nötig. */
 export function promoSkipsGlobalSlotReserve(normalizedKey: string): boolean {
   return (
     isLocalTankArtilleryPromoHost() &&
-    (normalizedKey === LOCAL_ONLY_PROMO_CODE || normalizedKey === LOCAL_ONLY_XP_CODE)
+    (normalizedKey === LOCAL_ONLY_PROMO_CODE ||
+      normalizedKey === LOCAL_ONLY_XP_CODE ||
+      normalizedKey === LOCAL_ONLY_MEGA_GEMS_CODE)
   );
 }
 
@@ -1118,6 +1769,9 @@ export function describePromoRedeem(raw: string, usedKeys: ReadonlySet<string>):
   let xp: number | undefined = undefined;
   if (gems == null && key === LOCAL_ONLY_PROMO_CODE && isLocalTankArtilleryPromoHost()) {
     gems = LOCAL_ONLY_PROMO_GEMS;
+  }
+  if (gems == null && key === LOCAL_ONLY_MEGA_GEMS_CODE && isLocalTankArtilleryPromoHost()) {
+    gems = LOCAL_ONLY_MEGA_GEMS;
   }
   if (gems == null && key === LOCAL_ONLY_XP_CODE && isLocalTankArtilleryPromoHost()) {
     xp = LOCAL_ONLY_XP_AMOUNT;

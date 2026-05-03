@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Mini-Schach — microgames</title>
+    <meta
+      name="description"
+      content="Schach gegen KI (Schwarz) mit Leicht, Mittel, Schwer, Unmöglich — du spielst Weiß."
+    />
+    <link rel="icon" type="image/svg+xml" href="../../icon.svg" />
+    <link rel="stylesheet" href="../../assets/style.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="gameBody mcRoot">
+    <header class="mcTop">
+      <a class="link" href="../../" style="color: #bae6fd">← Spiele</a>
+      <h1>Mini-Schach</h1>
+      <div class="mcHud" aria-live="polite">
+        <span id="mcTurn">Du vs KI · Weiß am Zug</span>
+        <span id="mcEval" hidden></span>
+      </div>
+      <div class="mcActions">
+        <button type="button" id="mcNew" class="mcBtn">Neues Spiel</button>
+      </div>
+      <div class="mcDiff" role="group" aria-label="KI-Schwierigkeit">
+        <span class="mcDiffLabel">Gegner:</span>
+        <label class="mcDiffOpt"><input type="radio" name="mcDiff" value="leicht" /> Leicht</label>
+        <label class="mcDiffOpt"><input type="radio" name="mcDiff" value="mittel" checked /> Mittel</label>
+        <label class="mcDiffOpt"><input type="radio" name="mcDiff" value="schwer" /> Schwer</label>
+        <label class="mcDiffOpt"><input type="radio" name="mcDiff" value="unmoeglich" /> Unmöglich</label>
+      </div>
+    </header>
+    <main class="mcStage">
+      <p class="mcMode">Einzelspieler: du spielst Weiß, die KI spielt Schwarz und antwortet nach jedem deiner Züge. Schwierigkeit gilt ab dem nächsten KI-Zug.</p>
+      <canvas id="mcBoard" width="480" height="480" aria-label="Schachbrett, du gegen KI"></canvas>
+      <p id="mcStatus">Lädt …</p>
+      <p class="mcHint">Feld antippen: erst Figur wählen, dann Zielfeld.</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

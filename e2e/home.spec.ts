@@ -11,7 +11,7 @@ test("home loads and language toggle switches hero copy", async ({ page }) => {
 
 test("home lists game cards linking to game folders", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("[data-game-slug]")).toHaveCount(5);
+  await expect(page.locator("[data-game-slug]")).toHaveCount(6);
   const dino = page.locator('[data-game-slug="dino-run"]');
   await expect(dino).toHaveCount(1);
   await expect(dino).toHaveAttribute("href", /dino-run/);

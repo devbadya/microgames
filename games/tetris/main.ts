@@ -1,14 +1,39 @@
 import * as pc from "playcanvas";
+import {
+  LEVELS,
+  activeWidth,
+  applyClear,
+  buildGarbage,
+  clampLevel,
+  dropIntervalForLines,
+  emptyBoard,
+  failRun,
+  levelById,
+  pickPiece,
+  pushGarbageRow,
+  readBest,
+  readUnlocked,
+  recordBest,
+  shouldAddGarbage,
+  startRun,
+  unlockNext,
+  type Board,
+  type Cell,
+  type LevelDef,
+  type PieceKey,
+  type RunState,
+  type StorageLike,
+} from "./tetris-logic";
 
 const COLS = 10;
 const ROWS = 20;
 
-type PieceKey = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
-type ColorKey = PieceKey | "bg" | "empty" | "border" | "ghost";
+type ColorKey = PieceKey | "G" | "bg" | "empty" | "border" | "ghost" | "shaded";
 
 const COLORS: Record<ColorKey, pc.Color> = {
   bg: new pc.Color(0.04, 0.06, 0.10),
   empty: new pc.Color(0.10, 0.13, 0.19),
+  shaded: new pc.Color(0.06, 0.08, 0.13),
   border: new pc.Color(0.18, 0.22, 0.30),
   ghost: new pc.Color(0.20, 0.24, 0.32),
   I: new pc.Color(0.40, 0.86, 0.96),
@@ -18,6 +43,7 @@ const COLORS: Record<ColorKey, pc.Color> = {
   Z: new pc.Color(0.96, 0.46, 0.46),
   J: new pc.Color(0.40, 0.56, 0.96),
   L: new pc.Color(0.98, 0.66, 0.40),
+  G: new pc.Color(0.42, 0.46, 0.55),
 };
 
 const PIECES: Record<PieceKey, number[][]> = {
@@ -48,11 +74,6 @@ const PIECES: Record<PieceKey, number[][]> = {
   ],
 };
 
-const KEYS = Object.keys(PIECES) as PieceKey[];
-
-type Cell = PieceKey | null;
-type Board = Cell[][];
-
 interface Piece {
   key: PieceKey;
   shape: number[][];
@@ -72,10 +93,6 @@ function rotateCW(matrix: number[][]): number[][] {
   return out;
 }
 
-function emptyBoard(): Board {
-  return Array.from({ length: ROWS }, () => new Array<Cell>(COLS).fill(null));
-}
-
 function shapeCells(matrix: number[][], ox: number, oy: number): [number, number][] {
   const cells: [number, number][] = [];
   for (let y = 0; y < matrix.length; y++) {
@@ -87,16 +104,23 @@ function shapeCells(matrix: number[][], ox: number, oy: number): [number, number
   return cells;
 }
 
-function canPlace(board: Board, matrix: number[][], ox: number, oy: number): boolean {
+function withinActiveColumn(x: number, fieldWidth: number): boolean {
+  if (fieldWidth >= COLS) return true;
+  const margin = Math.floor((COLS - fieldWidth) / 2);
+  return x >= margin && x < margin + fieldWidth;
+}
+
+function canPlace(board: Board, matrix: number[][], ox: number, oy: number, fieldWidth: number): boolean {
   for (const [x, y] of shapeCells(matrix, ox, oy)) {
     if (x < 0 || x >= COLS || y >= ROWS) return false;
+    if (!withinActiveColumn(x, fieldWidth)) return false;
     if (y >= 0 && board[y]![x] !== null) return false;
   }
   return true;
 }
 
-function spawnPiece(): Piece {
-  const k = KEYS[Math.floor(Math.random() * KEYS.length)]!;
+function spawnPiece(level: LevelDef, rng: () => number): Piece {
+  const k = pickPiece(level, rng);
   const shape = PIECES[k].map((row) => row.slice());
   return {
     key: k,
@@ -131,14 +155,57 @@ function clearLines(board: Board): number {
   return cleared;
 }
 
-function ghostY(board: Board, piece: Piece): number {
+function gravitonCollapse(board: Board): void {
+  for (let x = 0; x < COLS; x++) {
+    const stack: Cell[] = [];
+    for (let y = ROWS - 1; y >= 0; y--) {
+      const c = board[y]![x];
+      if (c !== null) stack.push(c);
+    }
+    for (let y = ROWS - 1, i = 0; y >= 0; y--, i++) {
+      board[y]![x] = stack[i] ?? null;
+    }
+  }
+}
+
+function ghostY(board: Board, piece: Piece, fieldWidth: number): number {
   let y = piece.y;
-  while (canPlace(board, piece.shape, piece.x, y + 1)) y += 1;
+  while (canPlace(board, piece.shape, piece.x, y + 1, fieldWidth)) y += 1;
   return y;
 }
 
 const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
+const modifierBadge = document.getElementById("modifierBadge") as HTMLElement | null;
+const overlayEl = document.getElementById("overlay") as HTMLElement | null;
+const overlayMsg = document.getElementById("overlayMsg") as HTMLElement | null;
+const overlayHint = document.getElementById("overlayHint") as HTMLElement | null;
+const overlayEyebrow = document.getElementById("overlayEyebrow") as HTMLElement | null;
+const overlayPrimary = document.getElementById("overlayPrimaryBtn") as HTMLButtonElement | null;
+const overlaySecondary = document.getElementById("overlaySecondaryBtn") as HTMLButtonElement | null;
+const levelSelectEl = document.getElementById("levelSelect") as HTMLElement | null;
+const levelGridEl = document.getElementById("levelGrid") as HTMLElement | null;
+const hudLevelEl = document.getElementById("hudLevel");
+const hudLinesEl = document.getElementById("hudLines");
+const hudScoreEl = document.getElementById("hudScore");
+
+const STORAGE: StorageLike = (() => {
+  try {
+    return window.localStorage;
+  } catch {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k) => (map.has(k) ? map.get(k)! : null),
+      setItem: (k, v) => {
+        map.set(k, v);
+      },
+    };
+  }
+})();
+
+let unlocked = clampLevel(readUnlocked(STORAGE));
+let currentLevel: LevelDef = levelById(1)!;
+let run: RunState = startRun(1);
 
 const app = new pc.Application(canvas, {
   mouse: new pc.Mouse(canvas),
@@ -242,54 +309,168 @@ for (let y = 0; y < ROWS; y++) {
   }
 })();
 
-const scoreEl = document.getElementById("score");
-const linesEl = document.getElementById("lines");
-const levelEl = document.getElementById("level");
-const overlayEl = document.getElementById("overlay");
-const overlayMsg = document.getElementById("overlayMsg");
-
-let board: Board = emptyBoard();
-let piece: Piece = spawnPiece();
+let board: Board = emptyBoard(ROWS, COLS);
+let piece: Piece = spawnPiece(currentLevel, Math.random);
 let dropAccumulator = 0;
 let dropInterval = 0.7;
-let score = 0;
-let lines = 0;
-let level = 1;
-let gameOver = false;
-let paused = false;
+let phase: "select" | "running" | "complete" | "failed" | "paused" = "select";
 
 function updateHud(): void {
-  if (scoreEl) scoreEl.textContent = String(score);
-  if (linesEl) linesEl.textContent = String(lines);
-  if (levelEl) levelEl.textContent = String(level);
+  if (hudLevelEl) hudLevelEl.textContent = String(currentLevel.id);
+  if (hudLinesEl) hudLinesEl.textContent = `${run.linesCredited}/${run.goal}`;
+  if (hudScoreEl) hudScoreEl.textContent = String(run.score);
 }
 
-function showOverlay(msg: string): void {
-  if (!overlayEl || !overlayMsg) return;
-  overlayMsg.textContent = msg;
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderLevelGrid(): void {
+  if (!levelGridEl) return;
+  const best = readBest(STORAGE);
+  levelGridEl.innerHTML = LEVELS.map((lv) => {
+    const isLocked = lv.id > unlocked;
+    const cleared = lv.id < unlocked;
+    const classes = ["shLevelCard"];
+    if (lv.id === currentLevel.id) classes.push("shLevelCard--current");
+    if (cleared) classes.push("shLevelCard--cleared");
+    const meta = isLocked ? "Locked" : `${lv.goalLines} lines`;
+    const disabled = isLocked ? "disabled" : "";
+    return `
+      <button type="button" class="${classes.join(" ")}" data-level="${lv.id}" ${disabled} aria-label="Level ${lv.id} ${lv.name}">
+        <span class="shLevelCardId">Lv ${lv.id}</span>
+        <span class="shLevelCardName">${escapeHtml(lv.name)}</span>
+        <span class="shLevelCardMeta">${meta}${best[lv.id] ? ` · best ${best[lv.id]}` : ""}</span>
+      </button>
+    `;
+  }).join("");
+  for (const btn of levelGridEl.querySelectorAll<HTMLButtonElement>("button[data-level]")) {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-level"));
+      if (Number.isFinite(id)) startLevel(id);
+    });
+  }
+}
+
+function setOverlay(opts: {
+  visible: boolean;
+  eyebrow?: string;
+  message?: string;
+  hint?: string;
+  showLevelSelect?: boolean;
+  primaryLabel?: string;
+  secondaryLabel?: string | null;
+}): void {
+  if (!overlayEl) return;
+  if (!opts.visible) {
+    overlayEl.hidden = true;
+    return;
+  }
   overlayEl.hidden = false;
+  if (overlayEyebrow) overlayEyebrow.textContent = opts.eyebrow ?? "Tetris";
+  if (overlayMsg) overlayMsg.textContent = opts.message ?? "";
+  if (overlayHint) overlayHint.textContent = opts.hint ?? "";
+  if (levelSelectEl) levelSelectEl.hidden = !opts.showLevelSelect;
+  if (overlayPrimary) {
+    overlayPrimary.textContent = opts.primaryLabel ?? "Play";
+    overlayPrimary.hidden = false;
+  }
+  if (overlaySecondary) {
+    if (opts.secondaryLabel) {
+      overlaySecondary.textContent = opts.secondaryLabel;
+      overlaySecondary.hidden = false;
+    } else {
+      overlaySecondary.hidden = true;
+    }
+  }
+}
+
+function showLevelSelect(): void {
+  phase = "select";
+  if (modifierBadge) modifierBadge.textContent = "";
+  renderLevelGrid();
+  setOverlay({
+    visible: true,
+    eyebrow: "Tetris",
+    message: "Pick a level",
+    hint: `Cleared up to ${unlocked}/${LEVELS.length}.`,
+    showLevelSelect: true,
+    primaryLabel: `Continue (Lv ${unlocked})`,
+    secondaryLabel: null,
+  });
 }
 
 function hideOverlay(): void {
-  if (overlayEl) overlayEl.hidden = true;
+  setOverlay({ visible: false });
 }
 
-function newGame(): void {
-  board = emptyBoard();
-  piece = spawnPiece();
+function applyTheme(level: LevelDef): void {
+  document.documentElement.style.setProperty("--accent", level.palette.primary);
+  document.documentElement.style.setProperty("--accent2", level.palette.secondary);
+  if (modifierBadge) {
+    modifierBadge.textContent = level.modifier === "none" ? "" : `Modifier: ${level.modifier}`;
+  }
+}
+
+function startLevel(id: number): void {
+  const def = levelById(clampLevel(id));
+  if (!def) return;
+  if (def.id > unlocked) return;
+  currentLevel = def;
+  applyTheme(def);
+  run = startRun(def.id);
+  board = def.startingGarbage > 0
+    ? buildGarbage(ROWS, COLS, def.startingGarbage, Math.random)
+    : emptyBoard(ROWS, COLS);
+  piece = spawnPiece(def, Math.random);
   dropAccumulator = 0;
-  dropInterval = 0.7;
-  score = 0;
-  lines = 0;
-  level = 1;
-  gameOver = false;
-  paused = false;
+  dropInterval = dropIntervalForLines(def, 0);
+  phase = "running";
   hideOverlay();
   updateHud();
 }
 
+function endLevelFailure(message: string): void {
+  if (phase !== "running" && phase !== "paused") return;
+  phase = "failed";
+  run = failRun(run);
+  recordBest(STORAGE, currentLevel.id, run.score);
+  setOverlay({
+    visible: true,
+    eyebrow: "Game over",
+    message: `${currentLevel.name} — ${run.score} pts`,
+    hint: message,
+    showLevelSelect: false,
+    primaryLabel: "Retry",
+    secondaryLabel: "Levels",
+  });
+}
+
+function endLevelClear(): void {
+  if (phase !== "running") return;
+  phase = "complete";
+  recordBest(STORAGE, currentLevel.id, run.score);
+  unlocked = unlockNext(STORAGE, currentLevel.id);
+  const isFinal = currentLevel.id === LEVELS.length;
+  setOverlay({
+    visible: true,
+    eyebrow: isFinal ? "Campaign cleared" : "Level cleared",
+    message: `${currentLevel.name} — ${run.score} pts`,
+    hint: isFinal
+      ? "Pick any level to push your high score."
+      : `Next: ${levelById(currentLevel.id + 1)?.name ?? ""}.`,
+    showLevelSelect: false,
+    primaryLabel: isFinal ? "Levels" : "Next level",
+    secondaryLabel: "Levels",
+  });
+}
+
 function tryMove(dx: number, dy: number): boolean {
-  if (canPlace(board, piece.shape, piece.x + dx, piece.y + dy)) {
+  if (canPlace(board, piece.shape, piece.x + dx, piece.y + dy, activeWidth(currentLevel, run.linesCredited, COLS))) {
     piece.x += dx;
     piece.y += dy;
     return true;
@@ -299,8 +480,9 @@ function tryMove(dx: number, dy: number): boolean {
 
 function tryRotate(): void {
   const r = rotateCW(piece.shape);
+  const fw = activeWidth(currentLevel, run.linesCredited, COLS);
   for (const dx of [0, -1, 1, -2, 2]) {
-    if (canPlace(board, r, piece.x + dx, piece.y)) {
+    if (canPlace(board, r, piece.x + dx, piece.y, fw)) {
       piece.shape = r;
       piece.x += dx;
       return;
@@ -310,7 +492,7 @@ function tryRotate(): void {
 
 function softDrop(): void {
   if (tryMove(0, 1)) {
-    score += 1;
+    run = { ...run, score: run.score + 1 };
   } else {
     settle();
   }
@@ -319,46 +501,42 @@ function softDrop(): void {
 function hardDrop(): void {
   let dropped = 0;
   while (tryMove(0, 1)) dropped += 1;
-  score += dropped * 2;
+  run = { ...run, score: run.score + dropped * 2 };
   settle();
 }
-
-const LINE_POINTS: readonly number[] = [0, 100, 300, 500, 800];
 
 function settle(): void {
   const ok = lockPiece(board, piece);
   if (!ok) {
-    endGame();
+    endLevelFailure("Top out — pick the level again.");
     return;
   }
   const cleared = clearLines(board);
   if (cleared > 0) {
-    const points = LINE_POINTS[cleared] ?? 1000;
-    score += points * level;
-    lines += cleared;
-    const newLevel = Math.floor(lines / 10) + 1;
-    if (newLevel !== level) {
-      level = newLevel;
-      dropInterval = Math.max(0.07, 0.7 * Math.pow(0.85, level - 1));
+    run = applyClear(run, currentLevel, cleared);
+    if (currentLevel.modifier === "graviton") gravitonCollapse(board);
+    dropInterval = dropIntervalForLines(currentLevel, run.linesCredited);
+    if (run.cleared) {
+      updateHud();
+      endLevelClear();
+      return;
+    }
+    if (shouldAddGarbage(currentLevel, run.linesCredited)) {
+      board = pushGarbageRow(board, Math.random);
     }
   }
-  piece = spawnPiece();
-  if (!canPlace(board, piece.shape, piece.x, piece.y)) {
-    endGame();
+  piece = spawnPiece(currentLevel, Math.random);
+  if (!canPlace(board, piece.shape, piece.x, piece.y, activeWidth(currentLevel, run.linesCredited, COLS))) {
+    endLevelFailure("Field choked.");
+    return;
   }
-  updateHud();
-}
-
-function endGame(): void {
-  gameOver = true;
-  showOverlay("Game over — press Enter to restart");
   updateHud();
 }
 
 type Action = "left" | "right" | "rotate" | "softdrop" | "harddrop";
 
 function performAction(action: Action): void {
-  if (gameOver || paused) return;
+  if (phase !== "running") return;
   switch (action) {
     case "left":
       tryMove(-1, 0);
@@ -382,20 +560,45 @@ function performAction(action: Action): void {
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   const k = e.key;
-  if (k === "r" || k === "R" || k === "Enter") {
-    newGame();
+  if (k === "Escape") {
     e.preventDefault();
+    showLevelSelect();
     return;
   }
-  if (gameOver) return;
+  if (k === "Enter" || k === "r" || k === "R") {
+    e.preventDefault();
+    if (phase === "select") {
+      startLevel(unlocked);
+    } else if (phase === "complete" && currentLevel.id < LEVELS.length) {
+      startLevel(currentLevel.id + 1);
+    } else if (phase === "complete") {
+      showLevelSelect();
+    } else if (phase === "failed") {
+      startLevel(currentLevel.id);
+    }
+    return;
+  }
+  if (phase !== "running" && phase !== "paused") return;
   if (k === "p" || k === "P") {
-    paused = !paused;
-    if (paused) showOverlay("Paused — press P to resume");
-    else hideOverlay();
+    if (phase === "running") {
+      phase = "paused";
+      setOverlay({
+        visible: true,
+        eyebrow: "Paused",
+        message: currentLevel.name,
+        hint: "P to resume · Esc for levels",
+        showLevelSelect: false,
+        primaryLabel: "Resume",
+        secondaryLabel: "Levels",
+      });
+    } else {
+      phase = "running";
+      hideOverlay();
+    }
     e.preventDefault();
     return;
   }
-  if (paused) return;
+  if (phase !== "running") return;
   if (k === "ArrowLeft") {
     performAction("left");
     e.preventDefault();
@@ -463,6 +666,21 @@ if (touchControlsEl) {
   }
 }
 
+if (overlayPrimary) {
+  overlayPrimary.addEventListener("click", () => {
+    if (phase === "select") startLevel(unlocked);
+    else if (phase === "complete") {
+      if (currentLevel.id < LEVELS.length) startLevel(currentLevel.id + 1);
+      else showLevelSelect();
+    } else if (phase === "failed") startLevel(currentLevel.id);
+    else if (phase === "paused") {
+      phase = "running";
+      hideOverlay();
+    }
+  });
+}
+if (overlaySecondary) overlaySecondary.addEventListener("click", () => showLevelSelect());
+
 document.addEventListener(
   "gesturestart",
   (e) => {
@@ -472,8 +690,10 @@ document.addEventListener(
 );
 
 function renderBoard(): void {
-  const ghostPos = canPlace(board, piece.shape, piece.x, piece.y)
-    ? ghostY(board, piece)
+  const fw = activeWidth(currentLevel, run.linesCredited, COLS);
+  const margin = Math.floor((COLS - fw) / 2);
+  const ghostPos = phase === "running" && canPlace(board, piece.shape, piece.x, piece.y, fw)
+    ? ghostY(board, piece, fw)
     : piece.y;
 
   for (let y = 0; y < ROWS; y++) {
@@ -481,25 +701,39 @@ function renderBoard(): void {
     const ents = cellEntities[y]!;
     for (let x = 0; x < COLS; x++) {
       const k = row[x];
-      ents[x]!.render!.material = getMaterial(k ? COLORS[k] : COLORS.empty);
+      if (!withinActiveColumn(x, fw)) {
+        ents[x]!.render!.material = getMaterial(COLORS.shaded);
+      } else if (k) {
+        ents[x]!.render!.material = getMaterial(COLORS[k]);
+      } else {
+        ents[x]!.render!.material = getMaterial(COLORS.empty);
+      }
+      ents[x]!.enabled = true;
+      if (!withinActiveColumn(x, fw) && fw < COLS) {
+        // shaded outside active band — keep visible so the field looks framed
+      }
     }
   }
 
-  for (const [x, y] of shapeCells(piece.shape, piece.x, ghostPos)) {
-    if (y >= 0 && y < ROWS && x >= 0 && x < COLS && board[y]![x] === null) {
-      cellEntities[y]![x]!.render!.material = getMaterial(COLORS.ghost);
+  if (phase === "running" && currentLevel.modifier !== "noGhost") {
+    for (const [x, y] of shapeCells(piece.shape, piece.x, ghostPos)) {
+      if (y >= 0 && y < ROWS && x >= margin && x < margin + fw && board[y]![x] === null) {
+        cellEntities[y]![x]!.render!.material = getMaterial(COLORS.ghost);
+      }
     }
   }
 
-  for (const [x, y] of shapeCells(piece.shape, piece.x, piece.y)) {
-    if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
-      cellEntities[y]![x]!.render!.material = getMaterial(COLORS[piece.key]);
+  if (phase === "running") {
+    for (const [x, y] of shapeCells(piece.shape, piece.x, piece.y)) {
+      if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
+        cellEntities[y]![x]!.render!.material = getMaterial(COLORS[piece.key]);
+      }
     }
   }
 }
 
 app.on("update", (dt: number) => {
-  if (!gameOver && !paused) {
+  if (phase === "running") {
     dropAccumulator += dt;
     while (dropAccumulator >= dropInterval) {
       dropAccumulator -= dropInterval;
@@ -528,6 +762,37 @@ window.addEventListener("resize", fitToStage);
 const ro = new ResizeObserver(fitToStage);
 ro.observe(stage);
 
+applyTheme(currentLevel);
 fitToStage();
+showLevelSelect();
 updateHud();
 app.start();
+
+interface TetrisTestApi {
+  start(level?: number): void;
+  clearLines(count: number): { score: number; cleared: boolean };
+  state(): { level: number; lines: number; goal: number; cleared: boolean; failed: boolean };
+}
+
+(window as unknown as { __tetrisTest?: TetrisTestApi }).__tetrisTest = {
+  start(level = 1) {
+    unlocked = clampLevel(Math.max(unlocked, level));
+    startLevel(level);
+  },
+  clearLines(count) {
+    const def = currentLevel;
+    run = applyClear(run, def, count);
+    updateHud();
+    if (run.cleared) endLevelClear();
+    return { score: run.score, cleared: run.cleared };
+  },
+  state() {
+    return {
+      level: currentLevel.id,
+      lines: run.linesCredited,
+      goal: run.goal,
+      cleared: run.cleared,
+      failed: run.failed,
+    };
+  },
+};

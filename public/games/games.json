@@ -48,5 +48,15 @@
     "minutes": 5,
     "tags": ["strategy", "keyboard", "ballistics"],
     "thumbnail": "./thumbnails/tank-artillery.svg"
+  },
+  {
+    "slug": "mini-chess",
+    "title": "Mini Chess",
+    "title_de": "Mini-Schach",
+    "description": "Chess on 8×8 vs AI with easy / medium / hard / very hard — you play White.",
+    "description_de": "Schach 8×8 gegen KI: Leicht, Mittel, Schwer, Unmöglich — du spielst Weiß.",
+    "minutes": 10,
+    "tags": ["strategy", "board", "keyboard"],
+    "thumbnail": "./thumbnails/mini-chess.svg"
   }
 ]

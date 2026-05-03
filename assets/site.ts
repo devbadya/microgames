@@ -11,9 +11,6 @@ import {
   setDocumentTitleFromKey,
   searchResultLine,
 } from "./i18n";
-import { AuthService } from "./auth";
-import { initAuthUi, type AuthUiHandle } from "./auth-ui";
-
 const SETTINGS_OPEN_CLASS = "settingsOpen";
 
 function qs<T extends HTMLElement>(sel: string, root: ParentNode = document): T | null {
@@ -209,29 +206,6 @@ function wireLangSwitch(rerenderGames: () => void): void {
   });
 }
 
-function wireAuthChipMenu(): void {
-  const chip = qs<HTMLElement>("#authSignedInChip");
-  if (!chip) return;
-  const btn = chip.querySelector<HTMLButtonElement>(".authChipBtn");
-  const menu = chip.querySelector<HTMLElement>(".authChipMenu");
-  if (!btn || !menu) return;
-  const setOpen = (open: boolean) => {
-    chip.classList.toggle("authChip--open", open);
-    btn.setAttribute("aria-expanded", String(open));
-  };
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setOpen(!chip.classList.contains("authChip--open"));
-  });
-  document.addEventListener("click", (e) => {
-    if (!chip.contains(e.target as Node)) setOpen(false);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") setOpen(false);
-  });
-  menu.addEventListener("click", () => setOpen(false));
-}
-
 function wireSettingsPanel(): void {
   const panel = qs<HTMLElement>("#settingsPanel");
   const backdrop = qs<HTMLElement>("#settingsBackdrop");
@@ -273,7 +247,6 @@ function wireLegalToggle(): void {
 }
 
 let cachedGames: Game[] = [];
-let authUi: AuthUiHandle | null = null;
 
 async function main(): Promise<void> {
   initLang(document.documentElement);
@@ -287,19 +260,10 @@ async function main(): Promise<void> {
 
   wireSettingsPanel();
   wireLegalToggle();
-  wireAuthChipMenu();
-
-  try {
-    const auth = new AuthService();
-    authUi = initAuthUi(auth);
-  } catch {
-    /* Web Crypto missing or storage blocked — auth unavailable, page still works */
-  }
 
   const rerenderGames = attachSearchHandlers();
   wireLangSwitch(() => {
     rerenderGames();
-    if (authUi) authUi.refresh();
   });
 
   const statusEl = qs<HTMLElement>("#status");

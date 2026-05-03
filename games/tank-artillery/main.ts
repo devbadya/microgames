@@ -1,5 +1,11 @@
 import "./style.css";
-import { ATLAS, SPRITESHEET_REL } from "./kenney-atlas";
+import {
+  ATLAS,
+  GENERATED_TANK_SPRITES,
+  SPRITESHEET_REL,
+  type GeneratedTankSpriteDef,
+  type GeneratedTankSpriteKey,
+} from "./kenney-atlas";
 import {
   BLITZ_DISPLAY_NAME_DE,
   DEFAULT_HP,
@@ -34,6 +40,8 @@ import {
   applyCrater,
   buildTerrain,
   heightAt,
+  terrainHullPose,
+  terrainBlocksBarrelRay,
   levelFromXp,
   readXp,
   readMapDifficulty,
@@ -61,6 +69,16 @@ import {
   readDesertShieldCharges,
   readDesertShieldOwned,
   readEquippedTankId,
+  readLockerUpgradeLevels,
+  readLockerUpgradeLevelsFor,
+  lockerUpgradeFuelBonus,
+  lockerUpgradePowMaxDelta,
+  lockerUpgradeDamageMul,
+  lockerUpgradeStepCostGems,
+  tryBuyLockerUpgrade,
+  LOCKER_UPGRADE_META,
+  LOCKER_UPGRADE_MAX_LEVEL,
+  type LockerUpgradeBranchId,
   velocityFromElevDeg,
   jitteredShotVelocity,
   XP_WIN,
@@ -70,8 +88,11 @@ import {
   type PlayerTankId,
   type PlayerTankDef,
   type MapBattleTheme,
+  lockerMaxBonusWeaponFor,
+  lockerMaxSpecialAttackUnlocked,
 } from "./artillery-logic";
 import { currentFullscreenElement, fullscreenToggleStrings, toggleRootFullscreen } from "./fullscreen";
+import { endPvpClientSession, resolveTankPvpWsUrl, startPvpSearch } from "./pvp-matchmaking";
 
 declare global {
   interface Window {
@@ -87,6 +108,10 @@ const FLIGHT_MAX_PTS = 4200;
 const FLIGHT_DT = 1 / 110;
 /** Pro Frame Index-Schritt — kleiner = langsamer fliegender Schuss auf dem Bild. */
 const FLIGHT_FRAME_ADV = 2;
+
+function weaponDragMul(W: WeaponDef): number {
+  return W.ballisticDragMul ?? 1;
+}
 
 /** Jedes Kampf-/Neustart (`begin` / „Weiter“ / „Ins Spiel“) erhöht `kampfNr` → Blitz jede dritte (3., 6., …) */
 const BLITZ_EVERY_MATCH = 3;
@@ -157,9 +182,11 @@ function tryActivateDesertShieldFromKeys(): boolean {
   const left = readDesertShieldCharges();
   shieldBannerUntil = performance.now() + 2400;
   shieldBannerLines = [
-    "Kristallschild",
+    "Sonnenkristall-Schild",
     `${DESERT_SHIELD_ABSORB} Punkte Schutz aktiv${left > 0 ? ` · noch ${left} Aktivierungen` : " · Paket aufgebraucht — neu im Shop"}`,
   ];
+  shieldImpactUntil = performance.now() + 420;
+  shieldImpactAbsorbed = DESERT_SHIELD_ABSORB;
   return true;
 }
 
@@ -196,12 +223,33 @@ let hpP = DEFAULT_HP;
 let hpB = DEFAULT_HP;
 let fuelP = FUEL_MOVE;
 let fuelB = Math.floor(FUEL_MOVE * 0.9);
+const PLAYER_POW_MIN = 380;
+const PLAYER_POW_MAX_BASE = 1220;
+
+function playerFuelCapacity(): number {
+  return FUEL_MOVE + lockerUpgradeFuelBonus(readLockerUpgradeLevelsFor(activeTankId()).fuel);
+}
+
+function playerPowMax(): number {
+  return PLAYER_POW_MAX_BASE + lockerUpgradePowMaxDelta(readLockerUpgradeLevelsFor(activeTankId()).power);
+}
+
+function playerDamageMulVersusBot(): number {
+  return lockerUpgradeDamageMul(readLockerUpgradeLevelsFor(activeTankId()).damage);
+}
+
 let ang = 53;
 /** Rohr-Anzeige fürs Zeichnen — nähert sich `ang`/Ziel, damit das Rohr sichtbar auslenkt */
 let barrelVisAng = ang;
+/** Nach Schuss: Rohr kickt kurz hoch und federt aus (nur Anzeige). */
+let barrelRecoilDeg = 0;
+let enemyBarrelRecoilDeg = 0;
+/** Winkelgeschwindigkeit fürs sichtbare Rohr (Feder–Dämpfer → Einpendeln mit Bewegung). */
+let barrelVisVel = 0;
+let enemyBarrelVel = 0;
 let pow = 480;
-/** 0–2 = Kenney-Geschosse, 3 = Blitz (nur in jeder dritten Kampf-Runde, 1× pro solcher Runde) */
-let selectedSlot: 0 | 1 | 2 | 3 = 0;
+/** 0… = Geschosse aus {@link pw}; {@link blitzSlotIndex} = Blitz (Taste 4). */
+let selectedSlot = 0;
 /** Aktives Geschossprofil nur fürs Flug-Sprite (Spieler oder Bot-Zug) */
 let projectileInFlightStyle: ProjectileGlow | null = null;
 
@@ -226,6 +274,17 @@ function activeTankDef(): PlayerTankDef {
   return getPlayerTankDef(testDriveTankId) ?? getEquippedPlayerTank();
 }
 
+function lockerMaxSpecialUnlocked(): boolean {
+  return lockerMaxSpecialAttackUnlocked(readLockerUpgradeLevelsFor(activeTankId()));
+}
+/** Blitz-Tastatur-Slot: 3 ohne Spezial (6), 4 wenn Spezial freigeschaltet ist. */
+function blitzSlotIndex(): number {
+  return lockerMaxSpecialUnlocked() ? 4 : 3;
+}
+function isBlitzSlot(slot: number): boolean {
+  return slot === blitzSlotIndex();
+}
+
 function effectiveMoveTrail(): MoveTrailCosmeticId {
   if (testDriveMoveTrailId != null) return testDriveMoveTrailId;
   return readEquippedMoveTrail();
@@ -244,12 +303,180 @@ function hudBattleTestPrefix(): string {
 }
 
 function pw(): WeaponDef[] {
-  return activeTankDef().weapons;
+  const base = activeTankDef().weapons;
+  return lockerMaxSpecialUnlocked() ? [...base, lockerMaxBonusWeaponFor(activeTankId())] : base;
 }
 
 function atlasRectPlayer(): { x: number; y: number; w: number; h: number } {
   const k = activeTankDef().atlasSprite;
   return ATLAS[k];
+}
+
+type TankVisualFx = {
+  halo: string;
+  ring: string;
+  spark: string;
+  core: string;
+};
+
+function tankVisualFx(id: PlayerTankId): TankVisualFx | null {
+  switch (id) {
+    case "navy":
+      return {
+        halo: "rgba(56,189,248,0.34)",
+        ring: "rgba(125,211,252,0.74)",
+        spark: "rgba(186,230,253,0.9)",
+        core: "rgba(14,165,233,0.42)",
+      };
+    case "desert":
+      return {
+        halo: "rgba(251,191,36,0.32)",
+        ring: "rgba(253,224,71,0.76)",
+        spark: "rgba(254,240,138,0.94)",
+        core: "rgba(249,115,22,0.42)",
+      };
+    case "crimson":
+      return {
+        halo: "rgba(248,113,113,0.35)",
+        ring: "rgba(252,165,165,0.78)",
+        spark: "rgba(254,202,202,0.94)",
+        core: "rgba(220,38,38,0.46)",
+      };
+    case "bunker":
+      return {
+        halo: "rgba(129,140,248,0.34)",
+        ring: "rgba(199,210,254,0.8)",
+        spark: "rgba(224,231,255,0.95)",
+        core: "rgba(79,70,229,0.44)",
+      };
+    case "viper":
+      return {
+        halo: "rgba(74,222,128,0.36)",
+        ring: "rgba(134,239,172,0.82)",
+        spark: "rgba(220,252,231,0.96)",
+        core: "rgba(22,163,74,0.48)",
+      };
+    default:
+      return null;
+  }
+}
+
+function drawTankVisualFxLocal(
+  g: CanvasRenderingContext2D,
+  id: PlayerTankId,
+  dw: number,
+  dh: number,
+  timeMs: number,
+  intensity = 1,
+): void {
+  const fx = tankVisualFx(id);
+  if (!fx || intensity <= 0) return;
+
+  const pulse = 0.5 + 0.5 * Math.sin(timeMs * 0.0043);
+  const lift = dh * 0.46;
+
+  g.save();
+  g.beginPath();
+  g.rect(-dw * 6, -dh * 6, dw * 12, dh * 6);
+  g.clip();
+  g.globalCompositeOperation = "lighter";
+
+  const halo = g.createRadialGradient(0, -lift, 2, 0, -lift, dw * (0.58 + pulse * 0.08));
+  halo.addColorStop(0, fx.core);
+  halo.addColorStop(0.58, fx.halo);
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  g.globalAlpha = 0.68 * intensity;
+  g.fillStyle = halo;
+  g.beginPath();
+  g.ellipse(0, -lift, dw * 0.74, dh * 0.62, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.globalAlpha = (0.3 + pulse * 0.22) * intensity;
+  g.strokeStyle = fx.ring;
+  g.lineWidth = Math.max(1.2, dw * 0.018);
+  g.beginPath();
+  g.ellipse(0, -dh * 0.38, dw * (0.54 + pulse * 0.04), dh * 0.34, 0, 0, Math.PI * 2);
+  g.stroke();
+
+  const count = id === "bunker" ? 5 : id === "viper" ? 9 : 7;
+  for (let i = 0; i < count; i++) {
+    const a = timeMs * (0.0019 + i * 0.00013) + i * 1.97;
+    const x = Math.cos(a) * dw * (0.34 + (i % 3) * 0.055);
+    const y = -dh * (0.42 + Math.sin(a * 1.31) * 0.17);
+    const r = Math.max(1.2, dw * (0.014 + (i % 2) * 0.006)) * intensity;
+    g.globalAlpha = (0.42 + pulse * 0.34) * intensity;
+    g.fillStyle = fx.spark;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  if (id === "crimson" || id === "viper") {
+    g.globalAlpha = 0.44 * intensity;
+    g.strokeStyle = fx.ring;
+    g.lineWidth = Math.max(1.4, dw * 0.022);
+    g.lineCap = "round";
+    for (let i = 0; i < 3; i++) {
+      const y = -dh * (0.22 + i * 0.16) + Math.sin(timeMs * 0.004 + i) * 2;
+      g.beginPath();
+      g.moveTo(-dw * 0.58, y);
+      g.lineTo(-dw * (0.36 + i * 0.03), y - dh * 0.08);
+      g.stroke();
+    }
+  }
+
+  if (id === "bunker") {
+    g.globalAlpha = 0.36 * intensity;
+    g.strokeStyle = fx.ring;
+    g.lineWidth = Math.max(1.3, dw * 0.018);
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + i * (Math.PI / 3);
+      const x = Math.cos(a) * dw * 0.38;
+      const y = -dh * 0.5 + Math.sin(a) * dh * 0.28;
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.closePath();
+    g.stroke();
+  }
+
+  g.restore();
+}
+
+function customSpriteKeyForTank(def: PlayerTankDef): GeneratedTankSpriteKey | null {
+  const key = def.customSprite;
+  if (key === "redStriker" || key === "viperEnergy" || key === "bunkerShield") return key;
+  return null;
+}
+
+function drawGeneratedTankSpriteLocal(
+  g: CanvasRenderingContext2D,
+  key: GeneratedTankSpriteKey,
+  tankId: PlayerTankId,
+  frameIndex: number,
+  desiredFacingRight: boolean,
+  timeMs: number,
+  targetScale = 1,
+  fxIntensity = 1,
+): boolean {
+  const def = GENERATED_TANK_SPRITES[key];
+  const img = generatedTankImages[key];
+  if (!img?.complete || img.naturalWidth < 16) return false;
+  const frame = def.frames[Math.max(0, Math.min(def.frames.length - 1, frameIndex))]!;
+  const bodyW = def.targetW * targetScale;
+  const sc = bodyW / def.sourceBodyW;
+  const dw = frame.w * sc;
+  const dh = frame.h * sc;
+  const bodyH = def.sourceBodyH * sc;
+  const sx = frameIndex * def.frameW + frame.x;
+
+  g.save();
+  if (def.sourceFacesRight !== desiredFacingRight) g.scale(-1, 1);
+  if (fxIntensity > 0) drawTankVisualFxLocal(g, tankId, bodyW, bodyH, timeMs, fxIntensity);
+  g.drawImage(img, sx, frame.y, frame.w, frame.h, -dw / 2, -dh, dw, dh);
+  g.restore();
+  return true;
 }
 /** In dieser Kampf-Runde bereits abgefeuert (nur relevant wenn Blitz-Welle aktiv) */
 let blitzConsumedThisMatch = false;
@@ -259,6 +486,8 @@ let playerShieldAbsorb = 0;
 /** Kurzes Banner beim Schild aktivieren */
 let shieldBannerUntil = 0;
 let shieldBannerLines: string[] = [];
+let shieldImpactUntil = 0;
+let shieldImpactAbsorbed = 0;
 /** Zufälliger Name für Blitz-Banner, pro freigeschalteter Runde neu */
 let blitzBuddyDe = "";
 /** Horizont-Position eines Blitz-Einschlags auf der Map (Welten-X) */
@@ -287,10 +516,12 @@ let bWait = 0;
 /** Mündungsblitz Ende (Zeit wie performance.now()). */
 let muzzleExpire = 0;
 let botMuzzleExpire = 0;
+/** Nach „Schuss gegen Wand“: kurzer Hinweis in der Statuszeile. */
+let barrelBlockedHintUntil = 0;
 /** kurzes Zittern nach Einschlag */
 let shakeUntil = 0;
 
-type ImpactBurstStyle = "default" | "electric" | "dust" | "pellet";
+type ImpactBurstStyle = "default" | "electric" | "dust" | "pellet" | "poison";
 
 type ImpactBurstFx = {
   x: number;
@@ -438,6 +669,7 @@ function drawDriveTrailParticlesLayer(now: number): void {
 }
 
 function impactFxStyle(W: WeaponDef): ImpactBurstStyle {
+  if (W.id === "viper_gift_bomb") return "poison";
   const pb = W.pelletBurst;
   if (pb && pb.spreadHalfDeg >= 11) return "dust";
   if (pb) return "pellet";
@@ -452,6 +684,8 @@ function maxImpactBurstAgeMs(style: ImpactBurstStyle | undefined): number {
       return 720;
     case "electric":
       return 700;
+    case "poison":
+      return 900;
     default:
       return 640;
   }
@@ -493,10 +727,19 @@ let ctx: CanvasRenderingContext2D;
 let cv: HTMLCanvasElement;
 /** Kenney Retina-Spritesheet (`public/games/tank-artillery/kenney/tanks_spritesheetRetina.png`) */
 let spriteSheet: HTMLImageElement | null = null;
+const generatedTankImages: Partial<Record<GeneratedTankSpriteKey, HTMLImageElement>> = {};
+let playerTankMotionUntil = 0;
 
 let lobbyTankCv: HTMLCanvasElement | null = null;
 let lobbyTankCx: CanvasRenderingContext2D | null = null;
 let lobbyTankAnim = 0;
+/** Shop/Locker: Panzer-Vorschau beim Antippen einer Karte (null → ausgerüsteter Panzer). */
+let hubShopLockerPreviewTankId: PlayerTankId | null = null;
+let hubPreviewAnim = 0;
+/** Shop-Vorschau: seltener neu zeichnen + sofort bei Auswahl. */
+let hubPreviewLastPaintMs = 0;
+let hubPreviewPaintUrgent = false;
+const HUB_PREVIEW_FRAME_INTERVAL_MS = 1000 / 28;
 
 const HUD_FF = `"Nunito","Segoe UI Emoji","Segoe UI","Apple Color Emoji",system-ui,sans-serif`;
 
@@ -568,16 +811,46 @@ function drawLifeBar(centerX: number, hullBottomY: number, hpNow: number, maxHp:
   ctx.restore();
 }
 
+function loadGeneratedTankSprites(onReady: () => void): void {
+  const entries = Object.entries(GENERATED_TANK_SPRITES) as Array<
+    [GeneratedTankSpriteKey, GeneratedTankSpriteDef]
+  >;
+  let left = entries.length;
+  if (!left) {
+    onReady();
+    return;
+  }
+
+  const done = () => {
+    left -= 1;
+    if (left === 0) onReady();
+  };
+
+  for (const [key, def] of entries) {
+    const im = new Image();
+    im.decoding = "async";
+    im.onload = () => {
+      generatedTankImages[key] = im;
+      done();
+    };
+    im.onerror = () => {
+      console.warn(`Panzer-Artillerie: generierter Panzer-Sprite konnte nicht geladen werden: ${key}`);
+      done();
+    };
+    im.src = def.src;
+  }
+}
+
 function loadSpritesheet(onReady: () => void): void {
   const im = new Image();
   im.decoding = "async";
   im.onload = () => {
     spriteSheet = im;
-    onReady();
+    loadGeneratedTankSprites(onReady);
   };
   im.onerror = () => {
     console.warn("Panzer-Artillerie: Kenney-Bogen konnte nicht geladen werden.");
-    onReady();
+    loadGeneratedTankSprites(onReady);
   };
   im.src = SPRITESHEET_REL;
 }
@@ -594,12 +867,26 @@ function resizeLobbyTankCanvas(cssW: number, cssH: number): void {
   lobbyTankCx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/** Lobby-Hintergrund + großer Panzer wie in Fortnite „Showcase“. */
-function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
-  if (!lobbyTankCx || !spriteSheet || spriteSheet.naturalWidth < 16) return;
-  resizeLobbyTankCanvas(wCss, hCss);
+function resolveLobbyShowcaseHero(heroIdOverride?: PlayerTankId | null): PlayerTankDef {
+  if (heroIdOverride != null) {
+    const d = getPlayerTankDef(heroIdOverride);
+    if (d) return d;
+  }
+  return activeTankDef();
+}
 
-  const L = lobbyTankCx;
+/** Gemeinsame „Bühne“ für Lobby-Showcase und Shop/Locker-Vorschau. */
+function paintLobbyShowcaseIntoContext(
+  L: CanvasRenderingContext2D,
+  timeMs: number,
+  wCss: number,
+  hCss: number,
+  heroDef: PlayerTankDef,
+  opts?: { shopPreviewLite?: boolean },
+): void {
+  if (!spriteSheet || spriteSheet.naturalWidth < 16) return;
+  const lite = opts?.shopPreviewLite === true;
+
   const grd = L.createLinearGradient(0, 0, wCss * 0.45, hCss * 1.05);
   grd.addColorStop(0, "#3730a3");
   grd.addColorStop(0.42, "#4c1d95");
@@ -607,19 +894,21 @@ function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
   L.fillStyle = grd;
   L.fillRect(0, 0, wCss, hCss);
 
-  const spot = L.createRadialGradient(
-    wCss * 0.56,
-    hCss * 0.38,
-    28,
-    wCss * 0.52,
-    hCss * 0.62,
-    Math.max(wCss, hCss) * 0.78,
-  );
-  spot.addColorStop(0, "rgba(216, 180, 254, 0.55)");
-  spot.addColorStop(0.42, "rgba(124, 58, 237, 0.2)");
-  spot.addColorStop(1, "rgba(15, 23, 42, 0)");
-  L.fillStyle = spot;
-  L.fillRect(0, 0, wCss, hCss);
+  if (!lite) {
+    const spot = L.createRadialGradient(
+      wCss * 0.56,
+      hCss * 0.38,
+      28,
+      wCss * 0.52,
+      hCss * 0.62,
+      Math.max(wCss, hCss) * 0.78,
+    );
+    spot.addColorStop(0, "rgba(216, 180, 254, 0.55)");
+    spot.addColorStop(0.42, "rgba(124, 58, 237, 0.2)");
+    spot.addColorStop(1, "rgba(15, 23, 42, 0)");
+    L.fillStyle = spot;
+    L.fillRect(0, 0, wCss, hCss);
+  }
 
   const floorY = hCss * 0.85;
 
@@ -629,7 +918,7 @@ function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
   L.beginPath();
   L.ellipse(0, 0, wCss * 0.39, 100, 0, 0, Math.PI * 2);
   const pg = L.createRadialGradient(0, 0, 30, 0, 0, wCss * 0.45);
-  pg.addColorStop(0, "rgba(52, 211, 153, 0.42)");
+  pg.addColorStop(0, lite ? "rgba(52, 211, 153, 0.22)" : "rgba(52, 211, 153, 0.42)");
   pg.addColorStop(0.72, "rgba(30, 27, 75, 0.35)");
   pg.addColorStop(1, "rgba(15, 23, 42, 0.2)");
   L.fillStyle = pg;
@@ -645,10 +934,55 @@ function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
   L.fill();
   L.restore();
 
-  const rect = atlasRectPlayer();
-  const sway = Math.sin(timeMs * 0.00082) * 0.068;
-  const bob = Math.sin(timeMs * 0.002) * 4;
-  const targetWpx = Math.min(wCss * 0.44, rect.w * 2.75);
+  if (!lite) {
+    const activeId = heroDef.id;
+    const convoy = PLAYER_TANKS.filter((tank) => tank.id !== activeId).slice(-3);
+    for (let i = 0; i < convoy.length; i++) {
+      const def = convoy[i]!;
+      const miniRect = ATLAS[def.atlasSprite];
+      const lane = i - 1;
+      const drift = ((timeMs * (0.018 + i * 0.004) + i * 180) % (wCss + 260)) - 130;
+      const miniY = floorY - 6 + lane * 14 + Math.sin(timeMs * 0.0024 + i) * 2.4;
+
+      L.save();
+      L.globalAlpha = 0.34 + i * 0.07;
+      L.translate(drift, miniY);
+      L.rotate(Math.sin(timeMs * 0.0016 + i) * 0.035);
+      const key = customSpriteKeyForTank(def);
+      const desiredFacingRight = i % 2 !== 0;
+      const drawn =
+        key != null &&
+        drawGeneratedTankSpriteLocal(
+          L,
+          key,
+          def.id,
+          0,
+          desiredFacingRight,
+          timeMs,
+          0.55,
+          0.45,
+        );
+      if (!drawn) {
+        const miniW = Math.min(wCss * 0.17, miniRect.w * 1.08);
+        const miniSc = miniW / miniRect.w;
+        const miniDw = miniRect.w * miniSc;
+        const miniDh = miniRect.h * miniSc;
+        if (!desiredFacingRight) L.scale(-1, 1);
+        L.drawImage(spriteSheet, miniRect.x, miniRect.y, miniRect.w, miniRect.h, -miniDw / 2, -miniDh, miniDw, miniDh);
+      }
+      L.restore();
+    }
+  }
+
+  const rect = ATLAS[heroDef.atlasSprite];
+  const sway = Math.sin(timeMs * 0.00082) * (lite ? 0.028 : 0.068);
+  const bob = Math.sin(timeMs * 0.002) * (lite ? 1.5 : 4);
+  const heroFx = lite ? 0 : 1.35;
+  const targetWpx = Math.min(
+    wCss * (lite ? 0.32 : 0.44),
+    rect.w * (lite ? 2.0 : 2.75),
+    lite ? Math.min(148, hCss * 0.62) : Number.POSITIVE_INFINITY,
+  );
   const sc = targetWpx / rect.w;
   const dw = rect.w * sc;
   const dh = rect.h * sc;
@@ -658,20 +992,122 @@ function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
   L.save();
   L.translate(cx, groundY);
   L.rotate(sway);
-  L.drawImage(spriteSheet, rect.x, rect.y, rect.w, rect.h, -dw / 2, -dh, dw, dh);
+  const activeKey = customSpriteKeyForTank(heroDef);
+  const drawnActive =
+    activeKey != null &&
+    drawGeneratedTankSpriteLocal(
+      L,
+      activeKey,
+      heroDef.id,
+      0,
+      true,
+      timeMs,
+      Math.max(lite ? 1.0 : 1.55, targetWpx / GENERATED_TANK_SPRITES[activeKey].targetW),
+      heroFx,
+    );
+  if (!drawnActive) {
+    drawTankVisualFxLocal(L, heroDef.id, dw, dh, timeMs, heroFx);
+    L.drawImage(spriteSheet, rect.x, rect.y, rect.w, rect.h, -dw / 2, -dh, dw, dh);
+  }
   L.restore();
 
-  const vigTop = L.createLinearGradient(0, 0, 0, hCss * 0.52);
-  vigTop.addColorStop(0, "rgba(15,23,42,0.58)");
-  vigTop.addColorStop(1, "rgba(15,23,42,0)");
-  L.fillStyle = vigTop;
-  L.fillRect(0, 0, wCss, hCss * 0.52);
+  if (!lite) {
+    const vigTop = L.createLinearGradient(0, 0, 0, hCss * 0.52);
+    vigTop.addColorStop(0, "rgba(15,23,42,0.58)");
+    vigTop.addColorStop(1, "rgba(15,23,42,0)");
+    L.fillStyle = vigTop;
+    L.fillRect(0, 0, wCss, hCss * 0.52);
 
-  const vigEdge = L.createRadialGradient(wCss / 2, hCss / 2, hCss * 0.35, wCss / 2, hCss / 2, Math.max(wCss, hCss) * 0.74);
-  vigEdge.addColorStop(0, "rgba(0,0,0,0)");
-  vigEdge.addColorStop(1, "rgba(0,0,0,0.5)");
-  L.fillStyle = vigEdge;
-  L.fillRect(0, 0, wCss, hCss);
+    const vigEdge = L.createRadialGradient(wCss / 2, hCss / 2, hCss * 0.35, wCss / 2, hCss / 2, Math.max(wCss, hCss) * 0.74);
+    vigEdge.addColorStop(0, "rgba(0,0,0,0)");
+    vigEdge.addColorStop(1, "rgba(0,0,0,0.5)");
+    L.fillStyle = vigEdge;
+    L.fillRect(0, 0, wCss, hCss);
+  } else {
+    L.fillStyle = "rgba(15,23,42,0.35)";
+    L.fillRect(0, 0, wCss, hCss * 0.22);
+  }
+}
+
+/** Lobby-Hintergrund + großer Panzer wie in Fortnite „Showcase“. */
+function paintLobbyTankScene(timeMs: number, wCss: number, hCss: number): void {
+  if (!lobbyTankCx || !spriteSheet || spriteSheet.naturalWidth < 16) return;
+  resizeLobbyTankCanvas(wCss, hCss);
+  paintLobbyShowcaseIntoContext(lobbyTankCx, timeMs, wCss, hCss, activeTankDef());
+}
+
+function syncHubTankPreviewHints(): void {
+  const id = hubShopLockerPreviewTankId ?? readEquippedTankId();
+  const def = getPlayerTankDef(id);
+  const shopEl = document.getElementById("taShopTankPreviewHint");
+  const lockerEl = document.getElementById("taLockerTankPreviewHint");
+  if (!def) {
+    if (shopEl) shopEl.textContent = "";
+    if (lockerEl) lockerEl.textContent = "";
+    return;
+  }
+  let shopLine = `Vorschau: ${def.nameDe}`;
+  if (def.priceGems <= 0) shopLine += " · Starter";
+  else if (readOwnedTankIds().includes(def.id)) shopLine += " · bereits gekauft";
+  else shopLine += ` · ${def.priceGems} 💎`;
+  let lockerLine = `Vorschau: ${def.nameDe}`;
+  if (def.priceGems <= 0) lockerLine += " · Starter";
+  else if (readOwnedTankIds().includes(def.id)) lockerLine += " · in der Garage";
+  else lockerLine += ` · noch im Shop (${def.priceGems} 💎)`;
+  if (shopEl) shopEl.textContent = shopLine;
+  if (lockerEl) lockerEl.textContent = lockerLine;
+}
+
+function resizeHubPreviewCanvas(cv: HTMLCanvasElement, cssW: number, cssH: number): void {
+  const dpr = 1;
+  const bw = Math.max(32, Math.floor(cssW * dpr));
+  const bh = Math.max(32, Math.floor(cssH * dpr));
+  if (cv.width !== bw || cv.height !== bh) {
+    cv.width = bw;
+    cv.height = bh;
+  }
+  const cx = cv.getContext("2d");
+  if (cx) cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function hubPreviewFrame(now: number): void {
+  if (!shopOverlayOpen() && !lockerOverlayOpen()) {
+    hubPreviewAnim = 0;
+    return;
+  }
+  const id = hubShopLockerPreviewTankId ?? readEquippedTankId();
+  const hero = resolveLobbyShowcaseHero(id);
+  const cv = shopOverlayOpen()
+    ? (document.getElementById("taShopTankPreviewCanvas") as HTMLCanvasElement | null)
+    : (document.getElementById("taLockerTankPreviewCanvas") as HTMLCanvasElement | null);
+  const wrap = cv?.parentElement;
+  if (cv && wrap && spriteSheet && spriteSheet.naturalWidth >= 16) {
+    const wCss = Math.max(160, wrap.clientWidth | 0);
+    const hCss = Math.max(130, Math.min(220, wCss * 0.5));
+    resizeHubPreviewCanvas(cv, wCss, hCss);
+    const ctx = cv.getContext("2d");
+    const paintDue =
+      hubPreviewPaintUrgent || now - hubPreviewLastPaintMs >= HUB_PREVIEW_FRAME_INTERVAL_MS;
+    if (ctx && paintDue) {
+      hubPreviewPaintUrgent = false;
+      hubPreviewLastPaintMs = now;
+      paintLobbyShowcaseIntoContext(ctx, now, wCss, hCss, hero, { shopPreviewLite: true });
+    }
+  }
+  hubPreviewAnim = requestAnimationFrame(hubPreviewFrame);
+}
+
+function startHubPreviewLoop(): void {
+  hubPreviewPaintUrgent = true;
+  if (hubPreviewAnim !== 0) return;
+  hubPreviewAnim = requestAnimationFrame(hubPreviewFrame);
+}
+
+function stopHubPreviewLoop(): void {
+  if (hubPreviewAnim !== 0) {
+    cancelAnimationFrame(hubPreviewAnim);
+    hubPreviewAnim = 0;
+  }
 }
 
 function lobbyTankFrame(now: number): void {
@@ -710,21 +1146,56 @@ function gy(x: number): number {
 
 /** Unterkante des Panzers: höchsten Boden unter Ketten-Spur (über welliges Terrain keine „Luft-Unter-Schienen«). */
 const HULL_FOOTPRINT_HALF = 44;
+const HULL_POSE_MAX_SLOPE_RAD = Math.PI / 7.2;
+const HULL_DRIVE_MAX_RAW_SLOPE_RAD = Math.PI / 4.2;
+const HULL_DRIVE_MAX_CLEARANCE_PX = 48;
 
 function hullClampX(cx: number): number {
   return Math.max(2, Math.min(worldW - 3, cx));
 }
 
+function hullPose(tx: number): ReturnType<typeof terrainHullPose> {
+  return terrainHullPose(T, hullClampX(tx), HULL_FOOTPRINT_HALF, {
+    maxSlopeRad: HULL_POSE_MAX_SLOPE_RAD,
+    sampleCount: 11,
+  });
+}
+
 function hullGroundY(tx: number): number {
-  const xl = hullClampX(tx - HULL_FOOTPRINT_HALF);
-  const xr = hullClampX(tx + HULL_FOOTPRINT_HALF);
-  return Math.max(heightAt(T, xl), heightAt(T, tx), heightAt(T, xr));
+  return hullPose(tx).groundY;
 }
 
 function hullSlope(tx: number): number {
-  const xl = hullClampX(tx - HULL_FOOTPRINT_HALF);
-  const xr = hullClampX(tx + HULL_FOOTPRINT_HALF);
-  return Math.atan2(heightAt(T, xr) - heightAt(T, xl), xr - xl);
+  return hullPose(tx).slope;
+}
+
+function tankSurfaceDriveable(tx: number): boolean {
+  const p = hullPose(tx);
+  return (
+    Math.abs(p.rawSlope) <= HULL_DRIVE_MAX_RAW_SLOPE_RAD &&
+    p.maxClearancePx <= HULL_DRIVE_MAX_CLEARANCE_PX
+  );
+}
+
+function findStableTankX(preferredX: number, otherX: number): number {
+  const base = sx(preferredX, otherX);
+  if (tankSurfaceDriveable(base)) return base;
+  for (let radius = 10; radius <= 260; radius += 10) {
+    const left = sx(preferredX - radius, otherX);
+    if (tankSurfaceDriveable(left)) return left;
+    const right = sx(preferredX + radius, otherX);
+    if (tankSurfaceDriveable(right)) return right;
+  }
+  return base;
+}
+
+function movePlayerTank(deltaX: number): boolean {
+  const candidate = sx(px + deltaX, bx);
+  if (candidate === px || !tankSurfaceDriveable(candidate)) return false;
+  px = candidate;
+  playerTankMotionUntil = performance.now() + 260;
+  spawnDriveTrailForMove(deltaX);
+  return true;
 }
 
 function pv(tx: number): number {
@@ -732,6 +1203,10 @@ function pv(tx: number): number {
 }
 /** Rohrlänge (Welt-Px) — gleiche Strecke wie in `muzzleAt`, damit Geschoss an der Mündung startet. */
 const BARREL_LEN_PX = 61;
+
+function playerBarrelLosBlocked(): boolean {
+  return terrainBlocksBarrelRay(T, px, pv(px), ang, true, BARREL_LEN_PX);
+}
 
 function muzzleAt(tx: number, L: boolean, deg: number): { x: number; y: number } {
   const r = Math.max(13, Math.min(88, deg)) * (Math.PI / 180);
@@ -761,12 +1236,29 @@ function roughBotAimTowardPlayerDeg(): number {
 }
 
 function tickEnemyBarrelVis(): void {
+  if (enemyBarrelRecoilDeg > 0.035) enemyBarrelRecoilDeg *= 0.86;
+  else enemyBarrelRecoilDeg = 0;
   if (hpB <= 0) return;
   const tgt = ph === "bf" ? bθ : roughBotAimTowardPlayerDeg();
-  let k =
-    ph === "bf" ? 0.52 : ph === "m" || ph === "bw" ? 0.066 : ph === "aim" || ph === "pf" ? 0.082 : 0.14;
-  enemyBarrelVisDeg += (tgt - enemyBarrelVisDeg) * k;
-  if (Math.abs(tgt - enemyBarrelVisDeg) < 0.028) enemyBarrelVisDeg = tgt;
+  let stiffness = 0.22;
+  let damping = 0.7;
+  if (ph === "bf") {
+    stiffness = 0.48;
+    damping = 0.66;
+  } else if (ph === "m" || ph === "bw") {
+    stiffness = 0.2;
+    damping = 0.72;
+  } else if (ph === "aim" || ph === "pf") {
+    stiffness = 0.16;
+    damping = 0.76;
+  }
+  enemyBarrelVel = (enemyBarrelVel + (tgt - enemyBarrelVisDeg) * stiffness) * damping;
+  enemyBarrelVisDeg += enemyBarrelVel;
+  if (Math.abs(tgt - enemyBarrelVisDeg) < 0.07 && Math.abs(enemyBarrelVel) < 0.09) {
+    enemyBarrelVisDeg = tgt;
+    enemyBarrelVel = 0;
+  }
+  enemyBarrelVisDeg = Math.max(16, Math.min(88, enemyBarrelVisDeg));
 }
 
 function roughEnemyAimHintDeg(): number {
@@ -780,15 +1272,38 @@ function roughEnemyAimHintDeg(): number {
 }
 
 function tickBarrelVis(): void {
+  if (barrelRecoilDeg > 0.035) barrelRecoilDeg *= 0.86;
+  else barrelRecoilDeg = 0;
+
+  if (ph === "aim" && isBlitzSlot(selectedSlot)) {
+    barrelVisVel *= 0.8;
+    if (Math.abs(barrelVisVel) < 0.02) barrelVisVel = 0;
+    return;
+  }
+
   let tgt = ang;
   if (ph === "m") tgt = roughEnemyAimHintDeg();
-  else if (ph === "aim" && selectedSlot === 3) tgt = barrelVisAng;
-  let k = 0.22;
-  if (ph === "m") k = 0.062;
-  else if (ph === "aim" && selectedSlot !== 3) k = 0.52;
-  else if (ph === "aim" && selectedSlot === 3) k = 0;
-  barrelVisAng += (tgt - barrelVisAng) * k;
-  if (Math.abs(tgt - barrelVisAng) < 0.025) barrelVisAng = tgt;
+
+  let stiffness = 0.18;
+  let damping = 0.76;
+  if (ph === "m") {
+    stiffness = 0.24;
+    damping = 0.7;
+  } else if (ph === "aim") {
+    stiffness = 0.44;
+    damping = 0.64;
+  } else if (ph === "pf") {
+    stiffness = 0.32;
+    damping = 0.68;
+  }
+
+  barrelVisVel = (barrelVisVel + (tgt - barrelVisAng) * stiffness) * damping;
+  barrelVisAng += barrelVisVel;
+  if (Math.abs(tgt - barrelVisAng) < 0.08 && Math.abs(barrelVisVel) < 0.1) {
+    barrelVisAng = tgt;
+    barrelVisVel = 0;
+  }
+  barrelVisAng = Math.max(12, Math.min(92, barrelVisAng));
 }
 function sx(c: number, o: number): number {
   const lo = TANK_HALF_W + 130;
@@ -823,8 +1338,9 @@ function flightPath(
   mu: { x: number; y: number },
   vx: number,
   vy: number,
+  dragMul = 1,
 ): Array<{ x: number; y: number }> {
-  return sampleTrajectory(T, mu.x, mu.y, vx, vy, wa, FLIGHT_MAX_PTS, FLIGHT_DT);
+  return sampleTrajectory(T, mu.x, mu.y, vx, vy, wa, FLIGHT_MAX_PTS, FLIGHT_DT, dragMul);
 }
 
 function applyDamageToPlayerRounded(rawRounded: number): void {
@@ -832,6 +1348,10 @@ function applyDamageToPlayerRounded(rawRounded: number): void {
   if (d <= 0) return;
   const absorbed = Math.min(playerShieldAbsorb, d);
   playerShieldAbsorb -= absorbed;
+  if (absorbed > 0) {
+    shieldImpactUntil = performance.now() + 520;
+    shieldImpactAbsorbed = absorbed;
+  }
   d -= absorbed;
   hpP -= d;
   hpP = Math.max(0, hpP);
@@ -843,11 +1363,19 @@ function spl(ix: number, iy: number, W: WeaponDef): void {
   applyDamageToPlayerRounded(
     Math.round(splashDamage(ix, iy, px, hullGroundY(px), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg)),
   );
-  hpB -= Math.round(splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg));
+  hpB -= Math.round(
+    splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg) * playerDamageMulVersusBot(),
+  );
   hpB = Math.max(0, hpB);
   const sty = impactFxStyle(W);
   const splashVis =
-    sty === "dust" ? W.splashPx * 2.05 : sty === "pellet" ? W.splashPx * 1.52 : W.splashPx;
+    sty === "dust"
+      ? W.splashPx * 2.05
+      : sty === "pellet"
+        ? W.splashPx * 1.52
+        : sty === "poison"
+          ? W.splashPx * 1.95
+          : W.splashPx;
   pushImpactBurst({
     x: ix,
     y: iy + 2,
@@ -873,20 +1401,24 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
   const sty = b.style ?? "default";
   const ez = sty === "electric";
   const du = sty === "dust";
+  const toxic = sty === "poison";
   const pl = sty === "pellet";
+  const dustLike = du || toxic;
   const k = age / maxAge;
   ctx.save();
 
-  const nRings = du ? 4 : pl ? 4 : 3;
-  const ringBoost = du ? 1.12 : pl ? 1.06 : 1;
+  const nRings = dustLike ? 4 : pl ? 4 : 3;
+  const ringBoost = dustLike ? 1.12 : pl ? 1.06 : 1;
   for (let r = 0; r < nRings; r++) {
-    const kk = Math.max(0, k - r * (du ? 0.06 : 0.08));
+    const kk = Math.max(0, k - r * (dustLike ? 0.06 : 0.08));
     if (kk <= 0) continue;
-    const R = splash * ringBoost * (0.52 + kk * (du ? 2.05 : 1.75));
-    ctx.globalAlpha = (1 - kk) * (du ? 0.82 : pl ? 0.78 : 0.72) - r * (du ? 0.12 : 0.18);
-    ctx.lineWidth = (du ? 6.5 : pl ? 5.5 : 5) - r * (du ? 1.1 : 1);
+    const R = splash * ringBoost * (0.52 + kk * (dustLike ? 2.05 : 1.75));
+    ctx.globalAlpha = (1 - kk) * (dustLike ? 0.82 : pl ? 0.78 : 0.72) - r * (dustLike ? 0.12 : 0.18);
+    ctx.lineWidth = (dustLike ? 6.5 : pl ? 5.5 : 5) - r * (dustLike ? 1.1 : 1);
     if (ez) {
       ctx.strokeStyle = r === 0 ? "#93c5fd" : r === 1 ? "#38bdf8" : "#0ea5e9";
+    } else if (toxic) {
+      ctx.strokeStyle = r === 0 ? "#86efac" : r === 1 ? "#4ade80" : r === 2 ? "#22c55e" : "#14532d";
     } else if (du) {
       ctx.strokeStyle = r === 0 ? "#fbbf24" : r === 1 ? "#f59e0b" : r === 2 ? "#d97706" : "#fcd34d";
     } else if (pl) {
@@ -899,14 +1431,19 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
     ctx.stroke();
   }
 
-  ctx.globalAlpha = 1 - k * (du ? 0.42 : 0.55);
-  const rg = splash * (du ? 1.06 : 0.95);
+  ctx.globalAlpha = 1 - k * (dustLike ? 0.42 : 0.55);
+  const rg = splash * (dustLike ? 1.06 : 0.95);
   const g = ctx.createRadialGradient(x, y, 6, x, y, rg);
   if (ez) {
     g.addColorStop(0, "rgba(224,242,254,0.98)");
     g.addColorStop(0.42, "rgba(125,211,252,0.62)");
     g.addColorStop(0.75, "rgba(14,165,233,0.38)");
     g.addColorStop(1, "rgba(59,130,246,0)");
+  } else if (toxic) {
+    g.addColorStop(0, "rgba(220,252,231,0.96)");
+    g.addColorStop(0.38, "rgba(74,222,128,0.72)");
+    g.addColorStop(0.72, "rgba(22,101,52,0.42)");
+    g.addColorStop(1, "rgba(20,83,45,0)");
   } else if (du) {
     g.addColorStop(0, "rgba(254,252,232,0.96)");
     g.addColorStop(0.38, "rgba(251,191,36,0.72)");
@@ -925,10 +1462,10 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
   }
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(x, y, splash * (du ? 1.02 : 0.9) + k * splash * (du ? 0.76 : 0.65), 0, Math.PI * 2);
+  ctx.arc(x, y, splash * (dustLike ? 1.02 : 0.9) + k * splash * (dustLike ? 0.76 : 0.65), 0, Math.PI * 2);
   ctx.fill();
 
-  if (du) {
+  if (dustLike) {
     const upBias = -Math.PI / 2;
     const dustPhase = x * 0.0097 + y * 0.0113;
     for (let w = 0; w < 5; w++) {
@@ -936,7 +1473,13 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
       const rx = splash * (0.55 + w * 0.22 + k * 0.95);
       const ry = splash * (0.18 + w * 0.05 + k * 0.38);
       ctx.globalAlpha = (1 - k) * (0.35 - w * 0.05);
-      ctx.fillStyle = w % 2 === 0 ? "rgba(254,243,199,0.55)" : "rgba(217,119,6,0.32)";
+      ctx.fillStyle = toxic
+        ? w % 2 === 0
+          ? "rgba(187,247,208,0.58)"
+          : "rgba(22,101,52,0.4)"
+        : w % 2 === 0
+          ? "rgba(254,243,199,0.55)"
+          : "rgba(217,119,6,0.32)";
       ctx.beginPath();
       ctx.ellipse(
         x + Math.cos(upBias + rot * 0.35) * splash * 0.12,
@@ -951,12 +1494,12 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
     }
   }
 
-  const nSpark = du ? 48 : pl ? 36 : 22;
+  const nSpark = dustLike ? 48 : pl ? 36 : 22;
   const sparkSpread = k;
   for (let i = 0; i < nSpark; i++) {
     let a: number;
     let radial: number;
-    if (du) {
+    if (dustLike) {
       const fan = Math.PI * 1.55;
       a = -Math.PI / 2 + (i / Math.max(1, nSpark - 1) - 0.5) * fan + Math.sin(k * 4 + i * 0.31) * 0.35;
       radial = splash * (0.42 + ((i * 29) % 7) * 0.07) * (0.85 + sparkSpread * 1.05);
@@ -966,10 +1509,12 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
       if (pl) radial *= 1.08;
     }
     const sx = x + Math.cos(a) * radial * 1.05;
-    const sy = y + Math.sin(a) * radial * (du ? 1.08 : 0.85) + sparkSpread * splash * (du ? 0.2 : 0.12);
-    ctx.globalAlpha = (1 - k) * (du ? 0.62 : pl ? 0.55 : 0.5) * (0.65 + roll() * 0.35);
+    const sy = y + Math.sin(a) * radial * (dustLike ? 1.08 : 0.85) + sparkSpread * splash * (dustLike ? 0.2 : 0.12);
+    ctx.globalAlpha = (1 - k) * (dustLike ? 0.62 : pl ? 0.55 : 0.5) * (0.65 + roll() * 0.35);
     if (ez) {
       ctx.fillStyle = i % 2 === 0 ? "#dbeafe" : "#e0f2fe";
+    } else if (toxic) {
+      ctx.fillStyle = i % 3 === 0 ? "#dcfce7" : i % 3 === 1 ? "#86efac" : "rgba(21,128,61,0.88)";
     } else if (du) {
       ctx.fillStyle =
         i % 3 === 0 ? "#fef3c7" : i % 3 === 1 ? "#fde68a" : "rgba(180,83,9,0.85)";
@@ -979,8 +1524,8 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
       ctx.fillStyle = i % 2 === 0 ? "#fff7ed" : "#fed7aa";
     }
     ctx.strokeStyle = "rgba(15,23,42,0.35)";
-    ctx.lineWidth = du || pl ? 1.55 : 1.25;
-    const pr = (du ? 2.85 : pl ? 2.6 : 2.2) + sparkSpread * (du ? 6.2 : pl ? 5.5 : 5);
+    ctx.lineWidth = dustLike || pl ? 1.55 : 1.25;
+    const pr = (dustLike ? 2.85 : pl ? 2.6 : 2.2) + sparkSpread * (dustLike ? 6.2 : pl ? 5.5 : 5);
     ctx.beginPath();
     ctx.arc(sx, sy, pr, 0, Math.PI * 2);
     ctx.fill();
@@ -1024,18 +1569,20 @@ function drawMuzzleFlashes(now: number): void {
   const fadeMs = 300;
   if (now < muzzleExpire && ph === "pf") {
     const t = Math.max(0, 1 - (muzzleExpire - now) / fadeMs);
-    const mu = muzzleAt(px, true, barrelVisAng);
+    const vis = barrelVisAng + barrelRecoilDeg;
+    const mu = muzzleAt(px, true, vis);
     ctx.save();
     ctx.globalAlpha = 0.92 * (t < 0.25 ? t * 4 : Math.max(0, 2.2 - t * 1.8));
-    drawRadialMuzzle(mu, radGun(barrelVisAng), false);
+    drawRadialMuzzle(mu, radGun(vis), false);
     ctx.restore();
   }
   if (now < botMuzzleExpire && ph === "bf") {
     const t = Math.max(0, 1 - (botMuzzleExpire - now) / 290);
-    const mu = muzzleAt(bx, false, enemyBarrelVisDeg);
+    const visB = enemyBarrelVisDeg + enemyBarrelRecoilDeg;
+    const mu = muzzleAt(bx, false, visB);
     ctx.save();
     ctx.globalAlpha = 0.94 * (t < 0.22 ? t * 4.5 : Math.max(0, 2.05 - t * 1.9));
-    drawRadialMuzzle(mu, radGun(enemyBarrelVisDeg), true);
+    drawRadialMuzzle(mu, radGun(visB), true);
     ctx.restore();
   }
 }
@@ -1050,7 +1597,15 @@ function abortActiveCombatFlightState(): void {
   impactBursts = [];
   muzzleExpire = 0;
   botMuzzleExpire = 0;
+  barrelRecoilDeg = 0;
+  enemyBarrelRecoilDeg = 0;
+  barrelVisVel = 0;
+  enemyBarrelVel = 0;
+  playerTankMotionUntil = 0;
+  barrelBlockedHintUntil = 0;
   shakeUntil = 0;
+  shieldImpactUntil = 0;
+  shieldImpactAbsorbed = 0;
   lightningBolt = null;
   lightningBannerUntil = 0;
   lightningBannerLines = [];
@@ -1067,7 +1622,7 @@ function begin(): void {
   mapBattleTheme = readMapBattleTheme();
   /** Testspiel: immer normale Welt (kein Insane‑Chaos / keine Extra‑Breite). Echter Modus bleibt im Speicher. */
   mapDifficulty = battleTestModeActive() ? "normal" : readMapDifficulty();
-  worldW = mapDifficulty === "insane" ? Math.max(VIEW_W, Math.floor(VIEW_W * 1.6)) : VIEW_W;
+  worldW = mapDifficulty === "insane" ? Math.max(VIEW_W, Math.floor(VIEW_W * 2.08)) : VIEW_W;
   T = buildTerrain(seed, { difficulty: mapDifficulty, width: worldW });
   seed = (seed ^ 104_793) >>> 0;
   resetMatchRound();
@@ -1098,12 +1653,15 @@ function resetMatchRound(): void {
     px = sx(VIEW_W * 0.145 + roll() * VIEW_W * 0.05, VIEW_W / 2);
     bx = sx(VIEW_W * 0.855 - roll() * VIEW_W * 0.05, VIEW_W / 2);
   }
+  px = findStableTankX(px, bx);
+  bx = findStableTankX(bx, px);
   ang = 50 + Math.floor(seed % 22);
   barrelVisAng = ang;
   pow = 520 + Math.floor(seed % 180);
-  selectedSlot = (seed % 3) as 0 | 1 | 2;
-  fuelP = FUEL_MOVE;
-  fuelB = Math.floor(FUEL_MOVE * 0.9);
+  selectedSlot = seed % 3;
+  const cap = playerFuelCapacity();
+  fuelP = cap;
+  fuelB = Math.floor(cap * 0.9);
   ph = "m";
   tr = [];
   playerPelletFlights = null;
@@ -1111,7 +1669,15 @@ function resetMatchRound(): void {
   impactBursts = [];
   muzzleExpire = 0;
   botMuzzleExpire = 0;
+  barrelRecoilDeg = 0;
+  enemyBarrelRecoilDeg = 0;
+  barrelVisVel = 0;
+  enemyBarrelVel = 0;
+  playerTankMotionUntil = 0;
+  barrelBlockedHintUntil = 0;
   shakeUntil = 0;
+  shieldImpactUntil = 0;
+  shieldImpactAbsorbed = 0;
   surrenderStep = 0;
   matchResult = null;
   lightningBolt = null;
@@ -1146,7 +1712,8 @@ function applySkyBolt(nowMs: number): void {
     ),
   );
   hpB -= Math.round(
-    splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, BLITZ_SPLASH_PX, LIGHTNING_DAMAGE * mul),
+    splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, BLITZ_SPLASH_PX, LIGHTNING_DAMAGE * mul) *
+      playerDamageMulVersusBot(),
   );
   hpB = Math.max(0, hpB);
 
@@ -1351,7 +1918,7 @@ function polishReturnToLobbyAfterLoss(): void {
   const lead = document.getElementById("taLobbyLeadShort");
   if (lead) {
     lead.textContent =
-      "Zurück in der Lobby · Niederlage — XP und 💎 unverändert · „Bereit“ / „Ins Spiel“ für die nächste Runde.";
+      "Zurück in der Lobby · Niederlage — XP und 💎 unverändert · „Ins Spiel“ startet die nächste Runde.";
     window.clearTimeout(lobbyLeadResetTimer);
     lobbyLeadResetTimer = window.setTimeout(() => {
       lead.textContent = defaultLobbyLeadShort;
@@ -1395,7 +1962,7 @@ function leaveBattleTestToLobby(): void {
     }, 5500);
   }
   resumeLobbyTankIfNoOverlay();
-  document.getElementById("taLobbyReadyBtn")?.focus();
+  document.getElementById("taHubPlay")?.focus();
 }
 
 /** Spielfeld zu, Fortnite-Lobby zeigen — inkl. rotierende Panzer-Vorschau neu anwerfen */
@@ -1409,7 +1976,7 @@ function revealTankLobbyAfterEndingMatch(polishUi: () => void): void {
   setHubTab("lobby");
   polishUi();
   resumeLobbyTankIfNoOverlay();
-  document.getElementById("taLobbyReadyBtn")?.focus();
+  document.getElementById("taHubPlay")?.focus();
 }
 
 const SURRENDER_TEXT_1 = "Willst du wirklich aufgeben?";
@@ -1525,7 +2092,7 @@ function handleGameOverPlayAgain(): void {
     skipBeginOnceOnEnterGame = true;
     polishReturnToLobbyAfterSurrender();
     resumeLobbyTankIfNoOverlay();
-    document.getElementById("taLobbyReadyBtn")?.focus();
+    document.getElementById("taHubPlay")?.focus();
     return;
   }
   begin();
@@ -1561,11 +2128,13 @@ function refreshTankShopAndLocker(): void {
   refreshShopGearOffers();
   refreshShopCosmeticOffers();
   refreshLockerTankOffers();
+  refreshLockerUpgradeOffers();
+  syncHubTankPreviewHints();
 }
 
 function rarityClassTank(id: PlayerTankId): string {
-  if (id === "desert") return "legendary";
-  if (id === "navy") return "epic";
+  if (id === "viper" || id === "bunker" || id === "desert") return "legendary";
+  if (id === "crimson" || id === "navy") return "epic";
   return "rare";
 }
 
@@ -1580,6 +2149,13 @@ function refreshShopTankOffers(): void {
     const rarity = rarityClassTank(def.id);
     const li = document.createElement("li");
     li.className = `taShopCard taShopCard--fn taShopCard--${rarity} taShopTankCard${isOwned ? " taShopTankCard--owned" : ""}`;
+    li.style.cursor = "pointer";
+    li.addEventListener("click", (ev) => {
+      if (ev.target instanceof HTMLElement && ev.target.closest("button")) return;
+      hubShopLockerPreviewTankId = def.id;
+      hubPreviewPaintUrgent = true;
+      syncHubTankPreviewHints();
+    });
 
     const title = document.createElement("span");
     title.className = "taShopCardTitle";
@@ -1669,8 +2245,8 @@ function refreshShopGearOffers(): void {
   meta.className = "taShopCardMeta";
   const chGear = readDesertShieldCharges();
   meta.textContent = ownsDesert
-    ? `Nur für Wüsten-Speer · Taste 5 in Fahren oder Zielen: +${DESERT_SHIELD_ABSORB} Schutz diese Runde · pro Shop-Kauf ${DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE} Aktivierungen.`
-    : "Voraussetzung: Wüsten-Panzer im Garage-Besitz — schütze ihn mit blauem Schild gegen Treffer.";
+    ? `Nur für Wüsten-Speer · Taste 5: +${DESERT_SHIELD_ABSORB} Sonnenkristall-Schutz, Treffer-Puls und Kuppel-Effekt · pro Shop-Kauf ${DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE} Aktivierungen.`
+    : "Voraussetzung: Wüsten-Speer im Garage-Besitz — schütze ihn mit einer Sonnenkristall-Kuppel gegen Treffer.";
 
   const priceRow = document.createElement("span");
   priceRow.className = "taShopCardPrice";
@@ -1703,7 +2279,7 @@ function refreshShopGearOffers(): void {
       const msg = document.getElementById("taShopGearMsg");
       if (msg) {
         if (r === "ok") {
-          msg.textContent = `Kristallschild — ${DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE} Aktivierungen. Taste 5 (fahren oder zielen).`;
+          msg.textContent = `Sonnenkristall-Schild — ${DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE} Aktivierungen. Taste 5 (fahren oder zielen).`;
         } else if (r === "expensive") msg.textContent = "Nicht genug 💎.";
         else if (r === "owned") msg.textContent = "Hast du schon.";
         else if (r === "missing_tank") msg.textContent = "Brauchst erst den Wüsten-Panzer.";
@@ -1844,6 +2420,74 @@ function refreshShopCosmeticOffers(): void {
   }
 }
 
+const LOCKER_UPGRADE_UI_ORDER: readonly LockerUpgradeBranchId[] = ["fuel", "damage", "power"];
+
+function refreshLockerUpgradeOffers(): void {
+  const ul = document.getElementById("taLockerUpgradeList");
+  if (!ul) return;
+  ul.replaceChildren();
+  const gems = readGems();
+  const levels = readLockerUpgradeLevels();
+
+  for (const branch of LOCKER_UPGRADE_UI_ORDER) {
+    const meta = LOCKER_UPGRADE_META[branch];
+    const L = levels[branch];
+    const li = document.createElement("li");
+    li.className = "taLockerUpgradeRow taShopCard taShopCard--fn taShopCard--epic taShopTankCard";
+
+    const title = document.createElement("span");
+    title.className = "taShopCardTitle";
+    title.textContent = meta.titleDe;
+
+    const val = document.createElement("span");
+    val.className = "taShopCardMeta";
+    if (branch === "fuel") {
+      val.textContent = `${meta.subtitleDe} Stufe ${L}/${LOCKER_UPGRADE_MAX_LEVEL} · +${lockerUpgradeFuelBonus(L)} Treibstoff zur Basis ${FUEL_MOVE}.`;
+    } else if (branch === "damage") {
+      val.textContent = `${meta.subtitleDe} Stufe ${L}/${LOCKER_UPGRADE_MAX_LEVEL} · Schaden ×${lockerUpgradeDamageMul(L).toFixed(2)}.`;
+    } else {
+      val.textContent = `${meta.subtitleDe} Stufe ${L}/${LOCKER_UPGRADE_MAX_LEVEL} · Kraft-Maximum ${PLAYER_POW_MAX_BASE + lockerUpgradePowMaxDelta(L)}.`;
+    }
+
+    const price = document.createElement("span");
+    price.className = "taShopCardPrice";
+
+    const actions = document.createElement("div");
+    actions.className = "taShopTankActions";
+
+    if (L >= LOCKER_UPGRADE_MAX_LEVEL) {
+      price.textContent = "Stufe 10 — Maximum";
+      const tag = document.createElement("span");
+      tag.className = "taLockerSlotTag";
+      tag.textContent = "Komplett";
+      actions.appendChild(tag);
+    } else {
+      const nextCost = lockerUpgradeStepCostGems(branch, L);
+      price.textContent = `Nächste Stufe: ${nextCost} 💎`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "taShopTankBuyBtn";
+      btn.textContent = `Stufe ${L + 1} kaufen`;
+      btn.dataset.lockerUpgrade = branch;
+      btn.disabled = gems < nextCost;
+      btn.addEventListener("click", () => {
+        const r = tryBuyLockerUpgrade(branch);
+        const msg = document.getElementById("taLockerUpgradeMsg");
+        if (msg) {
+          if (r === "ok") msg.textContent = `${meta.titleDe} ist jetzt Stufe ${L + 1}.`;
+          else if (r === "expensive") msg.textContent = "Nicht genug 💎.";
+          else msg.textContent = "";
+        }
+        refreshPurseDisplays();
+      });
+      actions.appendChild(btn);
+    }
+
+    li.append(title, val, price, actions);
+    ul.appendChild(li);
+  }
+}
+
 function refreshLockerTankOffers(): void {
   const ul = document.getElementById("taLockerTankList");
   if (!ul) return;
@@ -1856,6 +2500,13 @@ function refreshLockerTankOffers(): void {
     const active = equipped === def.id;
     const li = document.createElement("li");
     li.className = `taLockerSlot taLockerTankRow${active ? " taLockerTankRow--active" : ""}${!isOwned ? " taLockerSlot--soon" : ""}`;
+    li.style.cursor = "pointer";
+    li.addEventListener("click", (ev) => {
+      if (ev.target instanceof HTMLElement && ev.target.closest("button")) return;
+      hubShopLockerPreviewTankId = def.id;
+      hubPreviewPaintUrgent = true;
+      syncHubTankPreviewHints();
+    });
 
     const lbl = document.createElement("span");
     lbl.className = "taLockerSlotLabel";
@@ -1955,9 +2606,9 @@ function shieldLoadoutHudLine(): string | null {
   const ch = readDesertShieldCharges();
   const chLabel = `${ch}/${DESERT_SHIELD_ACTIVATIONS_PER_PURCHASE}`;
   if (playerShieldAbsorb > 0) {
-    return `5. Kristallschild · aktiv (${playerShieldAbsorb}/${DESERT_SHIELD_ABSORB}) · ${chLabel} Akt.`;
+    return `5. Sonnenkristall · aktiv (${playerShieldAbsorb}/${DESERT_SHIELD_ABSORB}) · ${chLabel} Akt.`;
   }
-  return `5. Kristallschild · Taste 5 · +${DESERT_SHIELD_ABSORB} · ${chLabel} Akt.`;
+  return `5. Sonnenkristall · Taste 5 · +${DESERT_SHIELD_ABSORB} · ${chLabel} Akt.`;
 }
 
 function hudTxt(): void {
@@ -1967,7 +2618,7 @@ function hudTxt(): void {
   const hHp = document.getElementById("taHp");
   const wStr = wa >= 0 ? "+" + wa.toFixed(1) : wa.toFixed(1);
   hWind.textContent = wStr + " px/s²";
-  if (selectedSlot === 3) {
+  if (isBlitzSlot(selectedSlot)) {
     if (canUseBlitzNow()) {
       hWp.textContent = blitzBuddyDe
         ? `${BLITZ_DISPLAY_NAME_DE} (${blitzBuddyDe}) · 1×`
@@ -1988,13 +2639,28 @@ function hudTxt(): void {
   }
   const testPrefix = hudBattleTestPrefix();
   if (ph === "m") hPh.textContent = testPrefix + "Fahren · Treibstoff " + fuelP;
-  else if (ph === "aim")
+  else if (ph === "aim") {
+    const now = performance.now();
+    const wall =
+      !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked()
+        ? " · Rohr blockiert (Gelände) — Winkel/Power ändern"
+        : "";
+    const bump = now < barrelBlockedHintUntil ? " · Schuss geblockt" : "";
+    const blitzAlt = lockerMaxSpecialUnlocked() ? "1–3 oder 6" : "1–3";
     hPh.textContent =
-      selectedSlot === 3
+      isBlitzSlot(selectedSlot)
         ? canUseBlitzNow()
           ? testPrefix + `Blitz · ${blitzBuddyDe ? blitzBuddyDe + " · " : ""}A/D Platz · Klick · Leertaste`
-          : testPrefix + "Blitz nicht verfügbar — andere Wahl mit 1–3"
-        : testPrefix + "Zielen · A/D Winkel · W/S Kraft · " + ang.toFixed(1) + "° · " + Math.round(pow) + " · Shift fein";
+          : testPrefix + `Blitz nicht verfügbar — andere Wahl mit ${blitzAlt}`
+        : testPrefix +
+            "Zielen · A/D Winkel · W/S Kraft · " +
+            ang.toFixed(1) +
+            "° · " +
+            Math.round(pow) +
+            " · Shift fein" +
+            wall +
+            bump;
+  }
   else if (ph === "pf" || ph === "bf") hPh.textContent = "Flug…";
   else hPh.textContent = "Bot zielt …";
 }
@@ -2204,11 +2870,12 @@ function drawSkyBlitzAimPreview(): void {
 /** Gestrichelte Flugbahn-Vorschau — geschossene Slots 0–2 */
 function drawAimTrajectoryPreview(): void {
   if (ph !== "aim") return;
-  if (selectedSlot === 3) {
+  if (isBlitzSlot(selectedSlot)) {
     drawSkyBlitzAimPreview();
     return;
   }
   const Wp = pw()[selectedSlot]!;
+  if (playerBarrelLosBlocked()) return;
   const mu = mP(px, true);
   const pb = Wp.pelletBurst;
 
@@ -2226,7 +2893,7 @@ function drawAimTrajectoryPreview(): void {
     for (let q = 0; q < nFan; q++) {
       const k = nFan <= 1 ? 0 : (q / (nFan - 1)) * 2 - 1;
       const v = velocityFromElevDeg(true, ang + k * pb.spreadHalfDeg, pow, Wp.velMul);
-      const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1000, FLIGHT_DT);
+      const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1000, FLIGHT_DT, weaponDragMul(Wp));
       if (pts.length < 2) continue;
       const center = q === ((nFan - 1) >> 1);
       ctx.globalAlpha = (dustFan ? 0.34 : 0.24) + (center ? (dustFan ? 0.34 : 0.38) : 0);
@@ -2244,7 +2911,7 @@ function drawAimTrajectoryPreview(): void {
   }
 
   const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-  const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1200, FLIGHT_DT);
+  const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1200, FLIGHT_DT, weaponDragMul(Wp));
   if (pts.length < 2) return;
 
   ctx.save();
@@ -2384,6 +3051,8 @@ function drawTankSprite(
   facingRight: boolean,
   rect: { x: number; y: number; w: number; h: number },
   img: HTMLImageElement,
+  tankFxId?: PlayerTankId,
+  timeMs = performance.now(),
 ): void {
   const targetW = 88;
   const sc = targetW / rect.w;
@@ -2393,6 +3062,7 @@ function drawTankSprite(
   ctx.translate(cx, groundY);
   ctx.rotate(slope);
   if (!facingRight) ctx.scale(-1, 1);
+  if (tankFxId) drawTankVisualFxLocal(ctx, tankFxId, dw, dh, timeMs);
   ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h, -dw / 2, -dh, dw, dh);
   ctx.restore();
 }
@@ -2414,37 +3084,116 @@ function drawTankPlaced(
   cx: number,
   rect: { x: number; y: number; w: number; h: number },
   facingRight: boolean,
+  tankFxId?: PlayerTankId,
+  timeMs = performance.now(),
 ): void {
   const img = spriteSheet;
   if (!img?.complete || img.naturalWidth < 16) return;
   const groundY = hullGroundY(cx);
   const slope = hullSlope(cx);
-  drawTankSprite(cx, groundY, slope, facingRight, rect, img);
+  drawTankSprite(cx, groundY, slope, facingRight, rect, img, tankFxId, timeMs);
 }
 
-/** Halbtransparente blau-cyan-Schicht um Spieler bei aktivem Kristallschild */
+function drawPlayerTankPlaced(nowMs: number): void {
+  const def = activeTankDef();
+  const key = customSpriteKeyForTank(def);
+  if (key != null) {
+    const groundY = hullGroundY(px);
+    const slope = hullSlope(px);
+    ctx.save();
+    ctx.translate(px, groundY);
+    ctx.rotate(slope);
+    const drawn = drawGeneratedTankSpriteLocal(
+      ctx,
+      key,
+      def.id,
+      0,
+      true,
+      nowMs,
+      1,
+      1,
+    );
+    ctx.restore();
+    if (drawn) return;
+  }
+  drawTankPlaced(px, atlasRectPlayer(), true, def.id, nowMs);
+}
+
+/** Halbtransparente Kristallkuppel um den Wüsten-Speer bei aktivem Schild. */
 function drawPlayerDesertShieldBubble(): void {
   if (playerShieldAbsorb <= 0) return;
+  const now = performance.now();
   const gy = hullGroundY(px);
   const cx = px;
-  const rx = TANK_HALF_W * 2.28;
-  const ry = TANK_HALF_H * 2.52;
+  const charge = Math.max(0, Math.min(1, playerShieldAbsorb / DESERT_SHIELD_ABSORB));
+  const hitT = now < shieldImpactUntil ? Math.max(0, 1 - (shieldImpactUntil - now) / 520) : 1;
+  const hitFlash = now < shieldImpactUntil ? 1 - hitT : 0;
+  const rx = TANK_HALF_W * (2.55 + hitFlash * 0.3);
+  const ry = TANK_HALF_H * (2.82 + hitFlash * 0.24);
   ctx.save();
   ctx.translate(cx, gy - TANK_HALF_H * 0.42);
-  const pulse = 0.04 * Math.sin(performance.now() / 520);
-  ctx.globalAlpha = 0.38 + pulse;
-  const g = ctx.createRadialGradient(-rx * 0.12, -ry * 0.35, 2, 0, 0, Math.max(rx, ry) * 1.05);
-  g.addColorStop(0, "rgba(224,242,254,0.52)");
-  g.addColorStop(0.58, "rgba(59,130,246,0.32)");
-  g.addColorStop(1, "rgba(37,99,235,0.06)");
+
+  const pulse = 0.5 + 0.5 * Math.sin(now / 260);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.34 + pulse * 0.08 + hitFlash * 0.22;
+  const g = ctx.createRadialGradient(-rx * 0.2, -ry * 0.45, 2, 0, 0, Math.max(rx, ry) * 1.08);
+  g.addColorStop(0, "rgba(254,249,195,0.62)");
+  g.addColorStop(0.42, "rgba(56,189,248,0.36)");
+  g.addColorStop(0.72, "rgba(59,130,246,0.22)");
+  g.addColorStop(1, "rgba(37,99,235,0.04)");
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.globalAlpha = 0.72;
-  ctx.strokeStyle = "rgba(147,197,253,0.55)";
-  ctx.lineWidth = 3.2;
+
+  ctx.globalAlpha = 0.74 + hitFlash * 0.22;
+  ctx.strokeStyle = hitFlash > 0 ? "rgba(254,240,138,0.9)" : "rgba(125,211,252,0.68)";
+  ctx.lineWidth = 3.4 + hitFlash * 2;
   ctx.stroke();
+
+  ctx.globalAlpha = 0.42 + pulse * 0.2;
+  ctx.strokeStyle = "rgba(254,240,138,0.58)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = -Math.PI / 2 + i * (Math.PI / 3) + now * 0.0007;
+    const x = Math.cos(a) * rx * 0.74;
+    const y = Math.sin(a) * ry * 0.72;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.22 + charge * 0.28;
+  ctx.strokeStyle = "rgba(224,242,254,0.66)";
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) {
+    const y = -ry * 0.48 + i * (ry * 0.3);
+    ctx.beginPath();
+    ctx.ellipse(0, y, rx * (0.36 + i * 0.07), ry * 0.1, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (hitFlash > 0) {
+    ctx.globalAlpha = hitFlash * 0.78;
+    ctx.strokeStyle = "rgba(254,249,195,0.9)";
+    ctx.lineWidth = 2.8;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx * (1.05 + hitT * 0.22), ry * (1.05 + hitT * 0.22), 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.font = `900 13px ${HUD_FF}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(254,249,195,0.96)";
+    ctx.strokeStyle = "rgba(15,23,42,0.7)";
+    ctx.lineWidth = 4;
+    const label = `-${shieldImpactAbsorbed}`;
+    ctx.strokeText(label, 0, -ry - 14 - hitT * 10);
+    ctx.fillText(label, 0, -ry - 14 - hitT * 10);
+  }
+
   ctx.restore();
 }
 
@@ -2538,12 +3287,24 @@ function drawProjectileSized(
   }
 }
 
-/** Rohroverlay Spieler — Turm‑Pivot → Mündung (`barrelVisAng`), aligned mit Kenney-/Geschoss. */
+/** Rohroverlay Spieler — Turm‑Pivot → Mündung (`barrelVisAng` + Recoil + leichtes Wind-Wackeln). */
 function drawPlayerBarrelAim(): void {
-  if ((ph !== "aim" && ph !== "m") || (ph === "aim" && selectedSlot === 3)) return;
+  if ((ph !== "aim" && ph !== "m") || (ph === "aim" && isBlitzSlot(selectedSlot))) return;
   const pivot = hullPivot(px);
-  const tip = muzzleAt(px, true, barrelVisAng);
+  const tNow = performance.now();
+  const windWobble =
+    ph === "aim" && !isBlitzSlot(selectedSlot)
+      ? Math.sin(tNow * 0.0029 + px * 0.017) * (0.75 + Math.min(2.2, Math.abs(wa)) * 0.04)
+      : ph === "m"
+        ? Math.sin(tNow * 0.0019) * 0.35
+        : 0;
+  const visDeg = barrelVisAng + barrelRecoilDeg + windWobble;
+  const tip = muzzleAt(px, true, visDeg);
   const faded = ph === "m";
+  const blocked = ph === "aim" && !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked();
+  const lwOuter = faded ? 9 : ph === "aim" ? 14 : 12;
+  const lwMid = faded ? 5 : ph === "aim" ? 7.5 : 6;
+  const lwInner = faded ? 1.75 : ph === "aim" ? 2.85 : 2.35;
   ctx.save();
   ctx.globalAlpha = faded ? 0.62 : 1;
   ctx.lineCap = "round";
@@ -2551,17 +3312,17 @@ function drawPlayerBarrelAim(): void {
   ctx.beginPath();
   ctx.moveTo(pivot.x, pivot.y);
   ctx.lineTo(tip.x, tip.y);
-  ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = faded ? 8 : 10;
+  ctx.strokeStyle = blocked ? "#7f1d1d" : "#0f172a";
+  ctx.lineWidth = lwOuter;
   ctx.stroke();
-  ctx.strokeStyle = "#64748b";
-  ctx.lineWidth = faded ? 4 : 5;
+  ctx.strokeStyle = blocked ? "#f97316" : "#64748b";
+  ctx.lineWidth = lwMid;
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(pivot.x, pivot.y);
   ctx.lineTo(tip.x, tip.y);
-  ctx.strokeStyle = "rgba(255,255,255,0.75)";
-  ctx.lineWidth = faded ? 1.5 : 2;
+  ctx.strokeStyle = blocked ? "rgba(254,243,199,0.95)" : "rgba(255,255,255,0.78)";
+  ctx.lineWidth = lwInner;
   ctx.stroke();
   ctx.restore();
 }
@@ -2589,19 +3350,15 @@ function drawWeaponLoadoutHud(): void {
   const baseSz = 18;
   const selSz = 22;
 
-  type HudRow =
-    | { row: "weapon"; slot: 0 | 1 | 2 | 3; line: string }
-    | { row: "shield"; line: string };
-  const rows: HudRow[] = pw().map((w, idx) => ({
-    row: "weapon" as const,
-    slot: idx as 0 | 1 | 2,
-    line: `${idx + 1}. ${w.nameDe}`,
-  }));
-  rows.push({
-    row: "weapon",
-    slot: 3,
-    line: blitzLoadoutHudLine(),
-  });
+  type HudRow = { row: "weapon"; slot: number; line: string } | { row: "shield"; line: string };
+  const P = pw();
+  const rows: HudRow[] = [];
+  for (let idx = 0; idx < P.length; idx++) {
+    const w = P[idx]!;
+    const label = lockerMaxSpecialUnlocked() && idx === 3 ? `6. ${w.nameDe}` : `${idx + 1}. ${w.nameDe}`;
+    rows.push({ row: "weapon", slot: idx, line: label });
+  }
+  rows.push({ row: "weapon", slot: blitzSlotIndex(), line: blitzLoadoutHudLine() });
   const sh = shieldLoadoutHudLine();
   if (sh) rows.push({ row: "shield", line: sh });
 
@@ -2633,7 +3390,7 @@ function drawWeaponLoadoutHud(): void {
     const isW = r.row === "weapon";
     const sel = isW && selectedSlot === r.slot;
     const dim = isW
-      ? r.slot === 3 && !canUseBlitzNow()
+      ? r.slot === blitzSlotIndex() && !canUseBlitzNow()
       : !(playerShieldAbsorb > 0 || canActivateDesertShieldNow());
     const ty = by + rowTop + i * rowGap + 8;
     ctx.save();
@@ -2739,9 +3496,17 @@ function drawLightningBoltLayer(now: number): void {
 function phaseHintLine(): string {
   const s5 = canActivateDesertShieldNow() ? " · 5=Schild" : "";
   if (ph === "m") return `Fahren · Treibstoff ${fuelP}${s5}`;
-  if (ph === "aim" && selectedSlot === 3)
+  if (ph === "aim" && isBlitzSlot(selectedSlot))
     return `Blitz · von oben · A/D Platz · Klick · Leertaste${s5}`;
-  if (ph === "aim") return `Zielen · ${ang.toFixed(1)}° · Kraft ${Math.round(pow)}${s5}`;
+  if (ph === "aim") {
+    const now = performance.now();
+    const wall =
+      !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked()
+        ? " · Rohr blockiert"
+        : "";
+    const bump = now < barrelBlockedHintUntil ? " · nicht schießbar" : "";
+    return `Zielen · ${ang.toFixed(1)}° · Kraft ${Math.round(pow)}${s5}${wall}${bump}`;
+  }
   if (ph === "pf" || ph === "bf") return "Flug…";
   return "Bot zielt …";
 }
@@ -2802,7 +3567,7 @@ function paint(): void {
   drawTerrainMass();
   drawDriveTrailParticlesLayer(now);
   drawAimTrajectoryPreview();
-  drawTankPlaced(px, atlasRectPlayer(), true);
+  drawPlayerTankPlaced(now);
   drawTankPlaced(bx, atlasRectForEnemySkin(enemyTankSkin), false);
   drawPlayerDesertShieldBubble();
   drawLifeBar(px, hullGroundY(px), hpP, battleMaxHp, "left");
@@ -2811,7 +3576,7 @@ function paint(): void {
   drawMuzzleFlashes(now);
 
   const gFly = projectileInFlightStyle ?? DEFAULT_PROJECTILE_GLOW;
-  const siPf = selectedSlot > 2 ? 0 : selectedSlot;
+  const siPf = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
   const wpPf = pw()[siPf];
   const pbPreview = wpPf?.pelletBurst;
   const trailTone: "warm" | "dust" | "pellet" = pbPreview
@@ -2853,11 +3618,11 @@ function paint(): void {
 
 function finishPlayer(): void {
   projectileInFlightStyle = null;
-  const si = selectedSlot > 2 ? 0 : selectedSlot;
+  const si = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
   const Wp = pw()[si]!;
   const mu = mP(px, true);
   const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa);
+  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wp));
   spl(hi.x, hi.y, Wp);
   if (chk()) return;
   ph = 'bw';
@@ -2869,12 +3634,12 @@ function finishBot(): void {
   const Wb = WEAPONS[bwI]!;
   const mu = mB(bx, false, bθ);
   const v = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
-  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa);
+  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wb));
   spl(hi.x, hi.y, Wb);
   fuelB -= 6;
   if (chk()) return;
   ph = 'm';
-  fuelP = FUEL_MOVE;
+  fuelP = playerFuelCapacity();
 }
 
 function chk(): boolean {
@@ -2908,13 +3673,15 @@ function pickBotShot(): void {
     const W = WEAPONS[wi]!;
     const v = velocityFromElevDeg(false, th, po, W.velMul);
     const mu = mB(bx, false, th);
-    const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa);
+    let eShot = 0;
+    if (terrainBlocksBarrelRay(T, bx, pv(bx), th, false, BARREL_LEN_PX)) eShot += 2_800_000;
+    const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(W));
     const dx = hi.x - aimX;
     const dy = hi.y - aimY;
     let e = dx * dx + dy * dy * 2.35;
     if (hi.x > px + 28) e += (hi.x - px - 28) * (hi.x - px - 28) * 6;
     if (hi.y > aimY + 140) e += 8200;
-    return e;
+    return e + eShot;
   };
 
   for (let wi = 0; wi < WEAPONS.length; wi++) {
@@ -2956,8 +3723,9 @@ function pickBotShot(): void {
   const Wb = WEAPONS[bwI]!;
   const vv = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
   const mb = mB(bx, false, bθ);
-  tr = flightPath(mb, vv.x, vv.y);
+  tr = flightPath(mb, vv.x, vv.y, weaponDragMul(Wb));
   ti = 0;
+  enemyBarrelRecoilDeg = 6.1 + Math.min(4.4, bPow * 0.0035);
   projectileInFlightStyle = Wb.glow ?? DEFAULT_PROJECTILE_GLOW;
   ph = "bf";
 }
@@ -2978,7 +3746,7 @@ function frame(): void {
     tickDriveTrailParticles();
     if ((ph === "pf" || ph === "bf") && (playerPelletFlights?.length || tr.length)) {
       if (ph === "pf" && playerPelletFlights?.length) {
-        const si = selectedSlot > 2 ? 0 : selectedSlot;
+        const si = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
         const Wp = pw()[si]!;
         let matchEnd = false;
         let allDone = true;
@@ -3052,6 +3820,7 @@ function openShopOverlay(): void {
     if (lk) lk.hidden = true;
   }
   stopLobbyTankShowcase();
+  hubShopLockerPreviewTankId = null;
   shop.hidden = false;
   syncFortniteRail();
   const st = document.getElementById("taShopTankMsg");
@@ -3059,6 +3828,7 @@ function openShopOverlay(): void {
   const cMsg = document.getElementById("taShopCosmeticMsg");
   if (cMsg) cMsg.textContent = "";
   refreshPurseDisplays();
+  startHubPreviewLoop();
   document.getElementById("taShopClose")?.focus();
 }
 
@@ -3070,9 +3840,13 @@ function openLockerOverlay(): void {
     if (sp) sp.hidden = true;
   }
   stopLobbyTankShowcase();
+  hubShopLockerPreviewTankId = null;
   locker.hidden = false;
   syncFortniteRail();
+  const uMsg = document.getElementById("taLockerUpgradeMsg");
+  if (uMsg) uMsg.textContent = "";
   refreshPurseDisplays();
+  startHubPreviewLoop();
   document.getElementById("taLockerClose")?.focus();
 }
 
@@ -3195,6 +3969,8 @@ function closeShopOverlay(): void {
   collapseShopCodePanel();
   if (shop.hidden) return;
   shop.hidden = true;
+  stopHubPreviewLoop();
+  hubShopLockerPreviewTankId = null;
   syncFortniteRail();
   resumeLobbyTankIfNoOverlay();
 }
@@ -3203,6 +3979,8 @@ function closeLockerOverlay(): void {
   const locker = document.getElementById("taLocker");
   if (!locker || locker.hidden) return;
   locker.hidden = true;
+  stopHubPreviewLoop();
+  hubShopLockerPreviewTankId = null;
   syncFortniteRail();
   resumeLobbyTankIfNoOverlay();
 }
@@ -3214,6 +3992,8 @@ function hideHubOverlaysForGame(): void {
   collapseShopCodePanel();
   if (shop) shop.hidden = true;
   if (locker) locker.hidden = true;
+  stopHubPreviewLoop();
+  hubShopLockerPreviewTankId = null;
   syncFortniteRail();
 }
 
@@ -3259,6 +4039,24 @@ function syncFullscreenControl(): void {
   btn.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
+/** Online-Matchmaking (Beta): Button nur aktiv, wenn `VITE_TANK_PVP_WS_URL` o. Ä. gesetzt. */
+function syncPvpLobbyUi(): void {
+  const find = document.getElementById("taHubPvpFind") as HTMLButtonElement | null;
+  const cancel = document.getElementById("taHubPvpCancel") as HTMLButtonElement | null;
+  const status = document.getElementById("taHubPvpStatus");
+  const url = resolveTankPvpWsUrl();
+  if (find) {
+    find.hidden = false;
+    find.disabled = !url;
+  }
+  if (cancel) cancel.hidden = true;
+  if (status) {
+    status.textContent = url
+      ? "Global (Beta): Zwei Spieler werden automatisch gepaart. Echter gemeinsamer Kampf ist noch in Arbeit."
+      : "Online: VITE_TANK_PVP_WS_URL setzen (z. B. ws://127.0.0.1:8788) und `npm run pvp-server` starten.";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   cv = document.getElementById("taCanvas") as HTMLCanvasElement;
   cv.tabIndex = 0;
@@ -3269,6 +4067,7 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshPurseDisplays();
   cacheDefaultLobbyLeadShort();
   wireMapPrefsFromLobby();
+  syncPvpLobbyUi();
 
   const taRootEl = document.getElementById("taRoot") as HTMLElement | null;
   document.getElementById("taFullscreenBtn")?.addEventListener("click", () => {
@@ -3283,7 +4082,49 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("taHubTabShop")?.addEventListener("click", () => setHubTab("shop"));
   document.getElementById("taHubTabLocker")?.addEventListener("click", () => setHubTab("locker"));
   document.getElementById("taHubPlay")?.addEventListener("click", enterGameFromHub);
-  document.getElementById("taLobbyReadyBtn")?.addEventListener("click", enterGameFromHub);
+
+  document.getElementById("taHubPvpFind")?.addEventListener("click", () => {
+    const status = document.getElementById("taHubPvpStatus");
+    const find = document.getElementById("taHubPvpFind") as HTMLButtonElement | null;
+    const cancel = document.getElementById("taHubPvpCancel") as HTMLButtonElement | null;
+    if (!resolveTankPvpWsUrl()) {
+      if (status) status.textContent = "Keine WebSocket-URL konfiguriert.";
+      return;
+    }
+    if (find) {
+      find.hidden = true;
+      find.disabled = true;
+    }
+    if (cancel) cancel.hidden = false;
+    if (status) status.textContent = "Verbindung wird aufgebaut …";
+
+    startPvpSearch({
+      onQueued: (pos) => {
+        if (status) status.textContent = `In der Warteschlange (Platz ca. ${pos}) …`;
+      },
+      onMatched: (rid, r) => {
+        if (status) {
+          status.textContent = `Gegner gefunden · Raum ${rid.slice(0, 8)}… · Du bist Spieler ${r + 1} von 2. (PvP-Sync folgt — „Trennen“ beendet die Sitzung.)`;
+        }
+      },
+      onPeerLeft: (reason) => {
+        if (status) status.textContent = `Der andere Spieler ist weg (${reason}).`;
+        syncPvpLobbyUi();
+      },
+      onError: (_code, msg) => {
+        if (status) status.textContent = msg;
+        syncPvpLobbyUi();
+      },
+      onDisconnected: () => {
+        syncPvpLobbyUi();
+      },
+    });
+  });
+
+  document.getElementById("taHubPvpCancel")?.addEventListener("click", () => {
+    endPvpClientSession();
+    syncPvpLobbyUi();
+  });
 
   const onShopBackdropOrClose = () => closeShopOverlay();
   document.getElementById("taShopBackdrop")?.addEventListener("click", onShopBackdropOrClose);
@@ -3344,9 +4185,8 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSpritesheet(() => {
     refreshPurseDisplays();
     const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
-    const readyBtn = document.getElementById("taLobbyReadyBtn") as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = false;
-    if (readyBtn) readyBtn.disabled = false;
+    syncPvpLobbyUi();
     startLobbyTankShowcase();
   });
   cv.addEventListener(
@@ -3357,7 +4197,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (hubHidden && stageEl && !stageEl.hidden) cv.focus();
 
       if (surrenderStep !== 0 || matchResult !== null) return;
-      if (ph !== "aim" || selectedSlot !== 3) return;
+      if (ph !== "aim" || !isBlitzSlot(selectedSlot)) return;
       const rect = cv.getBoundingClientRect();
       blitzStrikeX = camX + ((e.clientX - rect.left) / rect.width) * VIEW_W;
       clampBlitzAim();
@@ -3420,17 +4260,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         /** Nur Pfeile fahren — A/D bleiben für die Zielphase frei */
         if (e.code === 'ArrowLeft' && fuelP > 9) {
-          const prevPx = px;
-          px = sx(px - 5, bx);
-          if (px !== prevPx) spawnDriveTrailForMove(-5);
-          fuelP -= 9;
+          if (movePlayerTank(-5)) fuelP -= 9;
           e.preventDefault();
         }
         if (e.code === 'ArrowRight' && fuelP > 9) {
-          const prevPx = px;
-          px = sx(px + 5, bx);
-          if (px !== prevPx) spawnDriveTrailForMove(5);
-          fuelP -= 9;
+          if (movePlayerTank(5)) fuelP -= 9;
           e.preventDefault();
         }
         if (e.code === 'Enter') {
@@ -3444,8 +4278,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.code === "Digit3") selectedSlot = 2;
         if (e.code === "Digit4" && canUseBlitzNow()) {
           e.preventDefault();
-          selectedSlot = 3;
+          selectedSlot = blitzSlotIndex();
           refreshBlitzAimAroundTanks();
+          return;
+        }
+        if (e.code === "Digit6" && lockerMaxSpecialUnlocked()) {
+          e.preventDefault();
+          selectedSlot = 3;
           return;
         }
         if (e.code === "Digit5" && tryActivateDesertShieldFromKeys()) {
@@ -3454,7 +4293,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const fine = e.shiftKey;
-        if (selectedSlot === 3) {
+        if (isBlitzSlot(selectedSlot)) {
           const stepCx = fine ? 11 : 30;
           if (e.code === "KeyA" || e.code === "ArrowLeft") {
             blitzStrikeX -= stepCx;
@@ -3486,10 +4325,16 @@ document.addEventListener("DOMContentLoaded", () => {
         ang = Math.max(18, Math.min(86, ang));
         if (e.code === 'KeyW' || e.code === 'ArrowUp') pow += dPow;
         if (e.code === 'KeyS' || e.code === 'ArrowDown') pow -= dPow;
-        pow = Math.max(380, Math.min(1220, pow));
+        pow = Math.max(PLAYER_POW_MIN, Math.min(playerPowMax(), pow));
         if (e.code === "Space") {
           e.preventDefault();
+          if (playerBarrelLosBlocked()) {
+            barrelBlockedHintUntil = performance.now() + 900;
+            return;
+          }
           barrelVisAng = ang;
+          barrelVisVel *= 0.38;
+          barrelRecoilDeg = 8.8 + Math.min(6.2, pow * 0.0042);
           muzzleExpire = performance.now() + 300;
           const Wp = pw()[selectedSlot]!;
           const pb = Wp.pelletBurst;
@@ -3499,8 +4344,8 @@ document.addEventListener("DOMContentLoaded", () => {
             playerPelletFlights = [];
             for (let n = 0; n < pb.count; n++) {
               const v = jitteredShotVelocity(true, ang, pow, Wp.velMul, pb.spreadHalfDeg, roll);
-              const pts = flightPath(mu, v.x, v.y);
-              const hit = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa);
+              const pts = flightPath(mu, v.x, v.y, weaponDragMul(Wp));
+              const hit = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wp));
               playerPelletFlights.push({ pts, hit, ti: 0, applied: false });
             }
             tr = [];
@@ -3508,7 +4353,7 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             playerPelletFlights = null;
             const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-            tr = flightPath(mu, v.x, v.y);
+            tr = flightPath(mu, v.x, v.y, weaponDragMul(Wp));
             ti = 0;
           }
           ph = "pf";
@@ -3525,3 +4370,4 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 });
+

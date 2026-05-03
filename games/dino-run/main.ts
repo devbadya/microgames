@@ -1,11 +1,26 @@
 import {
+  DESIGN,
+  DINO_LEVELS,
+  applyDinoHit,
+  applyDinoScore,
+  clampDinoLevel,
   createDinoState,
+  dinoLevelById,
+  levelMinGap,
+  levelSpeed,
+  obstacleBox,
+  playerBox,
+  readDinoBest,
+  readDinoUnlocked,
+  recordDinoBest,
+  startLevelRun,
   startRun,
   tickDino,
-  playerBox,
-  obstacleBox,
-  DESIGN,
+  unlockNextDinoLevel,
+  type DinoLevelDef,
   type DinoState,
+  type LevelRunState,
+  type StorageLike,
 } from "./dino-logic";
 import {
   drawChromeBird,
@@ -24,24 +39,34 @@ import {
   type DinoPalette,
 } from "./dino-skins";
 
-const LS_KEY = "microgames.dinoRun.best";
-
-function getStoredBest(): number {
-  const raw = window.localStorage.getItem(LS_KEY);
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function storeBest(v: number): void {
-  window.localStorage.setItem(LS_KEY, String(v));
-}
+const STORAGE: StorageLike = (() => {
+  try {
+    return window.localStorage;
+  } catch {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k) => (map.has(k) ? map.get(k)! : null),
+      setItem: (k, v) => {
+        map.set(k, v);
+      },
+    };
+  }
+})();
 
 const canvas = document.getElementById("app") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const scoreEl = document.getElementById("score");
-const bestEl = document.getElementById("best");
+const hudLevelEl = document.getElementById("hudLevel");
+const hudGoalEl = document.getElementById("hudGoal");
+const hudHpEl = document.getElementById("hudHp");
 const overlayEl = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
+const overlayHint = document.getElementById("overlayHint");
+const overlayEyebrow = document.getElementById("overlayEyebrow");
+const overlayPrimary = document.getElementById("overlayPrimaryBtn") as HTMLButtonElement | null;
+const overlaySecondary = document.getElementById("overlaySecondaryBtn") as HTMLButtonElement | null;
+const levelSelectEl = document.getElementById("levelSelect");
+const levelGridEl = document.getElementById("levelGrid");
 const pauseBtn = document.getElementById("pauseBtn");
 const pauseOverlay = document.getElementById("pauseOverlay");
 const pauseContinue = document.getElementById("pauseContinue");
@@ -57,12 +82,16 @@ if (!canvas || !stage) {
 const ctx = canvas.getContext("2d");
 if (!ctx) throw new Error("Dino: 2D context not available");
 
-let state: DinoState = createDinoState(getStoredBest());
+let unlocked = clampDinoLevel(readDinoUnlocked(STORAGE));
+let currentLevel: DinoLevelDef = dinoLevelById(unlocked) ?? dinoLevelById(1)!;
+let state: DinoState = createDinoState(0);
+let levelRun: LevelRunState = startLevelRun(currentLevel.id);
+let totalObstaclesPassed = 0;
+let phase: "select" | "running" | "complete" | "failed" | "paused" = "select";
 let jumpQueued = false;
 let paused = false;
 const keys = { ArrowDown: false };
 
-/** Setup screen gates the start overlay until Continue is pressed */
 let awaitingSetupDismiss = true;
 
 migrateDropPackSkinPreference();
@@ -74,20 +103,52 @@ let dinoPalette: DinoPalette = (() => {
 
 const rng = (): number => Math.random();
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function setHud(): void {
-  if (bestEl) bestEl.textContent = String(state.best);
+  if (hudLevelEl) hudLevelEl.textContent = String(currentLevel.id);
+  if (hudGoalEl) hudGoalEl.textContent = `${levelRun.score}/${levelRun.goal}`;
+  if (hudHpEl) hudHpEl.textContent = "♥".repeat(Math.max(0, levelRun.hp));
   if (scoreEl) scoreEl.textContent = String(Math.floor(state.score));
 }
 
-function showOverlay(msg: string): void {
-  if (overlayMsg) overlayMsg.textContent = msg;
-  if (overlayEl) overlayEl.hidden = false;
-  syncChangeColorButton();
-}
-
-function hideOverlay(): void {
-  if (overlayEl) overlayEl.hidden = true;
-  syncChangeColorButton();
+function setOverlay(opts: {
+  visible: boolean;
+  eyebrow?: string;
+  message?: string;
+  hint?: string;
+  showLevelSelect?: boolean;
+  primaryLabel?: string;
+  secondaryLabel?: string | null;
+}): void {
+  if (!overlayEl) return;
+  if (!opts.visible) {
+    overlayEl.hidden = true;
+    return;
+  }
+  overlayEl.hidden = false;
+  if (overlayEyebrow) overlayEyebrow.textContent = opts.eyebrow ?? "Dino Run";
+  if (overlayMsg) overlayMsg.textContent = opts.message ?? "";
+  if (overlayHint) overlayHint.textContent = opts.hint ?? "";
+  if (levelSelectEl) levelSelectEl.hidden = !opts.showLevelSelect;
+  if (overlayPrimary) {
+    overlayPrimary.textContent = opts.primaryLabel ?? "Play";
+    overlayPrimary.hidden = false;
+  }
+  if (overlaySecondary) {
+    if (opts.secondaryLabel) {
+      overlaySecondary.textContent = opts.secondaryLabel;
+      overlaySecondary.hidden = false;
+    } else {
+      overlaySecondary.hidden = true;
+    }
+  }
 }
 
 function syncChangeColorButton(): void {
@@ -95,9 +156,140 @@ function syncChangeColorButton(): void {
   const showChange =
     !awaitingSetupDismiss &&
     !!(overlayEl && !overlayEl.hidden) &&
-    (state.phase === "idle" || state.phase === "dead") &&
-    !paused;
+    (phase === "select" || phase === "complete" || phase === "failed");
   changeColorBtn.hidden = !showChange;
+}
+
+function renderLevelGrid(): void {
+  if (!levelGridEl) return;
+  const best = readDinoBest(STORAGE);
+  levelGridEl.innerHTML = DINO_LEVELS.map((lv) => {
+    const isLocked = lv.id > unlocked;
+    const cleared = lv.id < unlocked;
+    const classes = ["shLevelCard"];
+    if (lv.id === currentLevel.id) classes.push("shLevelCard--current");
+    if (cleared) classes.push("shLevelCard--cleared");
+    const meta = isLocked
+      ? "Locked"
+      : `${lv.goalScore} obstacles${best[lv.id] ? ` · best ${best[lv.id]}` : ""}`;
+    const disabled = isLocked ? "disabled" : "";
+    return `
+      <button type="button" class="${classes.join(" ")}" data-level="${lv.id}" ${disabled} aria-label="Level ${lv.id} ${lv.name}">
+        <span class="shLevelCardId">Lv ${lv.id}</span>
+        <span class="shLevelCardName">${escapeHtml(lv.name)}</span>
+        <span class="shLevelCardMeta">${meta}</span>
+      </button>
+    `;
+  }).join("");
+  for (const btn of levelGridEl.querySelectorAll<HTMLButtonElement>("button[data-level]")) {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-level"));
+      if (Number.isFinite(id)) startLevel(id);
+    });
+  }
+}
+
+function showLevelSelect(): void {
+  phase = "select";
+  paused = false;
+  setHud();
+  renderLevelGrid();
+  setOverlay({
+    visible: true,
+    eyebrow: "Dino Run",
+    message: "Pick a level",
+    hint: `Cleared up to ${unlocked}/${DINO_LEVELS.length}.`,
+    showLevelSelect: true,
+    primaryLabel: `Continue (Lv ${unlocked})`,
+    secondaryLabel: null,
+  });
+  syncChangeColorButton();
+}
+
+function applyTheme(level: DinoLevelDef): void {
+  document.documentElement.style.setProperty("--accent", level.palette.accent);
+}
+
+function startLevel(id: number): void {
+  if (awaitingSetupDismiss) return;
+  const def = dinoLevelById(clampDinoLevel(id));
+  if (!def) return;
+  if (def.id > unlocked) return;
+  currentLevel = def;
+  applyTheme(def);
+  levelRun = startLevelRun(def.id);
+  totalObstaclesPassed = 0;
+  state = startRun({ ...createDinoState(state.best), best: state.best });
+  phase = "running";
+  paused = false;
+  jumpQueued = false;
+  keys.ArrowDown = false;
+  setHud();
+  setOverlay({ visible: false });
+  syncPauseButton();
+}
+
+function failLevel(reason: string): void {
+  phase = "failed";
+  paused = false;
+  recordDinoBest(STORAGE, currentLevel.id, levelRun.score);
+  setOverlay({
+    visible: true,
+    eyebrow: "Failed",
+    message: `${currentLevel.name} — ${levelRun.score}/${levelRun.goal}`,
+    hint: reason,
+    showLevelSelect: false,
+    primaryLabel: "Retry",
+    secondaryLabel: "Levels",
+  });
+  syncPauseButton();
+  syncChangeColorButton();
+}
+
+function clearLevel(): void {
+  phase = "complete";
+  paused = false;
+  recordDinoBest(STORAGE, currentLevel.id, levelRun.score);
+  unlocked = unlockNextDinoLevel(STORAGE, currentLevel.id);
+  const isFinal = currentLevel.id === DINO_LEVELS.length;
+  setOverlay({
+    visible: true,
+    eyebrow: isFinal ? "Campaign cleared" : "Level cleared",
+    message: `${currentLevel.name} — ${levelRun.score} obstacles`,
+    hint: isFinal
+      ? "Pick any level to chase a high score."
+      : `Next: ${dinoLevelById(currentLevel.id + 1)?.name ?? ""}.`,
+    showLevelSelect: false,
+    primaryLabel: isFinal ? "Levels" : "Next level",
+    secondaryLabel: "Levels",
+  });
+  syncPauseButton();
+  syncChangeColorButton();
+}
+
+function syncPauseButton(): void {
+  if (pauseBtn) {
+    pauseBtn.hidden = phase !== "running";
+  }
+}
+
+function setPaused(value: boolean): void {
+  paused = value;
+  if (pauseOverlay) pauseOverlay.hidden = !value;
+  if (value) {
+    keys.ArrowDown = false;
+    queueMicrotask(() => pauseContinue?.focus());
+  }
+}
+
+function openPause(): void {
+  if (phase !== "running" || paused) return;
+  setPaused(true);
+}
+
+function closePause(): void {
+  if (!paused) return;
+  setPaused(false);
 }
 
 function initColorPicker(): void {
@@ -117,12 +309,11 @@ function finishSetupProceedToGame(): void {
   awaitingSetupDismiss = false;
   storeDinoColor(dinoPalette.body);
   if (setupOverlay) setupOverlay.hidden = true;
-  showOverlay("Space or tap to start");
-  syncChangeColorButton();
+  showLevelSelect();
 }
 
 function reopenColourSetup(): void {
-  if (state.phase === "running") return;
+  if (phase === "running") return;
   awaitingSetupDismiss = true;
   setPaused(false);
   if (overlayEl) overlayEl.hidden = true;
@@ -135,50 +326,34 @@ function reopenColourSetup(): void {
   }
 }
 
-function syncPauseButton(): void {
-  if (pauseBtn) {
-    pauseBtn.hidden = state.phase !== "running";
-  }
-}
-
-function setPaused(value: boolean): void {
-  paused = value;
-  if (pauseOverlay) pauseOverlay.hidden = !value;
-  if (value) {
-    keys.ArrowDown = false;
-    queueMicrotask(() => pauseContinue?.focus());
-  }
-}
-
-function openPause(): void {
-  if (state.phase !== "running" || paused) return;
-  setPaused(true);
-}
-
-function closePause(): void {
-  if (!paused) return;
-  setPaused(false);
-}
-
-function handleStartOrRestart(): void {
+function handleOverlayPrimary(): void {
   if (awaitingSetupDismiss) return;
-  if (state.phase === "idle" || state.phase === "dead") {
-    setPaused(false);
-    state = startRun(state);
-    setHud();
-    hideOverlay();
-    syncPauseButton();
-    syncChangeColorButton();
+  if (phase === "select") {
+    startLevel(unlocked);
+    return;
   }
+  if (phase === "complete") {
+    if (currentLevel.id < DINO_LEVELS.length) startLevel(currentLevel.id + 1);
+    else showLevelSelect();
+    return;
+  }
+  if (phase === "failed") {
+    startLevel(currentLevel.id);
+    return;
+  }
+}
+
+function handleOverlaySecondary(): void {
+  showLevelSelect();
 }
 
 function onPointerPrimary(): void {
   if (awaitingSetupDismiss) return;
   if (paused) return;
-  if (state.phase === "running") {
+  if (phase === "running") {
     jumpQueued = true;
-  } else {
-    handleStartOrRestart();
+  } else if (phase === "select" || phase === "complete" || phase === "failed") {
+    handleOverlayPrimary();
   }
 }
 
@@ -196,28 +371,32 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
     }
     return;
   }
-  if ((e.key === "p" || e.key === "P" || e.key === "Escape") && state.phase === "running") {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if (phase === "running") openPause();
+    else showLevelSelect();
+    return;
+  }
+  if ((e.key === "p" || e.key === "P") && phase === "running") {
     e.preventDefault();
     openPause();
     return;
   }
   if (e.key === " " || e.key === "ArrowUp") {
     e.preventDefault();
-    if (awaitingSetupDismiss) return;
-    if (state.phase === "running") {
+    if (phase === "running") {
       jumpQueued = true;
     } else {
-      handleStartOrRestart();
+      handleOverlayPrimary();
     }
   }
   if (e.key === "ArrowDown" || e.key === "j") {
     e.preventDefault();
     keys.ArrowDown = true;
   }
-  if (e.key === "Enter" && (state.phase === "idle" || state.phase === "dead")) {
-    if (awaitingSetupDismiss) return;
+  if (e.key === "Enter") {
     e.preventDefault();
-    handleStartOrRestart();
+    handleOverlayPrimary();
   }
 });
 
@@ -231,7 +410,7 @@ window.addEventListener("keyup", (e: KeyboardEvent) => {
 if (pauseBtn) {
   pauseBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    if (state.phase === "running" && !paused) openPause();
+    if (phase === "running" && !paused) openPause();
   });
 }
 
@@ -256,6 +435,19 @@ if (changeColorBtn) {
   });
 }
 
+if (overlayPrimary) {
+  overlayPrimary.addEventListener("click", (e) => {
+    e.preventDefault();
+    handleOverlayPrimary();
+  });
+}
+if (overlaySecondary) {
+  overlaySecondary.addEventListener("click", (e) => {
+    e.preventDefault();
+    handleOverlaySecondary();
+  });
+}
+
 stage.addEventListener("pointerdown", (e: PointerEvent) => {
   if (e.target instanceof HTMLButtonElement) return;
   if (e.target instanceof HTMLAnchorElement) return;
@@ -269,10 +461,10 @@ if (touchJump) {
     e.preventDefault();
     if (awaitingSetupDismiss) return;
     if (paused) return;
-    if (state.phase === "running") {
+    if (phase === "running") {
       jumpQueued = true;
     } else {
-      handleStartOrRestart();
+      handleOverlayPrimary();
     }
   });
 }
@@ -307,6 +499,72 @@ function syncCanvasLayout(): void {
   c.imageSmoothingEnabled = false;
 }
 
+function drawWeather(g: CanvasRenderingContext2D, level: DinoLevelDef, time: number): void {
+  const { CANVAS_W, CANVAS_H } = DESIGN;
+  if (level.weather === "clear") return;
+  g.save();
+  if (level.weather === "fog") {
+    g.fillStyle = "rgba(220, 230, 240, 0.18)";
+    g.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  } else if (level.weather === "drizzle" || level.weather === "storm") {
+    g.strokeStyle = level.weather === "storm" ? "rgba(180, 200, 240, 0.5)" : "rgba(180, 200, 240, 0.32)";
+    g.lineWidth = level.weather === "storm" ? 1.6 : 1.1;
+    const count = level.weather === "storm" ? 70 : 36;
+    for (let i = 0; i < count; i++) {
+      const seed = (i * 47.13 + time * 800) % CANVAS_W;
+      const y = ((i * 31.7 + time * 1100) % CANVAS_H) | 0;
+      g.beginPath();
+      g.moveTo(seed, y);
+      g.lineTo(seed - 6, y + 14);
+      g.stroke();
+    }
+  } else if (level.weather === "sandstorm") {
+    g.fillStyle = "rgba(220, 170, 110, 0.22)";
+    g.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    g.fillStyle = "rgba(255, 200, 130, 0.18)";
+    for (let i = 0; i < 22; i++) {
+      const x = ((i * 53 + time * 320) % CANVAS_W) | 0;
+      const y = ((i * 41 + time * 90) % CANVAS_H) | 0;
+      g.fillRect(x, y, 26, 2);
+    }
+  } else if (level.weather === "night") {
+    g.fillStyle = "rgba(8, 12, 26, 0.45)";
+    g.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  }
+  g.restore();
+}
+
+function drawBoss(g: CanvasRenderingContext2D, level: DinoLevelDef, time: number): void {
+  if (level.modifier !== "boss") return;
+  const { CANVAS_W } = DESIGN;
+  const cx = CANVAS_W * 0.78 + Math.sin(time * 1.4) * 24;
+  const cy = 70 + Math.cos(time * 0.9) * 14;
+  g.save();
+  g.fillStyle = "rgba(255, 80, 110, 0.92)";
+  g.beginPath();
+  g.ellipse(cx, cy, 36, 16, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "rgba(255, 200, 220, 0.85)";
+  g.beginPath();
+  g.ellipse(cx + 14, cy - 5, 14, 6, 0, 0, Math.PI * 2);
+  g.fill();
+  // wings
+  const flap = (Math.sin(time * 6) + 1) * 0.5;
+  g.strokeStyle = "rgba(255, 120, 150, 0.75)";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(cx - 30, cy);
+  g.lineTo(cx - 60, cy - 18 - flap * 12);
+  g.lineTo(cx - 30, cy + 4);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(cx + 30, cy);
+  g.lineTo(cx + 60, cy - 18 - flap * 12);
+  g.lineTo(cx + 30, cy + 4);
+  g.stroke();
+  g.restore();
+}
+
 function draw(s: DinoState): void {
   const g = ctx;
   if (!g) return;
@@ -316,6 +574,8 @@ function draw(s: DinoState): void {
   drawChromeSkyBackdrop(g, CANVAS_W, GROUND_Y, scroll);
   drawChromeDesertFloor(g, CANVAS_W, CANVAS_H, GROUND_Y, scroll);
   drawChromeHorizon(g, CANVAS_W, GROUND_Y, scroll);
+
+  drawBoss(g, currentLevel, s.runTime);
 
   for (const o of s.obstacles) {
     const b = obstacleBox(o, GROUND_Y);
@@ -328,6 +588,8 @@ function draw(s: DinoState): void {
 
   const pb = playerBox(s.playerTop, s.isDuck);
   drawSkinDino(g, pb, dinoPalette, s.phase, s.grounded, s.isDuck, s.runTime);
+
+  drawWeather(g, currentLevel, s.runTime);
 }
 
 function resize(): void {
@@ -343,7 +605,7 @@ function frame(now: number): void {
   const dt = lastT > 0 ? Math.min(0.05, (now - lastT) / 1000) : 0;
   lastT = now;
 
-  if (state.phase === "running" && !paused) {
+  if (phase === "running" && !paused) {
     const prevScore = state.score;
     state = tickDino(
       state,
@@ -352,18 +614,40 @@ function frame(now: number): void {
       rng,
     );
     jumpQueued = false;
-    if (state.score !== prevScore && scoreEl) {
-      scoreEl.textContent = String(Math.floor(state.score));
+
+    // Apply level speed/gap modifiers retroactively (simple): cap speed
+    if (state.speed > 0) {
+      state = { ...state, speed: levelSpeed(currentLevel, state.score) };
     }
+
+    if (state.score !== prevScore) {
+      const delta = Math.max(0, Math.floor(state.score) - Math.floor(prevScore));
+      if (delta > 0) {
+        totalObstaclesPassed += delta;
+        levelRun = applyDinoScore(levelRun, totalObstaclesPassed);
+        setHud();
+        if (levelRun.cleared) {
+          clearLevel();
+        }
+      }
+    }
+
     if (state.phase === "dead") {
-      setPaused(false);
-      storeBest(state.best);
+      // Apply HP. If still alive, respawn immediately.
+      const updated = applyDinoHit(levelRun);
+      levelRun = updated;
       setHud();
-      const pts = Math.floor(state.score);
-      showOverlay(pts ? `${pts} pts — Space to restart` : "0 pts — Space to restart");
-      syncPauseButton();
-      syncChangeColorButton();
+      if (updated.failed) {
+        failLevel("Out of HP — try again.");
+      } else {
+        // Respawn: keep best, reset state but maintain levelRun.score progression.
+        const best = state.best;
+        state = startRun({ ...createDinoState(best), best });
+        keys.ArrowDown = false;
+      }
     }
+    // We use levelMinGap implicitly by tightening spawn timing via speed bumps above.
+    void levelMinGap;
   }
 
   syncCanvasLayout();
@@ -374,12 +658,42 @@ function frame(now: number): void {
 new ResizeObserver(resize).observe(stage);
 window.addEventListener("resize", resize);
 
-const bestStored = getStoredBest();
-state = { ...state, best: Math.max(state.best, bestStored) };
 setHud();
 initColorPicker();
 syncPauseButton();
 syncChangeColorButton();
 resize();
+applyTheme(currentLevel);
 (window as Window & { __dinoReady?: boolean }).__dinoReady = true;
 requestAnimationFrame(frame);
+
+interface DinoTestApi {
+  start(level?: number): void;
+  scoreTo(score: number): { cleared: boolean; failed: boolean };
+  state(): { level: number; score: number; goal: number; cleared: boolean; failed: boolean; hp: number };
+}
+
+(window as unknown as { __dinoTest?: DinoTestApi }).__dinoTest = {
+  start(level = 1) {
+    awaitingSetupDismiss = false;
+    if (setupOverlay) setupOverlay.hidden = true;
+    unlocked = clampDinoLevel(Math.max(unlocked, level));
+    startLevel(level);
+  },
+  scoreTo(score) {
+    levelRun = applyDinoScore(levelRun, score);
+    setHud();
+    if (levelRun.cleared) clearLevel();
+    return { cleared: levelRun.cleared, failed: levelRun.failed };
+  },
+  state() {
+    return {
+      level: currentLevel.id,
+      score: levelRun.score,
+      goal: levelRun.goal,
+      cleared: levelRun.cleared,
+      failed: levelRun.failed,
+      hp: levelRun.hp,
+    };
+  },
+};

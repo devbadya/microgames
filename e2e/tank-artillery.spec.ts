@@ -23,20 +23,32 @@ test("panzer-artillerie: loads, hud present, shot reaches flight or settle", asy
   await page.selectOption("#taMapTheme", "moon");
   expect(await page.evaluate(() => localStorage.getItem("tank-artillery-map-theme-v1"))).toBe("moon");
 
-  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15000 });
-  await page.getByRole("button", { name: "Bereit" }).click();
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
   await expect(page.locator("#taCanvas")).toBeVisible();
   await expect(page.locator("#taHp")).toContainText(/Du \d+/);
   await expect(page.locator("#taWeapon")).toContainText(
-    /Granate|Schwer|Streuschuss|Platzpatrone|Einstreu|Leichtkaliber|Raschsatz|Panzerfaust|Nadelwald|Deckgranate|Schiffsartillerie|Granatsalve|Wüsten-HE|Panzerjäger|Sandsturm|Blitz/,
+    /Granate|Schwer|Streuschuss|Platzpatrone|Einstreu|Leichtkaliber|Raschsatz|Panzerfaust|Nadelwald|Deckgranate|Schiffsartillerie|Granatsalve|Wüsten-HE|Panzerjäger|Sandsturm|Rotkeil-HE|Glutbrecher|Funkenfächer|Belagerer|Kernhammer|Splittermauer|Viper-Lanze|Eisenzahn|Giftwolke|Silbersterne|Waldkanone|Tiefseegranate|Sonnenstich|Sengschlag|Festungsbrecher|Giftbombe|Blitz/,
   );
   await page.locator("#taCanvas").click();
   await page.locator("#taCanvas").press("Enter");
   await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
-  await page.locator("#taCanvas").press("Space");
-  await page.waitForFunction(() => document.getElementById("taPhase")?.textContent?.includes("Flug") ?? false, {
-    timeout: 5000,
-  });
+  /** Rohr kann durch Gelände blockiert sein — Winkel anpassen bis ein Schuss möglich ist. */
+  let sawFlight = false;
+  for (let i = 0; i < 24; i++) {
+    await page.locator("#taCanvas").press("Space");
+    try {
+      await page.waitForFunction(
+        () => document.getElementById("taPhase")?.textContent?.includes("Flug") ?? false,
+        { timeout: 450 },
+      );
+      sawFlight = true;
+      break;
+    } catch {
+      await page.locator("#taCanvas").press("ArrowRight");
+    }
+  }
+  expect(sawFlight).toBe(true);
   await page.waitForFunction(
     () => {
       const t = document.getElementById("taPhase")?.textContent ?? "";
@@ -49,14 +61,14 @@ test("panzer-artillerie: loads, hud present, shot reaches flight or settle", asy
 test.describe("Sieg-Menü", () => {
   test("Nochmal spielen und Zurück zur Lobby", async ({ page }) => {
     await page.goto("/games/tank-artillery/");
-    await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
     await page.waitForFunction(
       (): boolean => typeof (window as unknown as { __TA_DEV_SHOW_WIN_MENU__?: unknown }).__TA_DEV_SHOW_WIN_MENU__ ===
         "function",
       { timeout: 12_000 },
     );
 
-    await page.getByRole("button", { name: "Bereit" }).click();
+    await page.getByRole("button", { name: "Ins Spiel" }).click();
     await expect(page.locator("#taCanvas")).toBeVisible();
 
     await page.evaluate(() => {
@@ -72,7 +84,7 @@ test.describe("Sieg-Menü", () => {
     await expect(page.locator("#taStage")).toBeHidden();
     await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Bereit" }).click();
+    await page.getByRole("button", { name: "Ins Spiel" }).click();
     await expect(page.locator("#taCanvas")).toBeVisible();
 
     await page.evaluate(() => {
@@ -90,17 +102,28 @@ test("panzer-artillerie: Silber Einstreu (Slot 3) — Flugphase endet", async ({
     localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver"]));
     localStorage.setItem("tank-artillery-tank-equipped-v1", "silver");
   });
-  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
-  await page.getByRole("button", { name: "Bereit" }).click();
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
   await expect(page.locator("#taCanvas")).toBeVisible();
   await page.locator("#taCanvas").click();
   await page.locator("#taCanvas").press("Enter");
   await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
   await page.locator("#taCanvas").press("Digit3");
-  await page.locator("#taCanvas").press("Space");
-  await page.waitForFunction(() => document.getElementById("taPhase")?.textContent?.includes("Flug") ?? false, {
-    timeout: 8000,
-  });
+  let streuFlight = false;
+  for (let i = 0; i < 24; i++) {
+    await page.locator("#taCanvas").press("Space");
+    try {
+      await page.waitForFunction(
+        () => document.getElementById("taPhase")?.textContent?.includes("Flug") ?? false,
+        { timeout: 450 },
+      );
+      streuFlight = true;
+      break;
+    } catch {
+      await page.locator("#taCanvas").press("ArrowRight");
+    }
+  }
+  expect(streuFlight).toBe(true);
   await page.waitForFunction(
     () => {
       const t = document.getElementById("taPhase")?.textContent ?? "";
@@ -136,7 +159,7 @@ test("panzer-artillerie: Seba1 lokal — 10k ohne Promo-Stub", async ({ page }) 
     localStorage.removeItem("tank-artillery-gems");
     localStorage.removeItem("tank-artillery-promos-used-v1");
   });
-  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
   await page.getByRole("button", { name: "Shop" }).click();
   await expect(page.getByRole("heading", { name: "Item-Shop" })).toBeVisible();
   await page.getByRole("button", { name: "Code" }).click();
@@ -144,6 +167,22 @@ test("panzer-artillerie: Seba1 lokal — 10k ohne Promo-Stub", async ({ page }) 
   await page.getByRole("button", { name: "Einlösen" }).click();
   await expect(page.locator("#taShopCodeMsg")).toContainText(/eingelöst/i, { timeout: 8000 });
   await expect(page.locator("#taShopGems")).toHaveText("10000");
+});
+
+test("panzer-artillerie: AdminS lokal — 1M 💎 ohne Promo-Stub", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.removeItem("tank-artillery-gems");
+    localStorage.removeItem("tank-artillery-promos-used-v1");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.getByRole("heading", { name: "Item-Shop" })).toBeVisible();
+  await page.getByRole("button", { name: "Code" }).click();
+  await page.locator("#taShopCodeInput").fill("AdminS");
+  await page.getByRole("button", { name: "Einlösen" }).click();
+  await expect(page.locator("#taShopCodeMsg")).toContainText(/eingelöst/i, { timeout: 8000 });
+  await expect(page.locator("#taShopGems")).toHaveText("1000000");
 });
 
 test("panzer-artillerie: Kristallschild im Shop (500 💎, Wüsten-Panzer)", async ({ page }) => {
@@ -159,6 +198,41 @@ test("panzer-artillerie: Kristallschild im Shop (500 💎, Wüsten-Panzer)", asy
   await page.locator('[data-desert-shield-buy="1"]').click();
   await expect(page.locator("#taShopGearMsg")).toContainText(/gekauft|Taste 5/i);
   await expect(page.locator("#taShopGems")).toHaveText("100", { timeout: 5000 });
+});
+
+test("panzer-artillerie: Shop und Locker — Panzer-Vorschau beim Antippen", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "500");
+    localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver", "green"]));
+    localStorage.setItem("tank-artillery-tank-equipped-v1", "silver");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.locator("#taShopTankPreviewHint")).toContainText(/Vorschau:.*Silber-Chassis/);
+  await page.locator("#taShopTankList li").filter({ hasText: "Feld-Green" }).click({ position: { x: 24, y: 28 } });
+  await expect(page.locator("#taShopTankPreviewHint")).toContainText(/Feld-Green/);
+
+  await page.locator("#taShopCloseFoot").click();
+  await page.getByRole("button", { name: "Locker" }).click();
+  await expect(page.locator("#taLockerTankPreviewHint")).toContainText(/Vorschau:.*Silber-Chassis/);
+  await page.locator("#taLockerTankList li").filter({ hasText: "Feld-Green" }).click({ position: { x: 20, y: 14 } });
+  await expect(page.locator("#taLockerTankPreviewHint")).toContainText(/Feld-Green/);
+});
+
+test("panzer-artillerie: Locker-Upgrades (💎 Treibstoff Stufe 1)", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "500");
+    localStorage.removeItem("tank-artillery-locker-upgrades-v1");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Locker" }).click();
+  await expect(page.getByRole("heading", { name: /Upgrades/ })).toBeVisible();
+  await page.locator('[data-locker-upgrade="fuel"]').click();
+  await expect(page.locator("#taLockerUpgradeMsg")).toContainText(/Treibstoff.*Stufe 1/i);
+  const gems = await page.locator("#taLockerGems").textContent();
+  expect(gems).not.toBe("500");
 });
 
 test("panzer-artillerie: Panzer kaufen (100 💎)", async ({ page, request }) => {
@@ -181,9 +255,33 @@ test("panzer-artillerie: Panzer kaufen (100 💎)", async ({ page, request }) =>
   await expect(page.locator(".taLockerTankRow--active")).toContainText("Feld-Green");
 });
 
+test("panzer-artillerie: neuer Roter Keil ist kaufbar und startet im Kampf", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "800");
+    localStorage.removeItem("tank-artillery-tanks-owned-v1");
+    localStorage.removeItem("tank-artillery-tank-equipped-v1");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.locator("#taShopTankList").getByText("Roter Keil")).toBeVisible();
+  await page.locator('[data-tank-purchase="crimson"]').click();
+  await expect(page.locator("#taShopTankMsg")).toContainText(/Roter Keil gekauft/i);
+  await expect(page.locator("#taShopGems")).toHaveText("40", { timeout: 5000 });
+  await page.locator("#taShopCloseFoot").click();
+
+  await page.getByRole("button", { name: "Locker" }).click();
+  await expect(page.locator(".taLockerTankRow--active")).toContainText("Roter Keil");
+  await page.getByRole("button", { name: "Locker schließen" }).click();
+
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
+  await expect(page.locator("#taCanvas")).toBeVisible();
+  await expect(page.locator("#taWeapon")).toContainText(/Rotkeil-HE|Glutbrecher|Funkenfächer/);
+});
+
 test("panzer-artillerie: Blitz ohne eigenen Flug (Slot 4, dann Leertaste)", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
-  const playBtnBlitz = page.getByRole("button", { name: "Bereit" });
+  const playBtnBlitz = page.getByRole("button", { name: "Ins Spiel" });
   await expect(playBtnBlitz).toBeEnabled({ timeout: 15000 });
   await playBtnBlitz.click();
   /** Blitz erst ab Kampf Nr. 3 — zweimal aufgeben erhöht `kampfNr` auf 3 */
@@ -196,7 +294,7 @@ test("panzer-artillerie: Blitz ohne eigenen Flug (Slot 4, dann Leertaste)", asyn
     await expect(page.locator("#taGameOver")).toBeHidden();
     await expect(page.locator("#taStage")).toBeHidden();
     await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
-    await page.getByRole("button", { name: "Bereit" }).click();
+    await page.getByRole("button", { name: "Ins Spiel" }).click();
     await expect(page.locator("#taCanvas")).toBeVisible();
   }
   await page.locator("#taCanvas").click();
@@ -231,7 +329,7 @@ test("panzer-artillerie: Feuerspur-Kosmetik im Shop kaufen", async ({ page }) =>
 
 test("panzer-artillerie: Feuerspur im Shop testen (ohne Kauf)", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
-  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
   await page.evaluate(() => {
     localStorage.removeItem("tank-artillery-move-trails-owned-v1");
     localStorage.removeItem("tank-artillery-move-trail-equipped-v1");
@@ -249,7 +347,7 @@ test("panzer-artillerie: Feuerspur im Shop testen (ohne Kauf)", async ({ page })
 
 test("panzer-artillerie: Testspiel mit Esc verlassen", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
-  await expect(page.getByRole("button", { name: "Bereit" })).toBeEnabled({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
   await page.getByRole("button", { name: "Shop" }).click();
   await page.locator('[data-move-trail-test="lightning"]').click();
   await expect(page.locator("#taCanvas")).toBeVisible({ timeout: 15_000 });
@@ -257,3 +355,24 @@ test("panzer-artillerie: Testspiel mit Esc verlassen", async ({ page }) => {
   await expect(page.locator("#taStage")).toBeHidden();
   await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
 });
+
+test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Waldkanone auf Green", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver", "green"]));
+    localStorage.setItem("tank-artillery-tank-equipped-v1", "green");
+    localStorage.setItem(
+      "tank-artillery-locker-upgrades-v1",
+      JSON.stringify({ green: { fuel: 10, damage: 10, power: 10 } }),
+    );
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
+  await expect(page.locator("#taCanvas")).toBeVisible();
+  await page.locator("#taCanvas").click();
+  await page.locator("#taCanvas").press("Enter");
+  await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
+  await page.locator("#taCanvas").press("Digit6");
+  await expect(page.locator("#taWeapon")).toContainText(/Waldkanone/);
+});
+

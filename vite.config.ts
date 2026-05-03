@@ -28,6 +28,7 @@ export default defineConfig({
         dinoRun: resolve(root, "games/dino-run/index.html"),
         panicButton: resolve(root, "games/panic-button/index.html"),
         tankArtillery: resolve(root, "games/tank-artillery/index.html"),
+        miniChess: resolve(root, "games/mini-chess/index.html"),
       },
     },
   },

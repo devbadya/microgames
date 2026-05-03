@@ -71,7 +71,7 @@
                         <option value="easy">Leicht — sanfte Hügel</option>
                         <option value="normal" selected>Normal — Standard-Welt</option>
                         <option value="hard">Schwer — steiler &amp; rauer</option>
-                        <option value="insane">Insane — riesig &amp; Chaos (ab 3000 XP)</option>
+                        <option value="insane">Insane — extrem steil, rau, extra-breit (ab 3000 XP)</option>
                       </select>
                     </label>
                     <label class="taLobbyMapLbl">
@@ -83,18 +83,21 @@
                     </label>
                   </div>
                 </div>
-                <div class="taLobbyFloatReady">
-                  <button
-                    type="button"
-                    id="taLobbyReadyBtn"
-                    class="taLobbyReadyBtn"
-                    disabled
-                    aria-label="Bereit — Partie starten"
-                  >
-                    Bereit
-                  </button>
-                </div>
                 <div class="taLobbyFloatBottom">
+                  <div class="taLobbyPvpRow">
+                    <button type="button" id="taHubPvpFind" class="taHubPlayBtn taLobbyPlayBtn taLobbyPvpBtn" disabled>
+                      Online: Gegner suchen (Beta)
+                    </button>
+                    <button
+                      type="button"
+                      id="taHubPvpCancel"
+                      class="taHubPlayBtn taLobbyPlayBtn taLobbyPvpBtn taLobbyPvpBtn--ghost"
+                      hidden
+                    >
+                      Abbrechen / Trennen
+                    </button>
+                  </div>
+                  <p id="taHubPvpStatus" class="taHubLoadHint taHubPvpStatus" role="status" aria-live="polite"></p>
                   <button type="button" id="taHubPlay" class="taHubPlayBtn taLobbyPlayBtn" disabled>Ins Spiel</button>
                   <p id="taHubLoadHint" class="taHubLoadHint">Lade Grafiken …</p>
                 </div>
@@ -138,6 +141,10 @@
           <div class="taShopBody taShopBody--fn">
             <section class="taShopSection" aria-labelledby="taShopSecTanks">
               <h3 id="taShopSecTanks" class="taShopSectionTitle">Panzer</h3>
+              <div class="taHubTankPreview" aria-label="Panzer-Vorschau">
+                <canvas id="taShopTankPreviewCanvas" width="640" height="320"></canvas>
+                <p id="taShopTankPreviewHint" class="taHubTankPreviewHint">Panzer antippen zur Vorschau.</p>
+              </div>
               <ul id="taShopTankList" class="taShopTankList"></ul>
               <p class="taShopTankMsg" id="taShopTankMsg" role="status" aria-live="polite"></p>
             </section>
@@ -232,7 +239,20 @@
           <div class="taShopBody taShopBody--fn">
             <section class="taShopSection" aria-labelledby="taLockerSecBody">
               <h3 id="taLockerSecBody" class="taShopSectionTitle">Garage · Panzer</h3>
+              <div class="taHubTankPreview" aria-label="Panzer-Vorschau">
+                <canvas id="taLockerTankPreviewCanvas" width="640" height="320"></canvas>
+                <p id="taLockerTankPreviewHint" class="taHubTankPreviewHint">Panzer antippen zur Vorschau.</p>
+              </div>
               <ul id="taLockerTankList" class="taLockerTankList"></ul>
+            </section>
+            <section class="taShopSection" aria-labelledby="taLockerSecUpgrades">
+              <h3 id="taLockerSecUpgrades" class="taShopSectionTitle">Upgrades · 💎</h3>
+              <p class="taLockerUpgradeIntro">
+                Pro ausgerüstetem Panzer: Treibstoff, Schaden und Kraft einzeln verbessern (je 1–10, teurer pro
+                Stufe). Jeder Panzer startet bei Stufe 0 — wechsel die Garage, um den nächsten aufzubauen.
+              </p>
+              <ul id="taLockerUpgradeList" class="taLockerUpgradeList"></ul>
+              <p class="taShopTankMsg" id="taLockerUpgradeMsg" role="status" aria-live="polite"></p>
             </section>
           </div>
           <footer class="taShopFooter taShopFooter--fn">
@@ -255,7 +275,7 @@
         </div>
         <p class="taHint">
           <kbd>←</kbd><kbd>→</kbd> fahren · <kbd>Enter</kbd> zielen · <kbd>A</kbd><kbd>D</kbd> Winkel · <kbd>W</kbd><kbd>S</kbd>
-          Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> zuschlagen · bei Wüsten-Panzer: <kbd>5</kbd> Kristallschild (wenn im Shop gekauft) · <kbd>R</kbd> aufgeben
+          Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> zuschlagen · bei Wüsten-Speer: <kbd>5</kbd> Sonnenkristall-Schild (wenn im Shop gekauft) · <kbd>R</kbd> aufgeben
         </p>
       </div>
 
@@ -311,7 +331,8 @@
     <!--
       Gehostete Einrichtung (nichts davon öffentlich committen):
       – Promo: vor main.ts z. B. window.__TANK_PROMO_CLAIM_URL__, oder Secret VITE_TANK_PROMO_CLAIM_URL beim Build.
-      – Lokal (nur localhost / 127.0.0.1): Shop → Code „Seba1“ → 10 000 💎 (ohne promo-stub).
+      – Lokal (nur localhost / 127.0.0.1): Shop → Code „Seba1“ → 10 000 💎 (ohne promo-stub); „AdminS“ / „admins“ → 1 000 000 💎.
+      – Global PvP-Matchmaking (Beta): `npm run pvp-server`, in `.env.local` z. B. `VITE_TANK_PVP_WS_URL=ws://127.0.0.1:8788` — oder `window.__TANK_PVP_WS_URL__` vor main.ts.
       – Gastgeber-💎: Secret VITE_ADMIN_GEM_PASSPHRASE beim Build oder window.__TANK_ADMIN_GEM_PASSPHRASE__ vor main.ts → Phrase dann im Shop unter „Code“ einlösen.
     -->
     <script type="module" src="./main.ts"></script>
