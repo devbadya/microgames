@@ -6,13 +6,26 @@ import { securityHeadersPlugin } from "./vite-plugin-security-headers";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
+function normalizeViteBase(raw: string): string {
+  const b = raw.trim();
+  if (b === "/" || b === "") return "/";
+  return b.endsWith("/") ? b : `${b}/`;
+}
+
 /**
- * GitHub Pages project sites are served from https://<user>.github.io/<repo>/.
- * In CI we use `/${repo}/`. Locally we use `/` (not `./`): a relative base breaks nested
- * routes like `/games/tank-artillery/` because `new Image().src = ./games/...` resolves
- * relative to the page URL and duplicates path segments (sprites 404 → empty lobby canvas).
+ * - Local dev: `/` so nested game pages resolve `/games/...` and `/assets/...` from the host root.
+ * - CI: optional `VITE_BASE_PATH` (e.g. `/` for a custom domain at site root, e.g. microgames.studio).
+ *   If unset in Actions, fall back to `/<repo>/` from `GITHUB_REPOSITORY` for default GitHub Pages
+ *   project URLs (`https://<user>.github.io/<repo>/`).
+ *
+ * A `/microgames/` build on a root-only custom domain breaks absolute asset URLs (CSS, JS, sprites):
+ * blank or white lobby and a disabled „Ins Spiel“ button.
  */
 function viteBase(): string {
+  const explicit = process.env.VITE_BASE_PATH?.trim();
+  if (explicit) {
+    return normalizeViteBase(explicit);
+  }
   if (process.env.GITHUB_ACTIONS === "true") {
     const repo = process.env.GITHUB_REPOSITORY?.split("/")[1];
     if (repo) return `/${repo}/`;

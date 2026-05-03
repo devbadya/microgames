@@ -37,6 +37,9 @@ jobs:
 
       - name: Build
         env:
+          # Custom domain (microgames.studio) is served at host root — must match Vite `base` "/" .
+          # Omit or set to /your-repo/ only if you rely on https://<user>.github.io/<repo>/ without a root domain.
+          VITE_BASE_PATH: /
           VITE_TANK_PROMO_CLAIM_URL: ${{ secrets.VITE_TANK_PROMO_CLAIM_URL }}
           VITE_ADMIN_GEM_PASSPHRASE: ${{ secrets.VITE_ADMIN_GEM_PASSPHRASE }}
         run: pnpm build
