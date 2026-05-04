@@ -1149,16 +1149,17 @@ export function tryBuyDesertShield(): DesertShieldPurchaseResult {
   return "ok";
 }
 
-/** Shop-Kosmetik: Spur-Effekt in der Fahrphase (← →), nur Optik. */
-export type PurchasableMoveTrailId = "fire" | "lightning";
+/** Shop-Kosmetik: Spur-Effekt in der Fahrphase (← →). Feuer/Blitz nur Optik; Regenbogen mit manuellem Kampf-Start (Taste 7 / Button), siehe main. */
+export type PurchasableMoveTrailId = "fire" | "lightning" | "rainbow";
 export type MoveTrailCosmeticId = "none" | PurchasableMoveTrailId;
 
 export const MOVE_TRAIL_FIRE_PRICE_GEMS = 85;
 export const MOVE_TRAIL_LIGHTNING_PRICE_GEMS = 110;
+export const MOVE_TRAIL_RAINBOW_PRICE_GEMS = 2000;
 export const MOVE_TRAIL_OWNED_KEY = "tank-artillery-move-trails-owned-v1";
 export const MOVE_TRAIL_EQUIPPED_KEY = "tank-artillery-move-trail-equipped-v1";
 
-const PURCHASABLE_TRAIL_IDS: ReadonlySet<PurchasableMoveTrailId> = new Set(["fire", "lightning"]);
+const PURCHASABLE_TRAIL_IDS: ReadonlySet<PurchasableMoveTrailId> = new Set(["fire", "lightning", "rainbow"]);
 
 function parseOwnedMoveTrails(raw: string | null): PurchasableMoveTrailId[] {
   if (!raw) return [];
@@ -1167,7 +1168,7 @@ function parseOwnedMoveTrails(raw: string | null): PurchasableMoveTrailId[] {
     if (!Array.isArray(arr)) return [];
     const out: PurchasableMoveTrailId[] = [];
     for (const x of arr) {
-      if (x === "fire" || x === "lightning") out.push(x);
+      if (x === "fire" || x === "lightning" || x === "rainbow") out.push(x);
     }
     return [...new Set(out)];
   } catch {
@@ -1204,7 +1205,7 @@ export function readEquippedMoveTrail(): MoveTrailCosmeticId {
   try {
     if (typeof localStorage === "undefined") return "none";
     const raw = localStorage.getItem(MOVE_TRAIL_EQUIPPED_KEY)?.trim();
-    if (raw === "fire" || raw === "lightning") {
+    if (raw === "fire" || raw === "lightning" || raw === "rainbow") {
       if (readOwnedMoveTrailIds().includes(raw)) return raw;
     }
     return "none";
@@ -1233,7 +1234,12 @@ export type MoveTrailPurchaseResult = "ok" | "owned" | "expensive" | "invalid";
 export function tryBuyMoveTrailCosmetic(id: PurchasableMoveTrailId): MoveTrailPurchaseResult {
   if (!PURCHASABLE_TRAIL_IDS.has(id)) return "invalid";
   if (readOwnedMoveTrailIds().includes(id)) return "owned";
-  const price = id === "fire" ? MOVE_TRAIL_FIRE_PRICE_GEMS : MOVE_TRAIL_LIGHTNING_PRICE_GEMS;
+  const price =
+    id === "fire"
+      ? MOVE_TRAIL_FIRE_PRICE_GEMS
+      : id === "lightning"
+        ? MOVE_TRAIL_LIGHTNING_PRICE_GEMS
+        : MOVE_TRAIL_RAINBOW_PRICE_GEMS;
   if (readGems() < price) return "expensive";
   if (!spendGems(price)) return "expensive";
   addOwnedMoveTrail(id);

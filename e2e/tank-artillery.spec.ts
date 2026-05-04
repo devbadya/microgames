@@ -327,6 +327,24 @@ test("panzer-artillerie: Feuerspur-Kosmetik im Shop kaufen", async ({ page }) =>
   ).toContain("fire");
 });
 
+test("panzer-artillerie: Regenbogen-Spur im Shop kaufen (2000 💎)", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "2000");
+    localStorage.removeItem("tank-artillery-move-trails-owned-v1");
+    localStorage.removeItem("tank-artillery-move-trail-equipped-v1");
+  });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.getByRole("heading", { name: "Kosmetik" })).toBeVisible();
+  await page.locator('[data-move-trail-purchase="rainbow"]').click();
+  await expect(page.locator("#taShopCosmeticMsg")).toContainText(/gekauft|ausgerüstet/i, { timeout: 5000 });
+  await expect(page.locator("#taShopGems")).toHaveText("0");
+  expect(
+    await page.evaluate(() => localStorage.getItem("tank-artillery-move-trails-owned-v1")),
+  ).toContain("rainbow");
+});
+
 test("panzer-artillerie: Feuerspur im Shop testen (ohne Kauf)", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
   await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });

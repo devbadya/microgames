@@ -60,6 +60,7 @@ import {
   setEquippedMoveTrail,
   MOVE_TRAIL_FIRE_PRICE_GEMS,
   MOVE_TRAIL_LIGHTNING_PRICE_GEMS,
+  MOVE_TRAIL_RAINBOW_PRICE_GEMS,
   type PurchasableMoveTrailId,
   type MoveTrailCosmeticId,
   consumeDesertShieldActivation,
@@ -107,6 +108,18 @@ const FLIGHT_MAX_PTS = 4200;
 const FLIGHT_DT = 1 / 110;
 /** Pro Frame Index-Schritt — kleiner = langsamer fliegender Schuss auf dem Bild. */
 const FLIGHT_FRAME_ADV = 2;
+
+/** Regenbogen-Spur: nach Taste 7 / Button 30s max Locker + ×1,5 Schaden vs. Bot (nicht im Shop-Testspiel). */
+const RAINBOW_OVERDRIVE_MS = 30_000;
+const RAINBOW_OVERDRIVE_DAMAGE_MULT = 1.5;
+/** `0` = kein Buff; sonst Startzeitpunkt nach manueller Aktivierung. */
+let rainbowBuffAnchorMs = 0;
+/** Pro Partie nur einmal auslösbar. */
+let rainbowRushConsumedThisMatch = false;
+
+type RainbowRushSpark = { x: number; y: number; vx: number; vy: number; born: number; hue: number };
+const RAINBOW_RUSH_SPARK_MS = 780;
+let rainbowRushSparks: RainbowRushSpark[] = [];
 
 function weaponDragMul(W: WeaponDef): number {
   return W.ballisticDragMul ?? 1;
@@ -226,15 +239,13 @@ const PLAYER_POW_MIN = 380;
 const PLAYER_POW_MAX_BASE = 1220;
 
 function playerFuelCapacity(): number {
-  return FUEL_MOVE + lockerUpgradeFuelBonus(readLockerUpgradeLevelsFor(activeTankId()).fuel);
+  const { fuel } = effectiveBattleLockerLevels();
+  return FUEL_MOVE + lockerUpgradeFuelBonus(fuel);
 }
 
 function playerPowMax(): number {
-  return PLAYER_POW_MAX_BASE + lockerUpgradePowMaxDelta(readLockerUpgradeLevelsFor(activeTankId()).power);
-}
-
-function playerDamageMulVersusBot(): number {
-  return lockerUpgradeDamageMul(readLockerUpgradeLevelsFor(activeTankId()).damage);
+  const { power } = effectiveBattleLockerLevels();
+  return PLAYER_POW_MAX_BASE + lockerUpgradePowMaxDelta(power);
 }
 
 let ang = 53;
@@ -265,6 +276,69 @@ function testMoveTrailActive(): boolean {
 function battleTestModeActive(): boolean {
   return testDriveActive() || testMoveTrailActive();
 }
+
+function rainbowOverdriveBuffActive(nowMs: number): boolean {
+  if (rainbowBuffAnchorMs <= 0) return false;
+  if (effectiveMoveTrail() !== "rainbow") return false;
+  if (battleTestModeActive()) return false;
+  return nowMs - rainbowBuffAnchorMs < RAINBOW_OVERDRIVE_MS;
+}
+
+/** Zusätzlicher Wind durch Regenbogen-Aura (schwingt — nur bei aktivem Buff, nicht Insane/Test). */
+function rainbowWeatherWindKick(nowMs: number): number {
+  if (mapDifficulty === "insane") return 0;
+  if (battleTestModeActive()) return 0;
+  if (!rainbowOverdriveBuffActive(nowMs)) return 0;
+  return Math.sin(nowMs * 0.00195) * 16 + Math.cos(nowMs * 0.00088) * 10;
+}
+
+function effectiveWindAccel(nowMs: number): number {
+  return wa + rainbowWeatherWindKick(nowMs);
+}
+
+function canActivateRainbowRushNow(): boolean {
+  if (battleTestModeActive()) return false;
+  if (effectiveMoveTrail() !== "rainbow") return false;
+  if (rainbowRushConsumedThisMatch) return false;
+  return true;
+}
+
+function tryActivateRainbowRush(): boolean {
+  if (!canActivateRainbowRushNow()) return false;
+  const now = performance.now();
+  rainbowBuffAnchorMs = now;
+  rainbowRushConsumedThisMatch = true;
+  spawnRainbowRushBurst(now);
+  return true;
+}
+
+/** Locker-Stufen im Kampf: bei Regenbogen-Buff alle Äste wie Stufe 10 (inkl. Spezial-Freischaltung). */
+function effectiveBattleLockerLevels(): Record<LockerUpgradeBranchId, number> {
+  const real = readLockerUpgradeLevelsFor(activeTankId());
+  if (!rainbowOverdriveBuffActive(performance.now())) return real;
+  return {
+    fuel: LOCKER_UPGRADE_MAX_LEVEL,
+    damage: LOCKER_UPGRADE_MAX_LEVEL,
+    power: LOCKER_UPGRADE_MAX_LEVEL,
+  };
+}
+
+function rainbowOverdriveHudSuffix(nowMs: number): string {
+  if (rainbowBuffAnchorMs <= 0) return "";
+  if (effectiveMoveTrail() !== "rainbow" || battleTestModeActive()) return "";
+  const leftSec = (RAINBOW_OVERDRIVE_MS - (nowMs - rainbowBuffAnchorMs)) / 1000;
+  if (leftSec <= 0) return "";
+  const s = Math.max(1, Math.ceil(leftSec));
+  return ` · Regenbogen max · ×${RAINBOW_OVERDRIVE_DAMAGE_MULT} · ${s}s`;
+}
+
+function playerDamageMulVersusBot(): number {
+  const { damage } = effectiveBattleLockerLevels();
+  const base = lockerUpgradeDamageMul(damage);
+  const now = performance.now();
+  return base * (rainbowOverdriveBuffActive(now) ? RAINBOW_OVERDRIVE_DAMAGE_MULT : 1);
+}
+
 function activeTankId(): PlayerTankId {
   return testDriveTankId ?? readEquippedTankId();
 }
@@ -274,7 +348,7 @@ function activeTankDef(): PlayerTankDef {
 }
 
 function lockerMaxSpecialUnlocked(): boolean {
-  return lockerMaxSpecialAttackUnlocked(readLockerUpgradeLevelsFor(activeTankId()));
+  return lockerMaxSpecialAttackUnlocked(effectiveBattleLockerLevels());
 }
 /** Blitz-Tastatur-Slot: 3 ohne Spezial (6), 4 wenn Spezial freigeschaltet ist. */
 function blitzSlotIndex(): number {
@@ -289,10 +363,34 @@ function effectiveMoveTrail(): MoveTrailCosmeticId {
   return readEquippedMoveTrail();
 }
 
+/** Im Kampf: Regenbogen-Optik nur bei aktivem Buff; im Shop-Test weiterhin volle Vorschau. */
+function cosmeticMoveTrailForDraw(nowMs: number): MoveTrailCosmeticId {
+  const t = effectiveMoveTrail();
+  if (t !== "rainbow") return t;
+  if (battleTestModeActive()) return "rainbow";
+  return rainbowOverdriveBuffActive(nowMs) ? "rainbow" : "none";
+}
+
+/** Lobby/Locker-Showcase: wie vor Taste 7 im Kampf — keine Regenbogen-Optik nur wegen Ausrüstung; volle Vorschau nur bei aktiver Testfahrt auf Regenbogen. */
+function lobbyCosmeticMoveTrailForDraw(): MoveTrailCosmeticId {
+  const t = effectiveMoveTrail();
+  if (t !== "rainbow") return t;
+  if (testDriveMoveTrailId === "rainbow") return "rainbow";
+  return "none";
+}
+
+function shouldDrawRainbowGokuKi(nowMs: number, lobbyShowcase: boolean): boolean {
+  const trail = lobbyShowcase ? lobbyCosmeticMoveTrailForDraw() : cosmeticMoveTrailForDraw(nowMs);
+  return trail === "rainbow";
+}
+
 function battleTestOverlaySuffix(): string {
   const parts: string[] = [];
   if (testDriveActive()) parts.push(activeTankDef().nameDe);
-  if (testMoveTrailActive()) parts.push(testDriveMoveTrailId === "fire" ? "Feuerspur" : "Blitzspur");
+  if (testMoveTrailActive()) {
+    const t = testDriveMoveTrailId;
+    parts.push(t === "fire" ? "Feuerspur" : t === "lightning" ? "Blitzspur" : "Regenbogen-Spur");
+  }
   return parts.join(" · ");
 }
 
@@ -538,7 +636,7 @@ type DriveTrailParticle = {
   born: number;
   vx: number;
   vy: number;
-  kind: "ember" | "spark";
+  kind: "ember" | "spark" | "prism";
 };
 /** Kräftigere Spur: mehr Partikel, längere Lebensdauer. */
 const DRIVE_TRAIL_MAX = 96;
@@ -549,16 +647,71 @@ function clearDriveTrailParticles(): void {
   driveTrailParticles = [];
 }
 
+function spawnRainbowRushBurst(nowMs: number): void {
+  const gx = px;
+  const gy = pv(px) + 6;
+  for (let i = 0; i < 52; i++) {
+    const ang = (i / 52) * Math.PI * 2 + (roll() - 0.5) * 0.55;
+    const sp = 3.2 + roll() * 11;
+    rainbowRushSparks.push({
+      x: gx + Math.cos(ang) * (10 + roll() * 18),
+      y: gy + Math.sin(ang) * (6 + roll() * 10),
+      vx: Math.cos(ang) * sp * (0.75 + roll() * 0.55),
+      vy: Math.sin(ang) * sp * 0.42 - 2.8 - roll() * 5,
+      born: nowMs,
+      hue: (i * 6.9 + roll() * 50) % 360,
+    });
+  }
+  if (rainbowRushSparks.length > 140) {
+    rainbowRushSparks.splice(0, rainbowRushSparks.length - 140);
+  }
+}
+
+function tickRainbowRushSparks(): void {
+  const now = performance.now();
+  rainbowRushSparks = rainbowRushSparks.filter((s) => now - s.born < RAINBOW_RUSH_SPARK_MS);
+  for (const s of rainbowRushSparks) {
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.11;
+    s.vx *= 0.985;
+  }
+}
+
+function drawRainbowRushSparksLayer(now: number): void {
+  if (rainbowRushSparks.length === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const s of rainbowRushSparks) {
+    const age = now - s.born;
+    const t = age / RAINBOW_RUSH_SPARK_MS;
+    const a = Math.max(0, 1 - t * 1.08);
+    if (a < 0.03) continue;
+    const r = 2.5 + t * 14;
+    ctx.globalAlpha = a * 0.55;
+    const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
+    g.addColorStop(0, `hsla(${(s.hue + 40) % 360}, 100%, 96%, ${0.95 * a})`);
+    g.addColorStop(0.4, `hsla(${s.hue}, 92%, 62%, ${0.45 * a})`);
+    g.addColorStop(1, `hsla(${(s.hue + 180) % 360}, 80%, 45%, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function spawnDriveTrailForMove(deltaPx: number): void {
-  const trail = effectiveMoveTrail();
+  const trail = cosmeticMoveTrailForDraw(performance.now());
   if (trail === "none") return;
   const sign = Math.sign(deltaPx);
   if (sign === 0) return;
   const rearX = px - sign * 46;
   const rearBaseY = pv(px) + 14;
   const now = performance.now();
-  const count = trail === "fire" ? 11 : 9;
-  const kind: DriveTrailParticle["kind"] = trail === "fire" ? "ember" : "spark";
+  const count = trail === "fire" ? 11 : trail === "lightning" ? 9 : 14;
+  const kind: DriveTrailParticle["kind"] =
+    trail === "fire" ? "ember" : trail === "lightning" ? "spark" : "prism";
   for (let i = 0; i < count; i++) {
     driveTrailParticles.push({
       x: rearX + (roll() - 0.5) * 22,
@@ -581,7 +734,7 @@ function tickDriveTrailParticles(): void {
     p.x += p.vx;
     p.y += p.vy;
     p.vy += p.kind === "ember" ? 0.09 : 0.05;
-    p.vx *= p.kind === "ember" ? 0.965 : 0.97;
+    p.vx *= p.kind === "ember" ? 0.965 : p.kind === "prism" ? 0.968 : 0.97;
   }
 }
 
@@ -625,7 +778,7 @@ function drawDriveTrailParticlesLayer(now: number): void {
       ctx.beginPath();
       ctx.arc(p.x - r * 0.22, p.y - r * 0.28, Math.max(1.8, r * 0.22), 0, Math.PI * 2);
       ctx.fill();
-    } else {
+    } else if (p.kind === "spark") {
       const zig = 12 * Math.sin(age / 28 + p.x * 0.11);
       ctx.globalAlpha = a * 0.55;
       ctx.strokeStyle = `rgba(59,130,246,${0.65 * a})`;
@@ -662,9 +815,205 @@ function drawDriveTrailParticlesLayer(now: number): void {
       ctx.moveTo(p.x + 3, p.y - 2);
       ctx.lineTo(p.x + 11, p.y + zig * 0.5);
       ctx.stroke();
+    } else {
+      const hue = (((p.x * 0.31 + p.y * 0.19 + age * 0.42) % 360) + 360) % 360;
+      const r = 3.2 + t * 11;
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = `hsla(${hue}, 90%, 70%, ${0.55 * a})`;
+      ctx.globalAlpha = a * 0.62;
+      const g1 = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 1.1);
+      g1.addColorStop(0, `hsla(${(hue + 40) % 360}, 95%, 96%, ${0.95 * a})`);
+      g1.addColorStop(0.45, `hsla(${hue}, 88%, 62%, ${0.5 * a})`);
+      g1.addColorStop(1, `hsla(${(hue + 180) % 360}, 75%, 45%, 0)`);
+      ctx.fillStyle = g1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = a * 0.85;
+      ctx.strokeStyle = `hsla(${(hue + 120) % 360}, 85%, 72%, ${0.75 * a})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.55, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
   ctx.restore();
+}
+
+/** Leichter Chassis-Glanz passend zur Kosmetik-Fahrspur (Feuer / Blitz / Regenbogen). `g` = Panzer-Lokalsystem (Null am Bodenpunkt, gedreht). */
+function drawCosmeticMoveTrailTankSpace(
+  g: CanvasRenderingContext2D,
+  trail: MoveTrailCosmeticId,
+  timeMs: number,
+  opts?: { lite?: boolean },
+): void {
+  if (trail === "none") return;
+  const lite = opts?.lite === true;
+  const pulse = 0.5 + 0.5 * Math.sin(timeMs * 0.0026);
+  const ox = 0;
+  const oy = -TANK_HALF_H * (lite ? 0.38 : 0.44);
+  const rx = TANK_HALF_W * (lite ? 1.22 : 2.02) * (0.94 + pulse * 0.05);
+  const ry = TANK_HALF_H * (lite ? 1.02 : 1.68) * (0.92 + pulse * 0.05);
+
+  g.save();
+  if (trail === "fire") {
+    const grd = g.createRadialGradient(ox - rx * 0.1, oy - ry * 0.22, 2, ox, oy, Math.max(rx, ry) * 1.02);
+    grd.addColorStop(0, lite ? "rgba(255, 251, 235, 0.36)" : "rgba(255, 251, 235, 0.44)");
+    grd.addColorStop(0.38, lite ? "rgba(251, 191, 36, 0.24)" : "rgba(251, 191, 36, 0.3)");
+    grd.addColorStop(0.72, lite ? "rgba(249, 115, 22, 0.12)" : "rgba(249, 115, 22, 0.17)");
+    grd.addColorStop(1, "rgba(249, 115, 22, 0)");
+    g.fillStyle = grd;
+    g.beginPath();
+    g.ellipse(ox, oy, rx, ry, 0, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = (lite ? 0.38 : 0.52) * (0.55 + pulse * 0.45);
+    g.strokeStyle = "rgba(254, 215, 170, 0.55)";
+    g.lineWidth = lite ? 1.15 : 2;
+    g.beginPath();
+    g.ellipse(ox, oy, rx * 0.86, ry * 0.84, 0, 0, Math.PI * 2);
+    g.stroke();
+  } else if (trail === "lightning") {
+    const grd = g.createRadialGradient(ox + rx * 0.08, oy - ry * 0.18, 2, ox, oy, Math.max(rx, ry) * 1.03);
+    grd.addColorStop(0, lite ? "rgba(224, 242, 254, 0.34)" : "rgba(224, 242, 254, 0.42)");
+    grd.addColorStop(0.4, lite ? "rgba(147, 197, 253, 0.2)" : "rgba(147, 197, 253, 0.26)");
+    grd.addColorStop(0.74, lite ? "rgba(129, 140, 248, 0.11)" : "rgba(99, 102, 241, 0.16)");
+    grd.addColorStop(1, "rgba(79, 70, 229, 0)");
+    g.fillStyle = grd;
+    g.beginPath();
+    g.ellipse(ox, oy, rx, ry, 0, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = (lite ? 0.34 : 0.48) * (0.5 + pulse * 0.5);
+    g.strokeStyle = "rgba(196, 181, 253, 0.58)";
+    g.lineWidth = lite ? 1.1 : 1.85;
+    g.shadowBlur = lite ? 5 : 11;
+    g.shadowColor = "rgba(147, 197, 253, 0.45)";
+    g.beginPath();
+    g.ellipse(ox, oy, rx * 0.9, ry * 0.87, 0, 0, Math.PI * 2);
+    g.stroke();
+    g.shadowBlur = 0;
+  } else {
+    const rxb = rx * (lite ? 1 : 1.58);
+    const ryb = ry * (lite ? 1 : 1.58);
+    const hue0 = (timeMs * 0.055) % 360;
+    const grd = g.createRadialGradient(ox - rxb * 0.06, oy - ryb * 0.12, 2, ox, oy, Math.max(rxb, ryb) * 1.04);
+    grd.addColorStop(0, `hsla(${(hue0 + 30) % 360}, 95%, 92%, ${lite ? 0.34 : 0.44})`);
+    grd.addColorStop(0.28, `hsla(${(hue0 + 120) % 360}, 88%, 68%, ${lite ? 0.22 : 0.3})`);
+    grd.addColorStop(0.55, `hsla(${(hue0 + 220) % 360}, 82%, 58%, ${lite ? 0.14 : 0.21})`);
+    grd.addColorStop(0.82, `hsla(${(hue0 + 300) % 360}, 75%, 52%, ${lite ? 0.07 : 0.12})`);
+    grd.addColorStop(1, "hsla(0,0%,0%,0)");
+    g.fillStyle = grd;
+    g.beginPath();
+    g.ellipse(ox, oy, rxb, ryb, 0, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = (lite ? 0.36 : 0.52) * (0.55 + pulse * 0.45);
+    g.strokeStyle = `hsla(${(hue0 + 180) % 360}, 85%, 72%, 0.52)`;
+    g.lineWidth = lite ? 1.15 : 2.25;
+    g.shadowBlur = lite ? 7 : 22;
+    g.shadowColor = `hsla(${(hue0 + 60) % 360}, 90%, 65%, 0.4)`;
+    g.beginPath();
+    g.ellipse(ox, oy, rxb * 0.88, ryb * 0.85, 0, 0, Math.PI * 2);
+    g.stroke();
+    g.shadowBlur = 0;
+  }
+  g.restore();
+}
+
+/** Regenbogen-„Ki“-Aura (Son-Goku-Stil): großer Glow, aufsteigende Streifen, schwebende Funken — Panzer-Lokalsystem wie {@link drawCosmeticMoveTrailTankSpace}. */
+function drawRainbowGokuKiInTankSpace(
+  W: CanvasRenderingContext2D,
+  timeMs: number,
+  opts: { lite?: boolean; layer: "behind" | "front" },
+): void {
+  const lite = opts.lite === true;
+  const layer = opts.layer;
+  const cx0 = 0;
+  const cy0 = -TANK_HALF_H * (lite ? 0.48 : 0.52);
+  const pulse = 0.5 + 0.5 * Math.sin(timeMs * 0.0031);
+  const hue0 = (timeMs * 0.04) % 360;
+
+  if (layer === "behind") {
+    W.save();
+    W.globalCompositeOperation = "lighter";
+    const rx = TANK_HALF_W * (lite ? 1.55 : 4.45) * (0.92 + pulse * 0.08);
+    const ry = TANK_HALF_H * (lite ? 1.35 : 3.95) * (0.9 + pulse * 0.06);
+    const outer = W.createRadialGradient(cx0 - rx * 0.08, cy0 - ry * 0.08, 3, cx0, cy0, Math.max(rx, ry) * 1.12);
+    outer.addColorStop(0, `hsla(${(hue0 + 40) % 360}, 95%, 92%, ${lite ? 0.22 : 0.34})`);
+    outer.addColorStop(0.35, `hsla(${(hue0 + 140) % 360}, 88%, 60%, ${lite ? 0.14 : 0.22})`);
+    outer.addColorStop(0.65, `hsla(${(hue0 + 240) % 360}, 78%, 52%, ${lite ? 0.07 : 0.14})`);
+    outer.addColorStop(1, "hsla(0,0%,0%,0)");
+    W.fillStyle = outer;
+    W.beginPath();
+    W.ellipse(cx0, cy0, rx, ry, 0, 0, Math.PI * 2);
+    W.fill();
+
+    W.globalAlpha = (lite ? 0.35 : 0.52) * pulse;
+    const rx2 = rx * 1.18;
+    const ry2 = ry * 1.12;
+    const g2 = W.createRadialGradient(cx0, cy0, Math.max(rx, ry) * 0.1, cx0, cy0, Math.max(rx2, ry2) * 0.72);
+    g2.addColorStop(0, `hsla(${(hue0 + 200) % 360}, 85%, 72%, 0.28)`);
+    g2.addColorStop(0.5, `hsla(${(hue0 + 300) % 360}, 75%, 55%, 0.1)`);
+    g2.addColorStop(1, "hsla(0,0%,0%,0)");
+    W.fillStyle = g2;
+    W.beginPath();
+    W.ellipse(cx0, cy0, rx2 * 0.55, ry2 * 0.5, 0, 0, Math.PI * 2);
+    W.fill();
+    W.globalAlpha = 1;
+
+    const nStreak = lite ? 5 : 14;
+    for (let s = 0; s < nStreak; s++) {
+      const u = nStreak <= 1 ? 0.5 : s / (nStreak - 1);
+      const sx = (u - 0.5) * TANK_HALF_W * (lite ? 1.4 : 3.55);
+      const rise = (timeMs * 0.14 + s * 71) % 260;
+      const streakY = cy0 + TANK_HALF_H * (0.1 + (rise / 260) * 0.62);
+      const h = TANK_HALF_H * (lite ? 1.05 : 2.15);
+      const w = TANK_HALF_W * (lite ? 0.085 : 0.125);
+      W.save();
+      W.translate(sx, streakY);
+      W.rotate(Math.sin(timeMs * 0.002 + s) * 0.09);
+      const lg = W.createLinearGradient(0, h * 0.38, 0, -h * 0.62);
+      const sh = (hue0 + s * 36) % 360;
+      lg.addColorStop(0, `hsla(${sh}, 85%, 70%, 0)`);
+      lg.addColorStop(0.42, `hsla(${(sh + 50) % 360}, 95%, 68%, ${lite ? 0.14 : 0.22})`);
+      lg.addColorStop(0.72, `hsla(${(sh + 110) % 360}, 100%, 90%, ${lite ? 0.28 : 0.38})`);
+      lg.addColorStop(1, `hsla(${sh}, 70%, 95%, 0)`);
+      W.fillStyle = lg;
+      W.globalAlpha = lite ? 0.48 : 0.68;
+      W.beginPath();
+      W.ellipse(0, -h * 0.1, w, h * 0.48, 0, 0, Math.PI * 2);
+      W.fill();
+      W.restore();
+    }
+    W.globalCompositeOperation = "source-over";
+    W.restore();
+  } else {
+    W.save();
+    W.globalCompositeOperation = "lighter";
+    const count = lite ? 14 : 52;
+    const rw = TANK_HALF_W * (lite ? 1.0 : 2.95);
+    const rh = TANK_HALF_H * (lite ? 0.82 : 2.15);
+    for (let i = 0; i < count; i++) {
+      const golden = i * 2.39996322972865332 + timeMs * 0.0011;
+      const wobble = Math.sin(timeMs * 0.0033 + i * 0.7) * 0.14;
+      const ang = golden + wobble + timeMs * 0.0009;
+      const radMul = 0.78 + 0.22 * Math.sin(timeMs * 0.0024 + i * 1.1);
+      const bx = cx0 + Math.cos(ang) * rw * radMul;
+      const by = cy0 + Math.sin(ang) * rh * radMul + Math.sin(timeMs * 0.005 + i) * (lite ? 3 : 11);
+      const hue = (timeMs * 0.15 + i * 19 + bx * 0.06) % 360;
+      const pr = (lite ? 2.0 : 3.2) + (i % 4) * 0.45;
+      W.globalAlpha = 0.32 + ((Math.sin(timeMs * 0.006 + i) + 1) * 0.5) * 0.48;
+      const g = W.createRadialGradient(bx, by, 0, bx, by, pr * 1.45);
+      g.addColorStop(0, `hsla(${(hue + 30) % 360}, 100%, 98%, 0.95)`);
+      g.addColorStop(0.48, `hsla(${hue}, 90%, 62%, 0.52)`);
+      g.addColorStop(1, `hsla(${(hue + 180) % 360}, 78%, 48%, 0)`);
+      W.fillStyle = g;
+      W.beginPath();
+      W.arc(bx, by, pr, 0, Math.PI * 2);
+      W.fill();
+    }
+    W.globalCompositeOperation = "source-over";
+    W.restore();
+  }
 }
 
 function impactFxStyle(W: WeaponDef): ImpactBurstStyle {
@@ -994,6 +1343,11 @@ function paintLobbyShowcaseIntoContext(
   L.save();
   L.translate(cx, groundY);
   L.rotate(sway);
+  const lobbyTrail = lobbyCosmeticMoveTrailForDraw();
+  if (shouldDrawRainbowGokuKi(timeMs, true)) {
+    drawRainbowGokuKiInTankSpace(L, timeMs, { lite, layer: "behind" });
+  }
+  drawCosmeticMoveTrailTankSpace(L, lobbyTrail, timeMs, { lite });
   const activeKey = customSpriteKeyForTank(heroDef);
   const drawnActive =
     activeKey != null &&
@@ -1010,6 +1364,9 @@ function paintLobbyShowcaseIntoContext(
   if (!drawnActive) {
     drawTankVisualFxLocal(L, heroDef.id, dw, dh, timeMs, heroFx);
     L.drawImage(spriteSheet, rect.x, rect.y, rect.w, rect.h, -dw / 2, -dh, dw, dh);
+  }
+  if (shouldDrawRainbowGokuKi(timeMs, true)) {
+    drawRainbowGokuKiInTankSpace(L, timeMs, { lite, layer: "front" });
   }
   L.restore();
 
@@ -1342,7 +1699,17 @@ function flightPath(
   vy: number,
   dragMul = 1,
 ): Array<{ x: number; y: number }> {
-  return sampleTrajectory(T, mu.x, mu.y, vx, vy, wa, FLIGHT_MAX_PTS, FLIGHT_DT, dragMul);
+  return sampleTrajectory(
+    T,
+    mu.x,
+    mu.y,
+    vx,
+    vy,
+    effectiveWindAccel(performance.now()),
+    FLIGHT_MAX_PTS,
+    FLIGHT_DT,
+    dragMul,
+  );
 }
 
 function applyDamageToPlayerRounded(rawRounded: number): void {
@@ -1688,6 +2055,9 @@ function resetMatchRound(): void {
   blitzStrikeX = mapDifficulty === "insane" ? camX + VIEW_W * 0.52 : worldW * 0.52;
   enemyBarrelVisDeg = bθ;
   if (mapDifficulty !== "insane") camX = clampCamX((px + bx) / 2 - VIEW_W * 0.5);
+  rainbowBuffAnchorMs = 0;
+  rainbowRushConsumedThisMatch = false;
+  rainbowRushSparks = [];
   clearDriveTrailParticles();
 }
 
@@ -2308,14 +2678,20 @@ const MOVE_TRAIL_SHOP_ROWS: readonly {
   {
     id: "fire",
     title: "Feuerspur",
-    meta: "Glut und Funken hinter den Ketten (← → Fahren). Kaufen, ausrüsten oder mit „Testen“ ansehen — kein Gameplay-Bonus.",
+    meta: "Warmer Chassis-Glanz am Panzer plus Glut und Funken hinter den Ketten (← → Fahren). Kaufen, ausrüsten oder mit „Testen“ ansehen — kein Gameplay-Bonus.",
     price: MOVE_TRAIL_FIRE_PRICE_GEMS,
   },
   {
     id: "lightning",
     title: "Blitzspur",
-    meta: "Kleine Funken und Lichtbögen beim Rangieren. Kaufen, ausrüsten oder „Testen“ — nur Optik.",
+    meta: "Leichtes Blau‑Violett‑Leuchten am Panzer plus Funken beim Rangieren. Kaufen, ausrüsten oder „Testen“ — nur Optik.",
     price: MOVE_TRAIL_LIGHTNING_PRICE_GEMS,
+  },
+  {
+    id: "rainbow",
+    title: "Regenbogen-Spur",
+    meta: "Im Kampf: Taste 7 oder Regenbogen-Button — kurzer Prisma-Rausch, dann 30s große Regenbogen-Aura, stürmischer Himmel (kein Tag), fallende Regenbogen-Sterne, Wind/Störung, voller Locker (inkl. Spezial) und ×1,5 Schaden vs. Gegner (1× pro Partie; Insane ohne Wetter-Effekt). Shop-Test: nur Vorschau.",
+    price: MOVE_TRAIL_RAINBOW_PRICE_GEMS,
   },
 ];
 
@@ -2613,13 +2989,25 @@ function shieldLoadoutHudLine(): string | null {
   return `5. Sonnenkristall · Taste 5 · +${DESERT_SHIELD_ABSORB} · ${chLabel} Akt.`;
 }
 
+function rainbowLoadoutHudLine(): string | null {
+  if (battleTestModeActive()) return null;
+  if (effectiveMoveTrail() !== "rainbow") return null;
+  const now = performance.now();
+  if (rainbowOverdriveBuffActive(now)) return "7. Regenbogen · aktiv";
+  if (rainbowRushConsumedThisMatch) return null;
+  return "7. Regenbogen-Rausch · 7 / Button";
+}
+
 function hudTxt(): void {
   const hWind = document.getElementById("taWind")!;
   const hPh = document.getElementById("taPhase")!;
   const hWp = document.getElementById("taWeapon")!;
   const hHp = document.getElementById("taHp");
-  const wStr = wa >= 0 ? "+" + wa.toFixed(1) : wa.toFixed(1);
-  hWind.textContent = wStr + " px/s²";
+  const wNow = performance.now();
+  const wEff = effectiveWindAccel(wNow);
+  const wStr = wEff >= 0 ? "+" + wEff.toFixed(1) : wEff.toFixed(1);
+  const wTag = Math.abs(rainbowWeatherWindKick(wNow)) > 0.05 ? " · Regenbogen" : "";
+  hWind.textContent = wStr + " px/s²" + wTag;
   if (isBlitzSlot(selectedSlot)) {
     if (canUseBlitzNow()) {
       hWp.textContent = blitzBuddyDe
@@ -2637,7 +3025,7 @@ function hudTxt(): void {
   if (hHp) {
     const sh =
       playerShieldAbsorb > 0 ? ` · Schild ${playerShieldAbsorb}` : "";
-    hHp.textContent = "Du " + hpP + sh + " · Gegner " + hpB;
+    hHp.textContent = "Du " + hpP + sh + " · Gegner " + hpB + rainbowOverdriveHudSuffix(performance.now());
   }
   const testPrefix = hudBattleTestPrefix();
   if (ph === "m") hPh.textContent = testPrefix + "Fahren · Treibstoff " + fuelP;
@@ -2798,6 +3186,42 @@ function drawSkyAndClouds(now: number): void {
     return;
   }
 
+  if (rainbowOverdriveBuffActive(now) && !battleTestModeActive()) {
+    const sky = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.58);
+    sky.addColorStop(0, "#020617");
+    sky.addColorStop(0.16, "#0f172a");
+    sky.addColorStop(0.38, "#1e1b4b");
+    sky.addColorStop(0.58, "#312e81");
+    sky.addColorStop(0.78, "#1e293b");
+    sky.addColorStop(1, "#334155");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+
+    const t = now * 0.00012;
+    const stormMass = (cx: number, cy: number, rx: number, ry: number, top: string, a: number) => {
+      ctx.save();
+      ctx.globalAlpha = a;
+      const g = ctx.createRadialGradient(cx - rx * 0.35, cy - ry * 0.22, 2, cx, cy, Math.max(rx, ry) * 1.06);
+      g.addColorStop(0, top);
+      g.addColorStop(0.52, "rgba(30, 41, 59, 0.78)");
+      g.addColorStop(1, "rgba(15, 23, 42, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    stormMass(WORLD.W * 0.16 + Math.sin(t) * 22, 54, WORLD.W * 0.2, 46, "rgba(51, 65, 85, 0.94)", 1);
+    stormMass(WORLD.W * 0.42 + Math.cos(t * 1.07) * 38, 72, WORLD.W * 0.28, 54, "rgba(71, 85, 105, 0.9)", 1);
+    stormMass(WORLD.W * 0.68 + Math.sin(t * 0.88) * 30, 48, WORLD.W * 0.22, 50, "rgba(51, 65, 85, 0.92)", 1);
+    stormMass(WORLD.W * 0.9, 88, WORLD.W * 0.15, 38, "rgba(30, 41, 59, 0.88)", 0.92);
+    stormMass(WORLD.W * 0.33, 112, WORLD.W * 0.34, 40, "rgba(15, 23, 42, 0.86)", 0.88);
+
+    ctx.fillStyle = "rgba(51, 65, 85, 0.28)";
+    ctx.fillRect(0, WORLD.H * 0.3, WORLD.W, WORLD.H * 0.24);
+    return;
+  }
+
   const sky = ctx.createLinearGradient(0, 0, 0, WORLD.H * 0.5);
   sky.addColorStop(0, "#38bdf8");
   sky.addColorStop(0.35, "#7dd3fc");
@@ -2835,6 +3259,109 @@ function drawSkyAndClouds(now: number): void {
 
   ctx.fillStyle = "rgba(125, 211, 252, 0.32)";
   ctx.fillRect(0, WORLD.H * 0.36, WORLD.W, WORLD.H * 0.2);
+}
+
+function fillStar5Path(
+  g: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  outer: number,
+  inner: number,
+  rotation: number,
+): void {
+  const spikes = 5;
+  const step = Math.PI / spikes;
+  g.beginPath();
+  let rot = rotation - Math.PI / 2;
+  for (let i = 0; i < spikes * 2; i++) {
+    const rad = i % 2 === 0 ? outer : inner;
+    g.lineTo(cx + Math.cos(rot) * rad, cy + Math.sin(rot) * rad);
+    rot += step;
+  }
+  g.closePath();
+  g.fill();
+}
+
+/** Schräge Regen-/Streifen für Regenbogen-Wetter. */
+function drawRainbowStormRainStreaks(nowMs: number): void {
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i = 0; i < 135; i++) {
+    const seed = i * 7919;
+    const tilt = 0.36 + (i % 4) * 0.045;
+    const len = 20 + (i % 8) * 6;
+    const speed = 2.1 + (i % 6) * 0.42;
+    const y = ((nowMs * speed * 0.48 + seed * 0.35) % (WORLD.H * 0.64 + 55)) - 28;
+    const x = ((seed * 19 + nowMs * 0.32 * (1.1 + (i % 5) * 0.1)) % (WORLD.W + 100)) - 50;
+    ctx.strokeStyle = i % 10 === 0 ? "rgba(196, 181, 253, 0.24)" : "rgba(148, 163, 184, 0.26)";
+    ctx.lineWidth = i % 12 === 0 ? 1.45 : 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len * tilt, y + len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Fallende kleine Regenbogen-Sterne (Prisma-Konfetti). */
+function drawRainbowFallingStars(nowMs: number): void {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const n = 78;
+  for (let i = 0; i < n; i++) {
+    const seed = i * 11003 + 17;
+    const spd = 0.085 + (i % 11) * 0.017;
+    const y = ((nowMs * spd + seed * 0.29) % (WORLD.H * 0.76 + 45)) - 28;
+    const sway = Math.sin(nowMs * 0.0021 + i * 0.88) * 24;
+    const xBase = (seed * 29 + i * 137) % WORLD.W;
+    const xw = ((xBase + sway) % WORLD.W + WORLD.W) % WORLD.W;
+    const hue = (nowMs * 0.027 + i * 43) % 360;
+    const outer = 2.6 + (i % 7) * 0.58;
+    const inner = outer * 0.4;
+    const rot = nowMs * 0.0017 + i * 0.52;
+    ctx.fillStyle = `hsla(${hue}, 96%, 71%, 0.88)`;
+    ctx.shadowBlur = 7;
+    ctx.shadowColor = `hsla(${(hue + 55) % 360}, 100%, 62%, 0.5)`;
+    fillStar5Path(ctx, xw, y, outer, inner, rot);
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+/** Iridescent Himmel / Licht-Schlieren, Sturmregen und fallende Sterne während Regenbogen-Buff (kein Insane/Test). */
+function drawRainbowSkyWeatherOverlay(nowMs: number): void {
+  if (mapDifficulty === "insane" || battleTestModeActive() || !rainbowOverdriveBuffActive(nowMs)) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const drift = nowMs * 0.00018;
+  for (let band = 0; band < 7; band++) {
+    const x0 = ((drift * 520 + band * 133) % (WORLD.W + 500)) - 250;
+    const lg = ctx.createLinearGradient(x0, 0, x0 + WORLD.W * 0.62, WORLD.H * 0.5);
+    const hue = (nowMs * 0.018 + band * 41) % 360;
+    lg.addColorStop(0, `hsla(${hue}, 65%, 58%, 0)`);
+    lg.addColorStop(0.45, `hsla(${(hue + 90) % 360}, 88%, 68%, 0.11)`);
+    lg.addColorStop(0.78, `hsla(${(hue + 200) % 360}, 72%, 55%, 0.07)`);
+    lg.addColorStop(1, `hsla(${(hue + 280) % 360}, 55%, 50%, 0)`);
+    ctx.fillStyle = lg;
+    ctx.fillRect(0, 0, WORLD.W, WORLD.H * 0.55);
+  }
+  const wash = ctx.createRadialGradient(
+    WORLD.W * 0.35 + Math.sin(nowMs * 0.0011) * 90,
+    WORLD.H * 0.14,
+    20,
+    WORLD.W * 0.48,
+    WORLD.H * 0.28,
+    Math.max(WORLD.W, WORLD.H) * 0.58,
+  );
+  wash.addColorStop(0, `hsla(${(nowMs * 0.012) % 360}, 90%, 78%, 0.17)`);
+  wash.addColorStop(0.45, `hsla(${(nowMs * 0.012 + 120) % 360}, 70%, 60%, 0.08)`);
+  wash.addColorStop(1, "hsla(0,0%,0%,0)");
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, WORLD.W, WORLD.H * 0.62);
+  ctx.globalCompositeOperation = "source-over";
+  drawRainbowStormRainStreaks(nowMs);
+  drawRainbowFallingStars(nowMs);
+  ctx.restore();
 }
 
 /** Bei Blitz: eine senkrechte Ziel-Linie von oben zur Bodenlage am Einschlags-X. */
@@ -2895,7 +3422,17 @@ function drawAimTrajectoryPreview(): void {
     for (let q = 0; q < nFan; q++) {
       const k = nFan <= 1 ? 0 : (q / (nFan - 1)) * 2 - 1;
       const v = velocityFromElevDeg(true, ang + k * pb.spreadHalfDeg, pow, Wp.velMul);
-      const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1000, FLIGHT_DT, weaponDragMul(Wp));
+      const pts = sampleTrajectory(
+        T,
+        mu.x,
+        mu.y,
+        v.x,
+        v.y,
+        effectiveWindAccel(performance.now()),
+        1000,
+        FLIGHT_DT,
+        weaponDragMul(Wp),
+      );
       if (pts.length < 2) continue;
       const center = q === ((nFan - 1) >> 1);
       ctx.globalAlpha = (dustFan ? 0.34 : 0.24) + (center ? (dustFan ? 0.34 : 0.38) : 0);
@@ -2913,7 +3450,17 @@ function drawAimTrajectoryPreview(): void {
   }
 
   const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-  const pts = sampleTrajectory(T, mu.x, mu.y, v.x, v.y, wa, 1200, FLIGHT_DT, weaponDragMul(Wp));
+  const pts = sampleTrajectory(
+    T,
+    mu.x,
+    mu.y,
+    v.x,
+    v.y,
+    effectiveWindAccel(performance.now()),
+    1200,
+    FLIGHT_DT,
+    weaponDragMul(Wp),
+  );
   if (pts.length < 2) return;
 
   ctx.save();
@@ -3099,12 +3646,15 @@ function drawTankPlaced(
 function drawPlayerTankPlaced(nowMs: number): void {
   const def = activeTankDef();
   const key = customSpriteKeyForTank(def);
+  const rbKi = shouldDrawRainbowGokuKi(nowMs, false);
   if (key != null) {
     const groundY = hullGroundY(px);
     const slope = hullSlope(px);
     ctx.save();
     ctx.translate(px, groundY);
     ctx.rotate(slope);
+    if (rbKi) drawRainbowGokuKiInTankSpace(ctx, nowMs, { lite: false, layer: "behind" });
+    drawCosmeticMoveTrailTankSpace(ctx, cosmeticMoveTrailForDraw(nowMs), nowMs, {});
     const drawn = drawGeneratedTankSpriteLocal(
       ctx,
       key,
@@ -3115,9 +3665,17 @@ function drawPlayerTankPlaced(nowMs: number): void {
       1,
       1,
     );
+    if (rbKi) drawRainbowGokuKiInTankSpace(ctx, nowMs, { lite: false, layer: "front" });
     ctx.restore();
     if (drawn) return;
   }
+  ctx.save();
+  ctx.translate(px, hullGroundY(px));
+  ctx.rotate(hullSlope(px));
+  if (rbKi) drawRainbowGokuKiInTankSpace(ctx, nowMs, { lite: false, layer: "behind" });
+  drawCosmeticMoveTrailTankSpace(ctx, cosmeticMoveTrailForDraw(nowMs), nowMs, {});
+  if (rbKi) drawRainbowGokuKiInTankSpace(ctx, nowMs, { lite: false, layer: "front" });
+  ctx.restore();
   drawTankPlaced(px, atlasRectPlayer(), true, def.id, nowMs);
 }
 
@@ -3199,8 +3757,11 @@ function drawPlayerDesertShieldBubble(): void {
   ctx.restore();
 }
 
-function drawSmokeTrailAhead(j: number): void {
-  if (tr.length >= 4) drawSmokeTrailOnPath(tr, j, 26);
+function drawSmokeTrailAhead(
+  j: number,
+  tone: "warm" | "dust" | "pellet" | "rainbow" = "warm",
+): void {
+  if (tr.length >= 4) drawSmokeTrailOnPath(tr, j, 26, tone);
 }
 
 /** Rauch-/Staubspur hinter Streukügeln oder Direktgeschoss (Farbe abhängig von Waffe). */
@@ -3208,28 +3769,41 @@ function drawSmokeTrailOnPath(
   path: Array<{ x: number; y: number }>,
   j: number,
   spanMax = 18,
-  tone: "warm" | "dust" | "pellet" = "warm",
+  tone: "warm" | "dust" | "pellet" | "rainbow" = "warm",
 ): void {
   if (j < 3 || path.length < 4) return;
   const span = Math.min(spanMax, j);
   const lo = Math.max(0, j - span);
+  const now = performance.now();
   ctx.save();
   for (let i = lo; i < j; i++) {
     const p = path[i]!;
     const t = (i - lo) / Math.max(1, j - lo);
-    const baseA = tone === "dust" ? 0.16 : tone === "pellet" ? 0.14 : 0.1;
-    const topA = tone === "dust" ? 0.48 : tone === "pellet" ? 0.44 : 0.32;
+    const baseA =
+      tone === "dust" ? 0.16 : tone === "pellet" ? 0.14 : tone === "rainbow" ? 0.12 : 0.1;
+    const topA =
+      tone === "dust" ? 0.48 : tone === "pellet" ? 0.44 : tone === "rainbow" ? 0.4 : 0.32;
     ctx.globalAlpha = baseA + t * topA;
     if (tone === "dust") {
       ctx.fillStyle = i % 3 === 0 ? "#fef9c3" : i % 3 === 1 ? "#fde68a" : "#d4a574";
     } else if (tone === "pellet") {
       ctx.fillStyle = i % 3 === 0 ? "#fffef0" : i % 3 === 1 ? "#fef08a" : "#fed7aa";
+    } else if (tone === "rainbow") {
+      const hue = (now * 0.08 + p.x * 0.06 + p.y * 0.04 + i * 14) % 360;
+      ctx.fillStyle = `hsla(${hue}, 88%, ${72 + (i % 3) * 6}%, ${0.55 + t * 0.35})`;
     } else {
       ctx.fillStyle = i % 3 === 0 ? "#fffde4" : "#fde68a";
     }
-    ctx.strokeStyle = tone === "dust" ? "rgba(120,53,15,0.22)" : "rgba(15,23,42,0.2)";
-    ctx.lineWidth = tone === "dust" || tone === "pellet" ? 2 : 1.5;
-    const r = (tone === "dust" ? 2.2 : tone === "pellet" ? 2 : 1.8) + t * (tone === "dust" ? 3.4 : tone === "pellet" ? 3.2 : 2.6);
+    ctx.strokeStyle =
+      tone === "dust"
+        ? "rgba(120,53,15,0.22)"
+        : tone === "rainbow"
+          ? "rgba(15,23,42,0.14)"
+          : "rgba(15,23,42,0.2)";
+    ctx.lineWidth = tone === "dust" || tone === "pellet" || tone === "rainbow" ? 2 : 1.5;
+    const r =
+      (tone === "dust" ? 2.2 : tone === "pellet" ? 2 : tone === "rainbow" ? 2.1 : 1.8) +
+      t * (tone === "dust" ? 3.4 : tone === "pellet" ? 3.2 : tone === "rainbow" ? 3.3 : 2.6);
     ctx.beginPath();
     ctx.arc(p.x, p.y + 1, r, 0, Math.PI * 2);
     ctx.fill();
@@ -3239,8 +3813,27 @@ function drawSmokeTrailOnPath(
   ctx.restore();
 }
 
-function drawProjectile(pos: { x: number; y: number }, prev: { x: number; y: number } | null): void {
-  drawProjectileSized(pos, prev, projectileInFlightStyle ?? DEFAULT_PROJECTILE_GLOW, 1);
+function rainbowProjectileGlowAt(nowMs: number, x: number, y: number): ProjectileGlow {
+  const hue = (nowMs * 0.11 + x * 0.035 + y * 0.028) % 360;
+  const h0 = (hue + 18) % 360;
+  const h1 = (hue + 72) % 360;
+  const h2 = (hue + 200) % 360;
+  return {
+    core: `hsla(${h0}, 100%, 97%, 0.98)`,
+    mid: `hsla(${h1}, 88%, 58%, 0.55)`,
+    rim: `hsla(${h2}, 82%, 48%, 0)`,
+    shadow: `hsla(${(hue + 140) % 360}, 90%, 55%, 0.78)`,
+  };
+}
+
+/** Regenbogen-Leuchten für eigene Fluggeschosse, wenn Regenbogen-Spur / Buff sichtbar ist. */
+function effectiveProjectileGlowForPlayerFlight(
+  base: ProjectileGlow,
+  nowMs: number,
+  pos: { x: number; y: number },
+): ProjectileGlow {
+  if (cosmeticMoveTrailForDraw(nowMs) !== "rainbow") return base;
+  return rainbowProjectileGlowAt(nowMs, pos.x, pos.y);
 }
 
 /** Kleine Streukügelchen — gleiches Sprite, ca. halbe Größe */
@@ -3269,7 +3862,12 @@ function drawProjectileSized(
     ctx.fill();
     ctx.shadowColor = g.shadow;
     ctx.shadowBlur = 14;
+    if (g.core.startsWith("hsla(")) {
+      const hr = (performance.now() * 0.09 + pos.x * 0.025 + pos.y * 0.018) % 360;
+      ctx.filter = `saturate(1.28) hue-rotate(${hr}deg)`;
+    }
     ctx.drawImage(img, r.x, r.y, r.w, r.h, -bw / 2, -bh / 2, bw, bh);
+    ctx.filter = "none";
     ctx.restore();
   } else {
     const pr = 9 * sizeMul;
@@ -3296,7 +3894,8 @@ function drawPlayerBarrelAim(): void {
   const tNow = performance.now();
   const windWobble =
     ph === "aim" && !isBlitzSlot(selectedSlot)
-      ? Math.sin(tNow * 0.0029 + px * 0.017) * (0.75 + Math.min(2.2, Math.abs(wa)) * 0.04)
+      ? Math.sin(tNow * 0.0029 + px * 0.017) *
+        (0.75 + Math.min(2.2, Math.abs(effectiveWindAccel(tNow))) * 0.04)
       : ph === "m"
         ? Math.sin(tNow * 0.0019) * 0.35
         : 0;
@@ -3352,7 +3951,10 @@ function drawWeaponLoadoutHud(): void {
   const baseSz = 18;
   const selSz = 22;
 
-  type HudRow = { row: "weapon"; slot: number; line: string } | { row: "shield"; line: string };
+  type HudRow =
+    | { row: "weapon"; slot: number; line: string }
+    | { row: "shield"; line: string }
+    | { row: "rainbow"; line: string };
   const P = pw();
   const rows: HudRow[] = [];
   for (let idx = 0; idx < P.length; idx++) {
@@ -3363,6 +3965,8 @@ function drawWeaponLoadoutHud(): void {
   rows.push({ row: "weapon", slot: blitzSlotIndex(), line: blitzLoadoutHudLine() });
   const sh = shieldLoadoutHudLine();
   if (sh) rows.push({ row: "shield", line: sh });
+  const rb = rainbowLoadoutHudLine();
+  if (rb) rows.push({ row: "rainbow", line: rb });
 
   ctx.save();
   ctx.font = `900 ${titleSz}px ${HUD_FF}`;
@@ -3391,9 +3995,14 @@ function drawWeaponLoadoutHud(): void {
     const r = rows[i]!;
     const isW = r.row === "weapon";
     const sel = isW && selectedSlot === r.slot;
+    const nowHud = performance.now();
     const dim = isW
       ? r.slot === blitzSlotIndex() && !canUseBlitzNow()
-      : !(playerShieldAbsorb > 0 || canActivateDesertShieldNow());
+      : r.row === "shield"
+        ? !(playerShieldAbsorb > 0 || canActivateDesertShieldNow())
+        : r.row === "rainbow"
+          ? !(rainbowOverdriveBuffActive(nowHud) || canActivateRainbowRushNow())
+          : false;
     const ty = by + rowTop + i * rowGap + 8;
     ctx.save();
     if (dim) ctx.globalAlpha = 0.42;
@@ -3497,9 +4106,10 @@ function drawLightningBoltLayer(now: number): void {
 
 function phaseHintLine(): string {
   const s5 = canActivateDesertShieldNow() ? " · 5=Schild" : "";
-  if (ph === "m") return `Fahren · Treibstoff ${fuelP}${s5}`;
+  const s7 = canActivateRainbowRushNow() ? " · 7=Regenbogen" : "";
+  if (ph === "m") return `Fahren · Treibstoff ${fuelP}${s5}${s7}`;
   if (ph === "aim" && isBlitzSlot(selectedSlot))
-    return `Blitz · von oben · A/D Platz · Klick · Leertaste${s5}`;
+    return `Blitz · von oben · A/D Platz · Klick · Leertaste${s5}${s7}`;
   if (ph === "aim") {
     const now = performance.now();
     const wall =
@@ -3507,7 +4117,7 @@ function phaseHintLine(): string {
         ? " · Rohr blockiert"
         : "";
     const bump = now < barrelBlockedHintUntil ? " · nicht schießbar" : "";
-    return `Zielen · ${ang.toFixed(1)}° · Kraft ${Math.round(pow)}${s5}${wall}${bump}`;
+    return `Zielen · ${ang.toFixed(1)}° · Kraft ${Math.round(pow)}${s5}${s7}${wall}${bump}`;
   }
   if (ph === "pf" || ph === "bf") return "Flug…";
   return "Bot zielt …";
@@ -3517,7 +4127,10 @@ function phaseHintLine(): string {
 function drawCartoonHudOverlay(nowMs: number): void {
   drawWeaponLoadoutHud();
   const pad = 12;
-  const windLine = `${wa >= 0 ? "+" : ""}${wa.toFixed(1)} WIND`;
+  const wHud = effectiveWindAccel(nowMs);
+  const windLine = `${wHud >= 0 ? "+" : ""}${wHud.toFixed(1)} WIND${
+    Math.abs(rainbowWeatherWindKick(nowMs)) > 0.05 ? " · Regenbogen" : ""
+  }`;
   const xpLine = `XP ${readXp()} · Lv ${levelFromXp(readXp())}`;
   ctx.save();
   ctx.font = `800 13px ${HUD_FF}`;
@@ -3553,7 +4166,59 @@ function drawCartoonHudOverlay(nowMs: number): void {
   strokeHudText(msg, mx + mw / 2, my + mh / 2 - 2, "center", 13);
   drawLightningBannerHud(nowMs);
   drawShieldBannerHud(nowMs);
+  drawRainbowRushBattleUi(nowMs);
   ctx.restore();
+}
+
+function rainbowRushButtonRect(): { x: number; y: number; w: number; h: number } | null {
+  if (battleTestModeActive()) return null;
+  if (effectiveMoveTrail() !== "rainbow") return null;
+  const now = performance.now();
+  if (rainbowRushConsumedThisMatch && !rainbowOverdriveBuffActive(now)) return null;
+  return { x: WORLD.W - 112, y: WORLD.H - 182, w: 102, h: 58 };
+}
+
+function drawRainbowRushBattleUi(nowMs: number): void {
+  const br = rainbowRushButtonRect();
+  if (!br) return;
+  const ready = canActivateRainbowRushNow();
+  const active = rainbowOverdriveBuffActive(nowMs);
+  const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.007);
+  ctx.save();
+  pathRoundRect(br.x, br.y, br.w, br.h, 16);
+  const g = ctx.createLinearGradient(br.x, br.y, br.x + br.w, br.y + br.h);
+  if (ready) {
+    g.addColorStop(0, `rgba(255,251,255,${0.88 + pulse * 0.1})`);
+    g.addColorStop(0.4, "rgba(251,207,232,0.94)");
+    g.addColorStop(1, "rgba(147,197,253,0.92)");
+  } else if (active) {
+    g.addColorStop(0, "rgba(220,252,231,0.96)");
+    g.addColorStop(1, "rgba(134,239,172,0.88)");
+  } else {
+    g.addColorStop(0, "rgba(248,250,252,0.92)");
+    g.addColorStop(1, "rgba(226,232,240,0.88)");
+  }
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = ready ? 4 : 3;
+  ctx.stroke();
+  strokeHudText("Regenbogen", br.x + br.w / 2, br.y + 22, "center", 14);
+  const sub = ready
+    ? "Tippen / 7"
+    : active
+      ? `${Math.max(1, Math.ceil((RAINBOW_OVERDRIVE_MS - (nowMs - rainbowBuffAnchorMs)) / 1000))}s`
+      : "";
+  if (sub) strokeHudText(sub, br.x + br.w / 2, br.y + 46, "center", 12);
+  ctx.restore();
+}
+
+function clientToCanvasWorld(clientX: number, clientY: number): { x: number; y: number } {
+  const rect = cv.getBoundingClientRect();
+  return {
+    x: ((clientX - rect.left) / rect.width) * WORLD.W,
+    y: ((clientY - rect.top) / rect.height) * WORLD.H,
+  };
 }
 
 function paint(): void {
@@ -3563,6 +4228,7 @@ function paint(): void {
   ctx.translate(sk.x, sk.y);
 
   drawSkyAndClouds(now);
+  drawRainbowSkyWeatherOverlay(now);
 
   ctx.save();
   ctx.translate(-camX, 0);
@@ -3570,6 +4236,7 @@ function paint(): void {
   drawDriveTrailParticlesLayer(now);
   drawAimTrajectoryPreview();
   drawPlayerTankPlaced(now);
+  drawRainbowRushSparksLayer(now);
   drawTankPlaced(bx, atlasRectForEnemySkin(enemyTankSkin), false);
   drawPlayerDesertShieldBubble();
   drawLifeBar(px, hullGroundY(px), hpP, battleMaxHp, "left");
@@ -3578,14 +4245,21 @@ function paint(): void {
   drawMuzzleFlashes(now);
 
   const gFly = projectileInFlightStyle ?? DEFAULT_PROJECTILE_GLOW;
+  const playerRainbowShots = ph === "pf" && cosmeticMoveTrailForDraw(now) === "rainbow";
   const siPf = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
   const wpPf = pw()[siPf];
   const pbPreview = wpPf?.pelletBurst;
-  const trailTone: "warm" | "dust" | "pellet" = pbPreview
+  const trailTone: "warm" | "dust" | "pellet" | "rainbow" = pbPreview
     ? pbPreview.spreadHalfDeg >= 11
-      ? "dust"
-      : "pellet"
-    : "warm";
+      ? playerRainbowShots
+        ? "rainbow"
+        : "dust"
+      : playerRainbowShots
+        ? "rainbow"
+        : "pellet"
+    : playerRainbowShots
+      ? "rainbow"
+      : "warm";
   const pelletTrailSpan = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 30 : 24) : 14;
   const pelletBulletScale = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 0.62 : 0.58) : 0.48;
 
@@ -3596,14 +4270,15 @@ function paint(): void {
       drawSmokeTrailOnPath(pe.pts, j, pelletTrailSpan, trailTone);
       const p = pe.pts[j]!;
       const prev = j > 0 ? pe.pts[j - 1]! : null;
-      drawProjectileSized(p, prev, gFly, pelletBulletScale);
+      drawProjectileSized(p, prev, effectiveProjectileGlowForPlayerFlight(gFly, now, p), pelletBulletScale);
     }
   } else if ((ph === "pf" || ph === "bf") && tr.length) {
     const j = Math.min(ti, tr.length - 1);
-    drawSmokeTrailAhead(j);
+    drawSmokeTrailAhead(j, playerRainbowShots ? "rainbow" : "warm");
     const p = tr[j]!;
     const prev = j > 0 ? tr[j - 1]! : null;
-    drawProjectile(p, prev);
+    const gSingle = ph === "pf" ? effectiveProjectileGlowForPlayerFlight(gFly, now, p) : gFly;
+    drawProjectileSized(p, prev, gSingle, 1);
   }
   drawImpactBurstLayer(now);
   drawLightningBoltLayer(now);
@@ -3624,7 +4299,16 @@ function finishPlayer(): void {
   const Wp = pw()[si]!;
   const mu = mP(px, true);
   const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wp));
+  const hi = simulateUntilImpact(
+    T,
+    mu.x,
+    mu.y,
+    v.x,
+    v.y,
+    effectiveWindAccel(performance.now()),
+    FLIGHT_DT,
+    weaponDragMul(Wp),
+  );
   spl(hi.x, hi.y, Wp);
   if (chk()) return;
   ph = 'bw';
@@ -3636,7 +4320,16 @@ function finishBot(): void {
   const Wb = WEAPONS[bwI]!;
   const mu = mB(bx, false, bθ);
   const v = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
-  const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wb));
+  const hi = simulateUntilImpact(
+    T,
+    mu.x,
+    mu.y,
+    v.x,
+    v.y,
+    effectiveWindAccel(performance.now()),
+    FLIGHT_DT,
+    weaponDragMul(Wb),
+  );
   spl(hi.x, hi.y, Wb);
   fuelB -= 6;
   if (chk()) return;
@@ -3677,7 +4370,16 @@ function pickBotShot(): void {
     const mu = mB(bx, false, th);
     let eShot = 0;
     if (terrainBlocksBarrelRay(T, bx, pv(bx), th, false, BARREL_LEN_PX)) eShot += 2_800_000;
-    const hi = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(W));
+    const hi = simulateUntilImpact(
+      T,
+      mu.x,
+      mu.y,
+      v.x,
+      v.y,
+      effectiveWindAccel(performance.now()),
+      FLIGHT_DT,
+      weaponDragMul(W),
+    );
     const dx = hi.x - aimX;
     const dy = hi.y - aimY;
     let e = dx * dx + dy * dy * 2.35;
@@ -3746,6 +4448,7 @@ function frame(): void {
     tickEnemyBarrelVis();
     tickCamera();
     tickDriveTrailParticles();
+    tickRainbowRushSparks();
     if ((ph === "pf" || ph === "bf") && (playerPelletFlights?.length || tr.length)) {
       if (ph === "pf" && playerPelletFlights?.length) {
         const si = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
@@ -4135,6 +4838,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const stageEl = document.getElementById("taStage") as HTMLElement | null;
       if (hubHidden && stageEl && !stageEl.hidden) cv.focus();
 
+      if (surrenderStep === 0 && matchResult === null && hpP > 0 && hpB > 0 && hubHidden && stageEl && !stageEl.hidden) {
+        const p = clientToCanvasWorld(e.clientX, e.clientY);
+        const br = rainbowRushButtonRect();
+        if (br && p.x >= br.x && p.x <= br.x + br.w && p.y >= br.y && p.y <= br.y + br.h && tryActivateRainbowRush()) {
+          e.preventDefault();
+          return;
+        }
+      }
+
       if (surrenderStep !== 0 || matchResult !== null) return;
       if (ph !== "aim" || !isBlitzSlot(selectedSlot)) return;
       const rect = cv.getBoundingClientRect();
@@ -4187,6 +4899,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       if (hpP <= 0 || hpB <= 0) return;
+      if (e.code === "Digit7" && tryActivateRainbowRush()) {
+        e.preventDefault();
+        return;
+      }
       if (e.code === "KeyR") {
         e.preventDefault();
         openSurrenderDialog();
@@ -4284,7 +5000,16 @@ document.addEventListener("DOMContentLoaded", () => {
             for (let n = 0; n < pb.count; n++) {
               const v = jitteredShotVelocity(true, ang, pow, Wp.velMul, pb.spreadHalfDeg, roll);
               const pts = flightPath(mu, v.x, v.y, weaponDragMul(Wp));
-              const hit = simulateUntilImpact(T, mu.x, mu.y, v.x, v.y, wa, FLIGHT_DT, weaponDragMul(Wp));
+              const hit = simulateUntilImpact(
+                T,
+                mu.x,
+                mu.y,
+                v.x,
+                v.y,
+                effectiveWindAccel(performance.now()),
+                FLIGHT_DT,
+                weaponDragMul(Wp),
+              );
               playerPelletFlights.push({ pts, hit, ti: 0, applied: false });
             }
             tr = [];

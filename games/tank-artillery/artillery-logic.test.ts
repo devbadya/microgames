@@ -35,6 +35,7 @@ import {
   MOVE_TRAIL_OWNED_KEY,
   MOVE_TRAIL_EQUIPPED_KEY,
   MOVE_TRAIL_FIRE_PRICE_GEMS,
+  MOVE_TRAIL_RAINBOW_PRICE_GEMS,
   readEquippedMoveTrail,
   readOwnedMoveTrailIds,
   setEquippedMoveTrail,
@@ -779,6 +780,26 @@ test("readEquippedMoveTrail: nicht besessene Auswahl → none", () => {
     return;
   }
   expect(readEquippedMoveTrail()).toBe("fire");
+  localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
+  localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
+});
+
+test("Regenbogen-Spur: 2000 💎, Kauf und Ausrüsten", () => {
+  try {
+    localStorage.removeItem(GEM_STORAGE_KEY);
+    localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
+    localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
+  } catch {
+    return;
+  }
+  addGems(MOVE_TRAIL_RAINBOW_PRICE_GEMS - 1);
+  expect(tryBuyMoveTrailCosmetic("rainbow")).toBe("expensive");
+  addGems(1);
+  expect(tryBuyMoveTrailCosmetic("rainbow")).toBe("ok");
+  expect(readOwnedMoveTrailIds()).toContain("rainbow");
+  expect(readEquippedMoveTrail()).toBe("rainbow");
+  expect(tryBuyMoveTrailCosmetic("rainbow")).toBe("owned");
+  localStorage.removeItem(GEM_STORAGE_KEY);
   localStorage.removeItem(MOVE_TRAIL_OWNED_KEY);
   localStorage.removeItem(MOVE_TRAIL_EQUIPPED_KEY);
 });
