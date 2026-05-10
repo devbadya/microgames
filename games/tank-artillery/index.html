@@ -25,21 +25,6 @@
       <button type="button" id="taFullscreenBtn" class="taFullscreenBtn" aria-pressed="false">Vollbild</button>
 
       <div id="taHub" class="taHub taFortniteShell" aria-label="Lobby">
-        <aside class="taFortniteRail" aria-label="Menü">
-          <button type="button" id="taHubTabLobby" class="taHubNavBtn taFortniteRailBtn taHubNavBtn--active">
-            <span class="taFortniteRailIc" aria-hidden="true">⌂</span>
-            <span class="taFortniteRailTxt">Lobby</span>
-          </button>
-          <button type="button" id="taHubTabShop" class="taHubNavBtn taFortniteRailBtn">
-            <span class="taFortniteRailIc" aria-hidden="true">🛒</span>
-            <span class="taFortniteRailTxt">Shop</span>
-          </button>
-          <button type="button" id="taHubTabLocker" class="taHubNavBtn taFortniteRailBtn">
-            <span class="taFortniteRailIc" aria-hidden="true">🎒</span>
-            <span class="taFortniteRailTxt">Locker</span>
-          </button>
-        </aside>
-
         <div class="taFortniteCenter">
           <header class="taFortniteTopBar">
             <p class="taFortniteModeLine">
@@ -62,7 +47,7 @@
                 <div class="taLobbyFloatTop">
                   <h1 class="taLobbyTitle">Panzer-Artillerie</h1>
                   <p id="taLobbyLeadShort" class="taLobbyLeadShort">
-                    Wind · Gelände · Krater — Siege bringen XP und 💎.
+                    Wind · Gelände · Krater — Siege bringen XP und 💎 (mehr bei schwererem Gelände).
                   </p>
                   <div class="taLobbyMapPrefs" aria-label="Karte und Umgebung">
                     <label class="taLobbyMapLbl">
@@ -84,7 +69,18 @@
                   </div>
                 </div>
                 <div class="taLobbyFloatBottom">
-                  <button type="button" id="taHubPlay" class="taHubPlayBtn taLobbyPlayBtn" disabled>Ins Spiel</button>
+                  <div class="taLobbyPlayRow">
+                    <button
+                      type="button"
+                      id="taHubPlayOnline"
+                      class="taHubPlayBtn taLobbyPlayBtn taHubPlayBtn--online"
+                      disabled
+                    >
+                      Online spielen
+                    </button>
+                    <button type="button" id="taHubPlay" class="taHubPlayBtn taLobbyPlayBtn" disabled>Ins Spiel</button>
+                  </div>
+                  <p id="taOnlineMatchStatus" class="taOnlineMatchStatus" role="status" aria-live="polite" hidden></p>
                   <p id="taHubLoadHint" class="taHubLoadHint">Lade Grafiken …</p>
                 </div>
               </div>
@@ -92,6 +88,21 @@
           </section>
           </div>
         </div>
+
+        <aside class="taFortniteRail" aria-label="Menü rechts">
+          <button type="button" id="taHubTabLobby" class="taHubNavBtn taFortniteRailBtn taHubNavBtn--active">
+            <span class="taFortniteRailIc" aria-hidden="true">⌂</span>
+            <span class="taFortniteRailTxt">Lobby</span>
+          </button>
+          <button type="button" id="taHubTabShop" class="taHubNavBtn taFortniteRailBtn">
+            <span class="taFortniteRailIc" aria-hidden="true">🛒</span>
+            <span class="taFortniteRailTxt">Shop</span>
+          </button>
+          <button type="button" id="taHubTabLocker" class="taHubNavBtn taFortniteRailBtn">
+            <span class="taFortniteRailIc" aria-hidden="true">🎒</span>
+            <span class="taFortniteRailTxt">Locker</span>
+          </button>
+        </aside>
       </div>
 
       <div
@@ -249,6 +260,148 @@
 
       <div id="taStage" class="taStage" hidden>
         <canvas id="taCanvas" width="1680" height="720" tabindex="0" aria-label="Panzer-Artillerie"></canvas>
+        <div id="taBattleMenuWrap" class="taBattleMenuWrap" hidden>
+          <button
+            type="button"
+            id="taBattleMenuOpen"
+            class="taBattleMenuOpen"
+            aria-label="Menü"
+            aria-expanded="false"
+            aria-controls="taBattleMenuPanel"
+            title="Menü"
+          >
+            <span class="taBattleMenuOpenBars" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          </button>
+          <div
+            id="taBattleMenuPanel"
+            class="taBattleMenuPanel"
+            hidden
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="taBattleMenuTitle"
+          >
+            <button type="button" class="taBattleMenuScrim" id="taBattleMenuScrim" aria-label="Schließen"></button>
+            <div class="taBattleMenuSheet">
+              <h2 id="taBattleMenuTitle" class="taBattleMenuTitle">Pause</h2>
+              <button type="button" class="taBattleMenuBtn" id="taBattleMenuContinue">Fortfahren</button>
+              <button type="button" class="taBattleMenuBtn taBattleMenuBtn--quit" id="taBattleMenuQuit">Spiel beenden</button>
+            </div>
+          </div>
+        </div>
+        <div
+          id="taMoveDriveHud"
+          class="taMoveDriveHud"
+          hidden
+          aria-label="Fahren — Treibstoff und Steuerknüppel"
+        >
+          <div class="taFuelPill" role="status">
+            <span class="taFuelPillLbl">Treibstoff</span>
+            <span id="taFuelPillVal" class="taFuelPillVal">0</span>
+          </div>
+          <div class="taMoveDriveRow">
+            <div
+              id="taMoveStick"
+              class="taMoveStick"
+              role="slider"
+              aria-orientation="horizontal"
+              aria-valuemin="-1"
+              aria-valuemax="1"
+              aria-valuenow="0"
+              aria-label="Panzer seitlich fahren — loslassen zum Stoppen"
+              tabindex="-1"
+            >
+              <div id="taMoveKnob" class="taMoveKnob" aria-hidden="true"></div>
+            </div>
+            <button
+              type="button"
+              id="taWeaponPickerOpenBtn"
+              class="taWeaponPickerOpenBtn"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="taWeaponPicker"
+              aria-label="Waffe wechseln"
+              title="Waffe wechseln"
+            >
+              <img
+                class="taWeaponPickerOpenBtnImg"
+                src="../../games/tank-artillery/ui/weapon-swap-btn.svg"
+                width="48"
+                height="48"
+                alt=""
+                decoding="async"
+              />
+            </button>
+          </div>
+        </div>
+        <div id="taWeaponPicker" class="taWeaponPicker" hidden aria-hidden="true">
+          <button
+            type="button"
+            class="taWeaponPickerScrim"
+            id="taWeaponPickerScrim"
+            tabindex="-1"
+            aria-label="Waffenwahl schließen"
+          ></button>
+          <div
+            id="taWeaponPickerSheet"
+            class="taWeaponPickerSheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="taWeaponPickerTitle"
+          >
+            <h2 id="taWeaponPickerTitle" class="taWeaponPickerTitle">Waffe wählen</h2>
+            <ul id="taWeaponPickerList" class="taWeaponPickerList"></ul>
+          </div>
+        </div>
+        <div id="taTouchHud" class="taTouchHud taTouchHud--inGame" hidden aria-label="Zielen und Feuer">
+          <div class="taTouchHudRow">
+            <div class="taTouchCol taTouchCol--fire">
+              <button type="button" id="taFeuerBtn" class="taFeuerBtn">FEUER!</button>
+              <span class="taFeuerKbd" aria-hidden="true"><kbd>Leertaste</kbd></span>
+              <button type="button" id="taSkipShotBtn" class="taSkipShotBtn" hidden>
+                Schuss überspringen
+              </button>
+              <span id="taSkipShotKbd" class="taSkipShotKbd" aria-hidden="true" hidden
+                ><kbd>X</kbd> · 1×/Partie</span>
+            </div>
+            <div class="taTouchCol taTouchCol--weaponAim">
+              <button
+                type="button"
+                id="taWeaponPickerOpenBtnAim"
+                class="taWeaponPickerOpenBtn taWeaponPickerOpenBtn--inTouchHud"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="taWeaponPicker"
+                aria-label="Waffe wechseln"
+                title="Waffe wechseln"
+              >
+                <img
+                  class="taWeaponPickerOpenBtnImg"
+                  src="../../games/tank-artillery/ui/weapon-swap-btn.svg"
+                  width="48"
+                  height="48"
+                  alt=""
+                  decoding="async"
+                />
+              </button>
+            </div>
+            <div class="taTouchCol taTouchCol--aim">
+              <div
+                id="taAimRing"
+                class="taAimRing"
+                role="slider"
+                aria-label="Zielen: ziehen für Winkel und Kraft; bei Blitz seitlich ziehen"
+                aria-orientation="horizontal"
+                tabindex="-1"
+              >
+                <div id="taAimKnob" class="taAimKnob" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="taBottom" class="taBottom" hidden>
@@ -260,8 +413,8 @@
           <span class="taBattleTestLeaveKbd"> oder <kbd>Esc</kbd></span>
         </div>
         <p class="taHint">
-          <kbd>←</kbd><kbd>→</kbd> fahren · <kbd>Enter</kbd> zielen · <kbd>A</kbd><kbd>D</kbd> Winkel · <kbd>W</kbd><kbd>S</kbd>
-          Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> zuschlagen · bei Wüsten-Speer: <kbd>5</kbd> Sonnenkristall-Schild (wenn im Shop gekauft) · mit Regenbogen-Spur: <kbd>7</kbd> oder Regenbogen-Button (1× pro Partie) · <kbd>R</kbd> aufgeben
+          <kbd>←</kbd><kbd>→</kbd> oder linker Joystick fahren · Bild-Taste: <strong>Waffe wechseln</strong> (Fahren &amp; Zielen, Liste links) · <kbd>Enter</kbd> oder <kbd>Leertaste</kbd> zielen · <strong>ZIELEN</strong> · in der Zielphase: Kreis ziehen · <kbd>A</kbd><kbd>D</kbd> Winkel · <kbd>W</kbd><kbd>S</kbd>
+          Kraft · <kbd>Shift</kbd> fein · <kbd>1</kbd>–<kbd>4</kbd> Munition · <kbd>4</kbd> = Blitz (ab dem 3. Kampf, dann jeder dritte Kampf, mit Unterstützung von oben): <kbd>A</kbd><kbd>D</kbd> Platz · Klick = Platz · <kbd>Leertaste</kbd> schießen (in der Zielphase) · <kbd>X</kbd> Schuss überspringen (1× pro Partie, nicht beim Blitz) · bei Wüsten-Speer: <kbd>5</kbd> Sonnenkristall-Schild (wenn im Shop gekauft) · mit Regenbogen-Spur: <kbd>7</kbd> oder Regenbogen-Button (1× pro Partie) · <kbd>R</kbd> aufgeben
         </p>
       </div>
 

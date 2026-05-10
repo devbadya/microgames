@@ -26,13 +26,38 @@ test("panzer-artillerie: loads, hud present, shot reaches flight or settle", asy
   await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15000 });
   await page.getByRole("button", { name: "Ins Spiel" }).click();
   await expect(page.locator("#taCanvas")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Menü" })).toBeVisible();
+  await page.getByRole("button", { name: "Menü" }).click();
+  await expect(page.getByRole("heading", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Fortfahren" }).click();
+  await expect(page.locator("#taBattleMenuPanel")).toBeHidden();
+  await page.getByRole("button", { name: "Menü" }).click();
+  await page.getByRole("button", { name: "Spiel beenden" }).click();
+  await expect(page.getByText(/wirklich aufgeben/i)).toBeVisible();
+  await page.getByRole("button", { name: "Nein" }).click();
+  await expect(page.locator("#taSurrender")).toBeHidden();
+  await expect(page.locator("#taMoveDriveHud")).toBeVisible();
+  await expect(page.locator("#taWeaponPickerOpenBtn")).toBeVisible();
+  await expect(page.locator("#taAimRing")).toBeHidden();
   await expect(page.locator("#taHp")).toContainText(/Du \d+/);
+  await page.locator("#taWeaponPickerOpenBtn").click();
+  await expect(page.locator("#taWeaponPickerList")).toBeVisible();
+  await expect(page.locator("#taWeaponPickerList .taWeaponPickerRow")).toHaveCount(4);
+  await page.locator("#taWeaponPickerScrim").click();
+  await expect(page.locator("#taWeaponPicker")).toBeHidden();
   await expect(page.locator("#taWeapon")).toContainText(
-    /Granate|Schwer|Streuschuss|Platzpatrone|Einstreu|Leichtkaliber|Raschsatz|Panzerfaust|Nadelwald|Deckgranate|Schiffsartillerie|Granatsalve|Wüsten-HE|Panzerjäger|Sandsturm|Rotkeil-HE|Glutbrecher|Funkenfächer|Belagerer|Kernhammer|Splittermauer|Viper-Lanze|Eisenzahn|Giftwolke|Silbersterne|Waldkanone|Tiefseegranate|Sonnenstich|Sengschlag|Festungsbrecher|Giftbombe|Blitz/,
+    /Granate|Schwer|Streuschuss|Lehrgranate|Splitterhagel|Chassis-HE|Waldhauch|Baumstampfer|Dornenregen|Brander|Breitseite|Taucherjagd|Sonnenbrand|Sierrabohrer|Staubteufel|Klingen-HE|Lavagrube|Glutfächer|Void-Bresche|Fusionskern|Splitterorkan|Schlangenstoß|Reißzahn|Nebelgift|Konstellation|Dickichtsperre|Schiffsbeben|Hitzewelle|Flammenwand|Sternenfall|Giftbombe|Blitz/,
   );
   await page.locator("#taCanvas").click();
   await page.locator("#taCanvas").press("Enter");
   await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
+  await expect(page.locator("#taMoveDriveHud")).toBeHidden();
+  await expect(page.locator("#taAimRing")).toBeVisible();
+  await expect(page.locator("#taWeaponPickerOpenBtnAim")).toBeVisible();
+  await page.locator("#taWeaponPickerOpenBtnAim").click();
+  await expect(page.locator("#taWeaponPickerList")).toBeVisible();
+  await page.locator("#taWeaponPickerScrim").click();
+  await expect(page.locator("#taWeaponPicker")).toBeHidden();
   /** Rohr kann durch Gelände blockiert sein — Winkel anpassen bis ein Schuss möglich ist. */
   let sawFlight = false;
   for (let i = 0; i < 24; i++) {
@@ -96,7 +121,38 @@ test.describe("Sieg-Menü", () => {
   });
 });
 
-test("panzer-artillerie: Silber Einstreu (Slot 3) — Flugphase endet", async ({ page }) => {
+test("panzer-artillerie: Silber-Waffenliste nutzt PNG-Icons für drei Munitionstypen", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver"]));
+    localStorage.setItem("tank-artillery-tank-equipped-v1", "silver");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
+  await expect(page.locator("#taCanvas")).toBeVisible();
+  await page.locator("#taWeaponPickerOpenBtn").click();
+  await expect(page.locator("#taWeaponPickerList")).toBeVisible();
+  await expect(page.locator("#taWeaponPickerList img.taWeaponPickerShot--static")).toHaveCount(3);
+  await expect(page.locator('img[src*="silver-ammo-platzpatrone"]')).toBeVisible();
+  await expect(page.locator('img[src*="silver-ammo-leichtkaliber"]')).toBeVisible();
+  await expect(page.locator('img[src*="silver-ammo-einstreu"]')).toBeVisible();
+});
+
+test("panzer-artillerie: Schuss mit X einmal überspringen", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
+  await expect(page.locator("#taCanvas")).toBeVisible();
+  await page.locator("#taCanvas").click();
+  await page.locator("#taCanvas").press("Enter");
+  await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
+  await expect(page.locator("#taSkipShotBtn")).toBeVisible();
+  await expect(page.locator("#taSkipShotBtn")).toBeEnabled();
+  await page.locator("#taCanvas").press("x");
+  await expect(page.locator("#taPhase")).toContainText(/Bot zielt/i, { timeout: 10_000 });
+});
+
+test("panzer-artillerie: Silber Splitterhagel (Slot 3) — Flugphase endet", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
   await page.evaluate(() => {
     localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver"]));
@@ -167,6 +223,24 @@ test("panzer-artillerie: Seba1 lokal — 10k ohne Promo-Stub", async ({ page }) 
   await page.getByRole("button", { name: "Einlösen" }).click();
   await expect(page.locator("#taShopCodeMsg")).toContainText(/eingelöst/i, { timeout: 8000 });
   await expect(page.locator("#taShopGems")).toHaveText("10000");
+});
+
+test("panzer-artillerie: Seba lokal — 1M 💎 + 1M XP ohne Promo-Stub", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.removeItem("tank-artillery-gems");
+    localStorage.removeItem("tank-artillery-xp");
+    localStorage.removeItem("tank-artillery-promos-used-v1");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.getByRole("heading", { name: "Item-Shop" })).toBeVisible();
+  await page.getByRole("button", { name: "Code" }).click();
+  await page.locator("#taShopCodeInput").fill("seba");
+  await page.getByRole("button", { name: "Einlösen" }).click();
+  await expect(page.locator("#taShopCodeMsg")).toContainText(/XP/i, { timeout: 8000 });
+  await expect(page.locator("#taShopGems")).toHaveText("1000000");
+  await expect(page.locator("#taShopXpHud")).toHaveText("1000000");
 });
 
 test("panzer-artillerie: AdminS lokal — 1M 💎 ohne Promo-Stub", async ({ page }) => {
@@ -255,6 +329,21 @@ test("panzer-artillerie: Panzer kaufen (100 💎)", async ({ page, request }) =>
   await expect(page.locator(".taLockerTankRow--active")).toContainText("Feld-Green");
 });
 
+test("panzer-artillerie: Bunker-Titan exklusiv (10k 💎) kaufbar", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-gems", "10500");
+    localStorage.removeItem("tank-artillery-tanks-owned-v1");
+    localStorage.removeItem("tank-artillery-tank-equipped-v1");
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Shop" }).click();
+  await expect(page.locator("#taShopTankList").getByText("Bunker-Titan")).toBeVisible();
+  await page.locator('[data-tank-purchase="bunker"]').click();
+  await expect(page.locator("#taShopTankMsg")).toContainText(/Bunker-Titan gekauft/i);
+  await expect(page.locator("#taShopGems")).toHaveText("500", { timeout: 5000 });
+});
+
 test("panzer-artillerie: neuer Roter Keil ist kaufbar und startet im Kampf", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
   await page.evaluate(() => {
@@ -276,7 +365,7 @@ test("panzer-artillerie: neuer Roter Keil ist kaufbar und startet im Kampf", asy
 
   await page.getByRole("button", { name: "Ins Spiel" }).click();
   await expect(page.locator("#taCanvas")).toBeVisible();
-  await expect(page.locator("#taWeapon")).toContainText(/Rotkeil-HE|Glutbrecher|Funkenfächer/);
+  await expect(page.locator("#taWeapon")).toContainText(/Klingen-HE|Lavagrube|Glutfächer/);
 });
 
 test("panzer-artillerie: Blitz ohne eigenen Flug (Slot 4, dann Leertaste)", async ({ page }) => {
@@ -374,7 +463,7 @@ test("panzer-artillerie: Testspiel mit Esc verlassen", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Panzer-Artillerie" })).toBeVisible();
 });
 
-test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Waldkanone auf Green", async ({ page }) => {
+test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Dickichtsperre auf Green", async ({ page }) => {
   await page.goto("/games/tank-artillery/");
   await page.evaluate(() => {
     localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver", "green"]));
@@ -391,6 +480,43 @@ test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Waldkanone auf 
   await page.locator("#taCanvas").press("Enter");
   await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
   await page.locator("#taCanvas").press("Digit6");
-  await expect(page.locator("#taWeapon")).toContainText(/Waldkanone/);
+  await expect(page.locator("#taWeapon")).toContainText(/Dickichtsperre/);
+});
+
+test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Hitzewelle auf Wüsten-Speer", async ({ page }) => {
+  await page.goto("/games/tank-artillery/");
+  await page.evaluate(() => {
+    localStorage.setItem("tank-artillery-tanks-owned-v1", JSON.stringify(["silver", "desert"]));
+    localStorage.setItem("tank-artillery-tank-equipped-v1", "desert");
+    localStorage.setItem(
+      "tank-artillery-locker-upgrades-v1",
+      JSON.stringify({ desert: { fuel: 10, damage: 10, power: 10 } }),
+    );
+  });
+  await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Ins Spiel" }).click();
+  await expect(page.locator("#taCanvas")).toBeVisible();
+  await page.locator("#taCanvas").click();
+  await page.locator("#taCanvas").press("Enter");
+  await expect(page.locator("#taPhase")).toContainText(/Zielen/i);
+  await page.locator("#taCanvas").press("Digit6");
+  await expect(page.locator("#taWeapon")).toContainText(/Hitzewelle/);
+});
+
+test.describe("Online-Lobby", () => {
+  test("Online spielen und Abbrechen", async ({ page }, testInfo) => {
+    const room = `e2e-cancel-${testInfo.workerIndex}`;
+    await page.goto(`/games/tank-artillery/?taOnlineRoom=${encodeURIComponent(room)}`);
+    const online = page.locator("#taHubPlayOnline");
+    await expect(online).toBeVisible();
+    await expect(online).toBeEnabled({ timeout: 15_000 });
+    await online.click();
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+    await expect(page.locator("#taOnlineMatchStatus")).toContainText(/Suche|Gegner|Zweites|Verbindung/i);
+    await page.getByRole("button", { name: "Abbrechen" }).click();
+    await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled();
+    await expect(online).toHaveText("Online spielen", { timeout: 15_000 });
+    await expect(online).toBeEnabled();
+  });
 });
 

@@ -2,11 +2,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["games/**/*.test.ts", "assets/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "games/**/*.test.ts", "assets/**/*.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
       include: [
+        "lib/webrtc-p2p.ts",
         "games/dino-run/dino-logic.ts",
         "games/sky-hopper/sky-logic.ts",
         "games/tetris/tetris-logic.ts",

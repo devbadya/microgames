@@ -31,7 +31,6 @@ import {
   readOwnedTankIds,
   readPromoUsedKeys,
   reservePromoGlobalSlot,
-  rollGemsForWin,
   readGems,
   isLocalTankArtilleryPromoHost,
   unlockAdminGems,
@@ -52,6 +51,7 @@ import {
   sampleTrajectory,
   simulateUntilImpact,
   splashDamage,
+  type SimulateUntilImpactOpts,
   tryBuyTank,
   tryBuyDesertShield,
   tryBuyMoveTrailCosmetic,
@@ -81,9 +81,16 @@ import {
   LOCKER_UPGRADE_MAX_LEVEL,
   type LockerUpgradeBranchId,
   velocityFromElevDeg,
-  jitteredShotVelocity,
+  jitteredPlayerShotVelocity,
+  playerShotVelocityForTank,
+  playerBarrelDrawDeg,
+  weaponProjectileFlightVisualProfile,
+  shellKindForWeaponId,
   XP_WIN,
+  xpWinForMapDifficulty,
+  rollGemsForMapDifficulty,
   type ProjectileGlow,
+  type WeaponShellKind,
   type TerrainSurface,
   type WeaponDef,
   type PlayerTankId,
@@ -91,8 +98,12 @@ import {
   type MapBattleTheme,
   lockerMaxBonusWeaponFor,
   lockerMaxSpecialAttackUnlocked,
+  BUNKER_LASER_DURATION_MS,
+  BUNKER_LASER_DPS,
+  enemyMaxHpForPlayerTank,
 } from "./artillery-logic";
 import { currentFullscreenElement, fullscreenToggleStrings, toggleRootFullscreen } from "./fullscreen";
+import { connectP2pJsonChannel, type P2pJsonChannelResult } from "../../lib/webrtc-p2p";
 
 declare global {
   interface Window {
@@ -159,7 +170,26 @@ let lightningBolt: null | {
 let lightningBannerUntil = 0;
 let lightningBannerLines: string[] = [];
 
+/** Bunker-exklusiv: Siegelaser (Taste 8), 1× pro Runde, {@link BUNKER_LASER_DURATION_MS}. */
+let bunkerLaserEndMs = 0;
+let bunkerLaserConsumedThisMatch = false;
+let bunkerLaserBannerUntil = 0;
+let bunkerLaserBannerLines: string[] = [];
+let bunkerLaserLastSampleMs = 0;
+let bunkerLaserDamageAcc = 0;
+
 type Ph = "m" | "aim" | "pf" | "bw" | "bf";
+
+/** Signaling-Raum für „Gegner suchen“ (Stub: max. 2 Clients pro Raum). */
+const TANK_ONLINE_MATCH_ROOM = "matchmaking";
+const TANK_ONLINE_SEARCH_MS = 90_000;
+
+let hubSpritesReady = false;
+let onlineSearchSeq = 0;
+let onlineLobbyMatch: P2pJsonChannelResult | null = null;
+let onlineLobbySearchRunning = false;
+let onlineLobbySearchAbort: AbortController | null = null;
+let hubPlayDisabledForOnlineSearch = false;
 
 /** Laufende Kampf-Nummer seit Programmstart — resetMatchRound erhöht sie (3., 6., … = Blitz-Welle) */
 let kampfNr = 0;
@@ -229,8 +259,10 @@ let camX = 0;
 let seed = (Date.now() % 1_000_000) >>> 0;
 let px = 156;
 let bx = VIEW_W - 156;
-/** Max. LP dieser Partie (von ausgerüstetem Panzer — Gegner gleich). */
+/** Max. LP des Spielers diese Partie (ausgerüsteter Panzer). */
 let battleMaxHp = DEFAULT_HP;
+/** Max. LP des Gegners (meist = Spieler; Bunker-Titan: niedriger). */
+let battleMaxHpEnemy = DEFAULT_HP;
 let hpP = DEFAULT_HP;
 let hpB = DEFAULT_HP;
 let fuelP = FUEL_MOVE;
@@ -258,10 +290,27 @@ let enemyBarrelRecoilDeg = 0;
 let barrelVisVel = 0;
 let enemyBarrelVel = 0;
 let pow = 480;
-/** 0… = Geschosse aus {@link pw}; {@link blitzSlotIndex} = Blitz (Taste 4). */
+/** Touch-Zielring: während Ziehen keine Knopf-Sync aus Tastatur-Zustand. */
+let taAimRingDragging = false;
+/** Startpunkt für relatives Ziehen (kein Sprung beim ersten Touch). */
+let taAimDragClientX0 = 0;
+let taAimDragClientY0 = 0;
+let taAimDragAng0 = 0;
+let taAimDragPow0 = 0;
+let taAimDragBlitz0 = 0;
+/** Touch-Joystick Fahrphase: seitlich halten = wiederholtes Fahren wie ←/→ */
+let taMoveStickDragging = false;
+let taMoveDriveDir: -1 | 0 | 1 = 0;
+let taMoveNextDriveAt = 0;
+const TA_MOVE_REPEAT_MS = 88;
+/** Waffen-Seitenleiste (nur Fahrphase) */
+let weaponPickerSheetOpen = false;
+/** 0…pw.length−1 = Waffen aus {@link pw}; Slot pw.length = Blitz (Taste 4). */
 let selectedSlot = 0;
 /** Aktives Geschossprofil nur fürs Flug-Sprite (Spieler oder Bot-Zug) */
 let projectileInFlightStyle: ProjectileGlow | null = null;
+/** Zugehörige Waffen-ID für Silber-spezifische Flug-Optik (`weaponProjectileFlightVisualProfile`). */
+let projectileFlightWeaponId: string | null = null;
 
 let testDriveTankId: PlayerTankId | null = null;
 /** Shop-Test einer Fahr-Spur (Feuer/Blitz) ohne Kauf — nur Optik. */
@@ -339,6 +388,65 @@ function playerDamageMulVersusBot(): number {
   return base * (rainbowOverdriveBuffActive(now) ? RAINBOW_OVERDRIVE_DAMAGE_MULT : 1);
 }
 
+function bunkerSiegeLaserActive(nowMs: number): boolean {
+  return activeTankId() === "bunker" && nowMs < bunkerLaserEndMs && hpB > 0;
+}
+
+function canActivateBunkerSiegeLaserNow(): boolean {
+  return (
+    activeTankId() === "bunker" &&
+    !bunkerLaserConsumedThisMatch &&
+    matchResult === null &&
+    surrenderStep === 0 &&
+    hpP > 0 &&
+    hpB > 0 &&
+    !isBattlePauseMenuPanelOpen()
+  );
+}
+
+function tryActivateBunkerSiegeLaserFromKeys(): boolean {
+  if (!canActivateBunkerSiegeLaserNow()) return false;
+  const now = performance.now();
+  bunkerLaserEndMs = now + BUNKER_LASER_DURATION_MS;
+  bunkerLaserConsumedThisMatch = true;
+  bunkerLaserLastSampleMs = now;
+  bunkerLaserDamageAcc = 0;
+  bunkerLaserBannerUntil = now + 2600;
+  bunkerLaserBannerLines = ["Siegelaser", "5 s violett · Dauerfeuer"];
+  hudTxt();
+  return true;
+}
+
+function tickBunkerSiegeLaser(now: number): void {
+  if (!bunkerSiegeLaserActive(now)) return;
+  if (matchResult !== null || surrenderStep !== 0 || hpB <= 0) return;
+  if (bunkerLaserLastSampleMs <= 0) bunkerLaserLastSampleMs = now;
+  const dt = Math.min(0.4, Math.max(0, (now - bunkerLaserLastSampleMs) / 1000));
+  bunkerLaserLastSampleMs = now;
+  if (dt <= 0) return;
+  bunkerLaserDamageAcc += BUNKER_LASER_DPS * dt * playerDamageMulVersusBot();
+  const deal = Math.floor(bunkerLaserDamageAcc);
+  if (deal > 0) {
+    bunkerLaserDamageAcc -= deal;
+    hpB -= deal;
+    hpB = Math.max(0, hpB);
+    shakeUntil = now + 100;
+    shakeDurMs = 62;
+    void chk();
+  }
+}
+
+function bunkerSiegeLaserHudSuffix(): string {
+  if (activeTankId() !== "bunker") return "";
+  const now = performance.now();
+  if (bunkerSiegeLaserActive(now)) {
+    const left = Math.max(1, Math.ceil((bunkerLaserEndMs - now) / 1000));
+    return ` · Siegelaser ${left}s`;
+  }
+  if (!bunkerLaserConsumedThisMatch) return " · Siegelaser 1× (Waffe oder 8)";
+  return "";
+}
+
 function activeTankId(): PlayerTankId {
   return testDriveTankId ?? readEquippedTankId();
 }
@@ -350,12 +458,17 @@ function activeTankDef(): PlayerTankDef {
 function lockerMaxSpecialUnlocked(): boolean {
   return lockerMaxSpecialAttackUnlocked(effectiveBattleLockerLevels());
 }
-/** Blitz-Tastatur-Slot: 3 ohne Spezial (6), 4 wenn Spezial freigeschaltet ist. */
+/** Blitz-Slot: direkt nach allen Einträgen von {@link pw()} (Panzer + ggf. Locker-Spezial). */
 function blitzSlotIndex(): number {
-  return lockerMaxSpecialUnlocked() ? 4 : 3;
+  return pw().length;
 }
 function isBlitzSlot(slot: number): boolean {
   return slot === blitzSlotIndex();
+}
+
+function playerSiegeLaserWeaponSelected(): boolean {
+  if (isBlitzSlot(selectedSlot)) return false;
+  return pw()[selectedSlot]?.siegeLaser === true;
 }
 
 function effectiveMoveTrail(): MoveTrailCosmeticId {
@@ -397,6 +510,31 @@ function battleTestOverlaySuffix(): string {
 function hudBattleTestPrefix(): string {
   if (!battleTestModeActive()) return "";
   return `TEST · ${battleTestOverlaySuffix()} · Normal · `;
+}
+
+/** Zielen-Phase: Steuerungshinweis je Panzer-Ballistik (DE). */
+function playerAimHudCoreDe(): string {
+  const id = activeTankId();
+  const vals =
+    id === "bunker"
+      ? `${ang.toFixed(1)}° Seite · ${Math.round(pow)} Reichweite`
+      : `${ang.toFixed(1)}° · ${Math.round(pow)}`;
+  switch (id) {
+    case "silver":
+      return `Zielen · A/D Winkel · W/S Kraft · ${vals}`;
+    case "green":
+      return `Zielen · A/D Raster 0,5° · W/S Kraft · ${vals}`;
+    case "navy":
+      return `Zielen · A/D Bogen · W/S (mehr Kraft etwas flacher) · ${vals}`;
+    case "desert":
+      return `Zielen · A/D Bogen · W/S · Quer-Schub · ${vals}`;
+    case "crimson":
+      return `Zielen · A/D · W/S · Überdruck-Ladung · ${vals}`;
+    case "bunker":
+      return `Zielen · Mörser: A/D Seitenführung · W/S Reichweite · ${vals}`;
+    case "viper":
+      return `Zielen · A/D · W/S · Spulen-Linie · ${vals}`;
+  }
 }
 
 function pw(): WeaponDef[] {
@@ -592,7 +730,7 @@ let blitzStrikeX = VIEW_W * 0.52;
 let wa = 0;
 let ph: Ph = "m";
 let tr: Array<{ x: number; y: number }> = [];
-/** Parallele Kügelchen (z. B. Silber „Einstreu“) */
+/** Parallele Kügelchen (z. B. Silber „Splitterhagel“) */
 type PlayerPelletFlight = {
   pts: Array<{ x: number; y: number }>;
   hit: { x: number; y: number };
@@ -615,10 +753,27 @@ let muzzleExpire = 0;
 let botMuzzleExpire = 0;
 /** Nach „Schuss gegen Wand“: kurzer Hinweis in der Statuszeile. */
 let barrelBlockedHintUntil = 0;
+/** Einmal pro Partie: Zug ohne Schuss beenden (kein Treffer, kein Munitionsverbrauch). */
+let skipShotUsedThisMatch = false;
 /** kurzes Zittern nach Einschlag */
 let shakeUntil = 0;
+/** Dauer des aktuellen Shake (ms), für Amplitude in {@link shakeOffset}. */
+let shakeDurMs = 260;
 
-type ImpactBurstStyle = "default" | "electric" | "dust" | "pellet" | "poison";
+type ImpactBurstStyle =
+  | "default"
+  | "electric"
+  | "dust"
+  | "pellet"
+  | "poison"
+  | "practice"
+  | "silverStars"
+  | "forestBloom"
+  | "marineBurst"
+  | "desertBloom"
+  | "emberBurst"
+  | "bastionBurst"
+  | "venomBloom";
 
 type ImpactBurstFx = {
   x: number;
@@ -1018,6 +1173,26 @@ function drawRainbowGokuKiInTankSpace(
 
 function impactFxStyle(W: WeaponDef): ImpactBurstStyle {
   if (W.id === "viper_gift_bomb") return "poison";
+  if (W.id === "silv_pop") return "practice";
+  if (W.id === "silv_lock_special") return "silverStars";
+  if (W.id === "gr_streak" || W.id === "gr_bunker" || W.id === "gr_needle" || W.id === "grn_lock_special") {
+    return "forestBloom";
+  }
+  if (W.id === "nav_g" || W.id === "nav_h" || W.id === "nav_s" || W.id === "nvy_lock_special") {
+    return "marineBurst";
+  }
+  if (W.id === "des_g" || W.id === "des_h" || W.id === "des_s" || W.id === "dst_lock_special") {
+    return "desertBloom";
+  }
+  if (W.id === "cr_he" || W.id === "cr_breaker" || W.id === "cr_sparks" || W.id === "crm_lock_special") {
+    return "emberBurst";
+  }
+  if (W.id.startsWith("bnk_")) {
+    return "bastionBurst";
+  }
+  if (W.id === "vip_lance" || W.id === "vip_fang" || W.id === "vip_swarm") {
+    return "venomBloom";
+  }
   const pb = W.pelletBurst;
   if (pb && pb.spreadHalfDeg >= 11) return "dust";
   if (pb) return "pellet";
@@ -1026,6 +1201,8 @@ function impactFxStyle(W: WeaponDef): ImpactBurstStyle {
 
 function maxImpactBurstAgeMs(style: ImpactBurstStyle | undefined): number {
   switch (style) {
+    case "practice":
+      return 820;
     case "dust":
       return 880;
     case "pellet":
@@ -1034,6 +1211,20 @@ function maxImpactBurstAgeMs(style: ImpactBurstStyle | undefined): number {
       return 700;
     case "poison":
       return 900;
+    case "silverStars":
+      return 940;
+    case "forestBloom":
+      return 920;
+    case "marineBurst":
+      return 915;
+    case "desertBloom":
+      return 917;
+    case "emberBurst":
+      return 912;
+    case "bastionBurst":
+      return 928;
+    case "venomBloom":
+      return 908;
     default:
       return 640;
   }
@@ -1064,8 +1255,20 @@ let surrenderStep: 0 | 1 | 2 = 0;
 /** Ende der Partie: Overlay mit großer Meldung, bis „Weiter“ / „Nochmal versuchen“. */
 let matchResult: null | "win" | "lose" | "surrender" = null;
 
+/** Nach Gegner-K.o.: lila UFO-Sequenz, danach erst XP/💎 und Sieg-Overlay (nicht im Testmodus). */
+const ENEMY_WIN_UFO_TOTAL_MS = 4800;
+let enemyUfoWinPending: {
+  startMs: number;
+  winXp: number;
+  winGems: number;
+  /** Welt-X / Boden-Y wo der Gegner abgeholt wurde — Grabstein fällt dort ein. */
+  ripX: number;
+  ripGroundY: number;
+} | null = null;
+
 /** Lobby-Unterzeile — Originaltext, nach Aufgeben zeitweise Hinweis */
-let defaultLobbyLeadShort = "Wind · Gelände · Krater — Siege bringen XP und 💎.";
+let defaultLobbyLeadShort =
+  "Wind · Gelände · Krater — Siege bringen XP und 💎 (mehr bei schwererem Gelände).";
 let lobbyLeadResetTimer = 0;
 
 /** Aufgeben-Rückkehr zur Lobby ruft bereits `begin()` — „Ins Spiel“ das nächste Mal nicht zweimal erhöhen. */
@@ -1075,6 +1278,10 @@ let ctx: CanvasRenderingContext2D;
 let cv: HTMLCanvasElement;
 /** Kenney Retina-Spritesheet (`public/games/tank-artillery/kenney/tanks_spritesheetRetina.png`) */
 let spriteSheet: HTMLImageElement | null = null;
+type SilverFlightProjectileTexKey = "silv_pop" | "silv_med" | "silv_burst";
+
+/** Flug-Geschosse: vorverarbeitete Canvas-Kopien (weißer PNG-Hintergrund → Alpha). */
+const silverFlightProjectileDrawables: Partial<Record<SilverFlightProjectileTexKey, HTMLCanvasElement>> = {};
 const generatedTankImages: Partial<Record<GeneratedTankSpriteKey, HTMLImageElement>> = {};
 let playerTankMotionUntil = 0;
 
@@ -1159,6 +1366,111 @@ function drawLifeBar(centerX: number, hullBottomY: number, hpNow: number, maxHp:
   ctx.restore();
 }
 
+function silverFlightProjectileTextureKey(wid: string | undefined): SilverFlightProjectileTexKey | undefined {
+  if (!wid) return undefined;
+  if (wid === "silv_pop" || wid === "silv_burst") return wid;
+  if (wid === "silv_med" || wid === "silv_lock_special") return "silv_med";
+  return undefined;
+}
+
+/**
+ * Entfernt helles Backing (typisch weißer KI-Hintergrund): Referenzfarbe aus den Bildecken,
+ * dann transparent nach RGB-Abstand mit weichem Übergang.
+ */
+function knockOutNearCornerBackdropToAlpha(source: HTMLImageElement): HTMLCanvasElement {
+  const w = source.naturalWidth;
+  const h = source.naturalHeight;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const x = out.getContext("2d", { willReadFrequently: true });
+  if (!w || !h || !x) return out;
+  x.drawImage(source, 0, 0);
+  let data: ImageData;
+  try {
+    data = x.getImageData(0, 0, w, h);
+  } catch {
+    return out;
+  }
+  const d = data.data;
+  const inset = Math.max(1, Math.floor(Math.min(w, h) * 0.02));
+  const cornerPx = [
+    inset,
+    inset,
+    w - 1 - inset,
+    inset,
+    inset,
+    h - 1 - inset,
+    w - 1 - inset,
+    h - 1 - inset,
+  ];
+  let sr = 0;
+  let sg = 0;
+  let sb = 0;
+  const ns = cornerPx.length / 2;
+  for (let q = 0; q < cornerPx.length; q += 2) {
+    const sx = cornerPx[q]!;
+    const sy = cornerPx[q + 1]!;
+    const j = (sy * w + sx) * 4;
+    sr += d[j]!;
+    sg += d[j + 1]!;
+    sb += d[j + 2]!;
+  }
+  sr /= ns;
+  sg /= ns;
+  sb /= ns;
+
+  const HARD = 34;
+  const SOFT = 52;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i]!;
+    const gch = d[i + 1]!;
+    const b = d[i + 2]!;
+    const dr = r - sr;
+    const dg = gch - sg;
+    const db = b - sb;
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+    const origA = d[i + 3]!;
+    if (dist < HARD) {
+      d[i + 3] = 0;
+    } else if (dist < SOFT) {
+      const t = (dist - HARD) / (SOFT - HARD);
+      d[i + 3] = Math.round(origA * t);
+    }
+  }
+  x.putImageData(data, 0, 0);
+  return out;
+}
+
+function loadSilverFlightProjectileTextures(done: () => void): void {
+  const base = `${import.meta.env.BASE_URL}games/tank-artillery/ui/`;
+  const urls: Record<SilverFlightProjectileTexKey, string> = {
+    silv_pop: `${base}silver-ammo-platzpatrone.png`,
+    silv_med: `${base}silver-ammo-leichtkaliber.png`,
+    silv_burst: `${base}silver-ammo-einstreu.png`,
+  };
+  const keys = Object.keys(urls) as SilverFlightProjectileTexKey[];
+  let left = keys.length;
+  const step = (): void => {
+    left -= 1;
+    if (left <= 0) done();
+  };
+  for (const key of keys) {
+    const im = new Image();
+    im.decoding = "async";
+    im.onload = () => {
+      silverFlightProjectileDrawables[key] = knockOutNearCornerBackdropToAlpha(im);
+      step();
+    };
+    im.onerror = () => {
+      console.warn(`Panzer-Artillerie: Flug-Textur konnte nicht geladen werden (${key}).`);
+      step();
+    };
+    im.src = urls[key]!;
+  }
+}
+
 function loadGeneratedTankSprites(onReady: () => void): void {
   const entries = Object.entries(GENERATED_TANK_SPRITES) as Array<
     [GeneratedTankSpriteKey, GeneratedTankSpriteDef]
@@ -1195,13 +1507,13 @@ function loadSpritesheet(onReady: () => void): void {
   im.onload = () => {
     const proceed = () => {
       spriteSheet = im;
-      loadGeneratedTankSprites(onReady);
+      loadSilverFlightProjectileTextures(() => loadGeneratedTankSprites(onReady));
     };
     void im.decode().then(proceed).catch(proceed);
   };
   im.onerror = () => {
     console.warn("Panzer-Artillerie: Kenney-Bogen konnte nicht geladen werden.");
-    loadGeneratedTankSprites(onReady);
+    loadSilverFlightProjectileTextures(() => loadGeneratedTankSprites(onReady));
   };
   im.src = SPRITESHEET_REL;
 }
@@ -1524,6 +1836,16 @@ function hullGroundY(tx: number): number {
   return hullPose(tx).groundY;
 }
 
+/** Flug-Simulation: Ziel-Hülle des Gegners (Spieler schießt nach rechts). */
+function enemyImpactHullOpts(): SimulateUntilImpactOpts {
+  return { hull: { cx: bx, baseY: hullGroundY(bx) } };
+}
+
+/** Flug-Simulation: Ziel-Hülle des Spielers (Bot schießt nach links). */
+function playerImpactHullOpts(): SimulateUntilImpactOpts {
+  return { hull: { cx: px, baseY: hullGroundY(px) } };
+}
+
 function hullSlope(tx: number): number {
   return hullPose(tx).slope;
 }
@@ -1564,7 +1886,14 @@ function pv(tx: number): number {
 const BARREL_LEN_PX = 61;
 
 function playerBarrelLosBlocked(): boolean {
-  return terrainBlocksBarrelRay(T, px, pv(px), ang, true, BARREL_LEN_PX);
+  return terrainBlocksBarrelRay(
+    T,
+    px,
+    pv(px),
+    playerBarrelDrawDeg(activeTankId(), ang),
+    true,
+    BARREL_LEN_PX,
+  );
 }
 
 function muzzleAt(tx: number, L: boolean, deg: number): { x: number; y: number } {
@@ -1578,7 +1907,7 @@ function hullPivot(tx: number): { x: number; y: number } {
   return { x: tx, y: pv(tx) };
 }
 function mP(tx: number, L: boolean): { x: number; y: number } {
-  return muzzleAt(tx, L, ang);
+  return muzzleAt(tx, L, playerBarrelDrawDeg(activeTankId(), ang));
 }
 function mB(tx: number, L: boolean, d: number): { x: number; y: number } {
   return muzzleAt(tx, L, d);
@@ -1640,8 +1969,8 @@ function tickBarrelVis(): void {
     return;
   }
 
-  let tgt = ang;
-  if (ph === "m") tgt = roughEnemyAimHintDeg();
+  let tgt = playerBarrelDrawDeg(activeTankId(), ang);
+  if (ph === "m") tgt = playerBarrelDrawDeg(activeTankId(), roughEnemyAimHintDeg());
 
   let stiffness = 0.18;
   let damping = 0.76;
@@ -1698,6 +2027,7 @@ function flightPath(
   vx: number,
   vy: number,
   dragMul = 1,
+  opts?: SimulateUntilImpactOpts | null,
 ): Array<{ x: number; y: number }> {
   return sampleTrajectory(
     T,
@@ -1709,6 +2039,7 @@ function flightPath(
     FLIGHT_MAX_PTS,
     FLIGHT_DT,
     dragMul,
+    opts ?? undefined,
   );
 }
 
@@ -1730,21 +2061,61 @@ function applyDamageToPlayerRounded(rawRounded: number): void {
 function spl(ix: number, iy: number, W: WeaponDef): void {
   applyCrater(T, ix, W.craterPx, W.craterLift);
   applyDamageToPlayerRounded(
-    Math.round(splashDamage(ix, iy, px, hullGroundY(px), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg)),
+    Math.round(
+      splashDamage(
+        ix,
+        iy,
+        px,
+        hullGroundY(px),
+        TANK_HALF_W,
+        TANK_HALF_H,
+        W.splashPx,
+        W.dmg,
+        W.splashFalloffPow,
+        W.directHitBeforeSplashDmg,
+      ),
+    ),
   );
   hpB -= Math.round(
-    splashDamage(ix, iy, bx, hullGroundY(bx), TANK_HALF_W, TANK_HALF_H, W.splashPx, W.dmg) * playerDamageMulVersusBot(),
+    splashDamage(
+      ix,
+      iy,
+      bx,
+      hullGroundY(bx),
+      TANK_HALF_W,
+      TANK_HALF_H,
+      W.splashPx,
+      W.dmg,
+      W.splashFalloffPow,
+      W.directHitBeforeSplashDmg,
+    ) * playerDamageMulVersusBot(),
   );
   hpB = Math.max(0, hpB);
   const sty = impactFxStyle(W);
   const splashVis =
-    sty === "dust"
-      ? W.splashPx * 2.05
-      : sty === "pellet"
-        ? W.splashPx * 1.52
-        : sty === "poison"
-          ? W.splashPx * 1.95
-          : W.splashPx;
+    sty === "practice"
+      ? W.splashPx * 1.98
+      : sty === "silverStars"
+        ? W.splashPx * 2.18
+        : sty === "forestBloom"
+          ? W.splashPx * 2.14
+          : sty === "marineBurst"
+            ? W.splashPx * 2.12
+            : sty === "desertBloom"
+              ? W.splashPx * 2.13
+              : sty === "emberBurst"
+                ? W.splashPx * 2.11
+                : sty === "bastionBurst"
+                  ? W.splashPx * 2.2
+                  : sty === "venomBloom"
+                    ? W.splashPx * 2.08
+            : sty === "dust"
+              ? W.splashPx * 2.05
+              : sty === "pellet"
+                ? W.splashPx * 1.52
+                : sty === "poison"
+                  ? W.splashPx * 1.95
+                  : W.splashPx;
   pushImpactBurst({
     x: ix,
     y: iy + 2,
@@ -1752,12 +2123,30 @@ function spl(ix: number, iy: number, W: WeaponDef): void {
     splash: splashVis,
     style: sty === "default" ? undefined : sty,
   });
-  shakeUntil = performance.now() + 260;
+  shakeDurMs =
+    W.id === "silv_pop"
+      ? 155
+      : W.id === "silv_lock_special"
+        ? 300
+        : W.id === "gr_streak" || W.id === "gr_bunker" || W.id === "gr_needle" || W.id === "grn_lock_special"
+          ? 292
+          : W.id === "nav_g" || W.id === "nav_h" || W.id === "nav_s" || W.id === "nvy_lock_special"
+            ? 286
+            : W.id === "des_g" || W.id === "des_h" || W.id === "des_s" || W.id === "dst_lock_special"
+              ? 289
+              : W.id === "cr_he" || W.id === "cr_breaker" || W.id === "cr_sparks" || W.id === "crm_lock_special"
+                ? 291
+                : W.id.startsWith("bnk_")
+                  ? 302
+                  : W.id === "vip_lance" || W.id === "vip_fang" || W.id === "vip_swarm"
+                    ? 284
+            : 260;
+  shakeUntil = performance.now() + shakeDurMs;
 }
 
 function shakeOffset(now: number): { x: number; y: number } {
   if (now >= shakeUntil) return { x: 0, y: 0 };
-  const amp = Math.max(0.4, ((shakeUntil - now) / 260) * 9);
+  const amp = Math.max(0.4, ((shakeUntil - now) / Math.max(1, shakeDurMs)) * 9);
   return { x: (roll() - 0.5) * amp * 2, y: (roll() - 0.45) * amp * 2 };
 }
 
@@ -1772,18 +2161,88 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
   const du = sty === "dust";
   const toxic = sty === "poison";
   const pl = sty === "pellet";
+  const practice = sty === "practice";
+  const silStar = sty === "silverStars";
+  const forest = sty === "forestBloom";
+  const marine = sty === "marineBurst";
+  const dune = sty === "desertBloom";
+  const ember = sty === "emberBurst";
+  const bastion = sty === "bastionBurst";
+  const venom = sty === "venomBloom";
+  const biomeBloom = forest || marine || dune || ember || bastion || venom;
   const dustLike = du || toxic;
   const k = age / maxAge;
   ctx.save();
 
-  const nRings = dustLike ? 4 : pl ? 4 : 3;
-  const ringBoost = dustLike ? 1.12 : pl ? 1.06 : 1;
+  const nRings = silStar ? 6 : biomeBloom ? 6 : practice ? 5 : dustLike ? 4 : pl ? 4 : 3;
+  const ringBoost = silStar
+    ? 1.12
+    : forest
+      ? 1.1
+      : marine
+        ? 1.09
+        : dune
+          ? 1.085
+          : ember
+            ? 1.088
+            : bastion
+              ? 1.098
+              : venom
+                ? 1.083
+                : practice
+                  ? 1.08
+                  : dustLike
+                    ? 1.12
+                    : pl
+                      ? 1.06
+                      : 1;
   for (let r = 0; r < nRings; r++) {
-    const kk = Math.max(0, k - r * (dustLike ? 0.06 : 0.08));
+    const kk = Math.max(
+      0,
+      k -
+        r *
+          (dustLike
+            ? 0.06
+            : silStar
+              ? 0.048
+              : forest
+                ? 0.051
+                : marine
+                  ? 0.05
+                  : dune
+                    ? 0.0505
+                    : ember
+                      ? 0.0503
+                      : bastion
+                        ? 0.0525
+                        : venom
+                          ? 0.0497
+                          : practice
+                            ? 0.055
+                            : 0.08),
+    );
     if (kk <= 0) continue;
-    const R = splash * ringBoost * (0.52 + kk * (dustLike ? 2.05 : 1.75));
-    ctx.globalAlpha = (1 - kk) * (dustLike ? 0.82 : pl ? 0.78 : 0.72) - r * (dustLike ? 0.12 : 0.18);
-    ctx.lineWidth = (dustLike ? 6.5 : pl ? 5.5 : 5) - r * (dustLike ? 1.1 : 1);
+    const R = silStar
+      ? splash * ringBoost * (0.32 + kk * 1.78)
+      : biomeBloom
+        ? splash * ringBoost * (0.33 + kk * 1.72)
+        : practice
+          ? splash * ringBoost * (0.36 + kk * 1.62)
+          : splash * ringBoost * (0.52 + kk * (dustLike ? 2.05 : 1.75));
+    ctx.globalAlpha = silStar
+      ? Math.max(0.06, (1 - kk) * 0.78 - r * 0.11)
+      : biomeBloom
+        ? Math.max(0.06, (1 - kk) * 0.76 - r * 0.1)
+        : practice
+          ? Math.max(0.05, (1 - kk) * 0.72 - r * 0.14)
+          : (1 - kk) * (dustLike ? 0.82 : pl ? 0.78 : 0.72) - r * (dustLike ? 0.12 : 0.18);
+    ctx.lineWidth = silStar
+      ? 6.2 - r * 0.75
+      : biomeBloom
+        ? 5.85 - r * 0.74
+        : practice
+          ? 5.4 - r * 0.82
+          : (dustLike ? 6.5 : pl ? 5.5 : 5) - r * (dustLike ? 1.1 : 1);
     if (ez) {
       ctx.strokeStyle = r === 0 ? "#93c5fd" : r === 1 ? "#38bdf8" : "#0ea5e9";
     } else if (toxic) {
@@ -1792,6 +2251,99 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
       ctx.strokeStyle = r === 0 ? "#fbbf24" : r === 1 ? "#f59e0b" : r === 2 ? "#d97706" : "#fcd34d";
     } else if (pl) {
       ctx.strokeStyle = r === 0 ? "#fde047" : r === 1 ? "#fdba74" : r === 2 ? "#f97316" : "#fcd34d";
+    } else if (forest) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#ecfccb"
+          : r === 1
+            ? "#bbf7d0"
+            : r === 2
+              ? "#4ade80"
+              : r === 3
+                ? "#14b8a6"
+                : r === 4
+                  ? "#059669"
+                  : "#065f46";
+    } else if (marine) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#f0f9ff"
+          : r === 1
+            ? "#bae6fd"
+            : r === 2
+              ? "#38bdf8"
+              : r === 3
+                ? "#0284c7"
+                : r === 4
+                  ? "#1d4ed8"
+                  : "#172554";
+    } else if (dune) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#fffbeb"
+          : r === 1
+            ? "#fde68a"
+            : r === 2
+              ? "#fbbf24"
+              : r === 3
+                ? "#fb923c"
+                : r === 4
+                  ? "#c2410c"
+                  : "#7c2d12";
+    } else if (ember) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#fff1f2"
+          : r === 1
+            ? "#fecdd3"
+            : r === 2
+              ? "#fb7185"
+              : r === 3
+                ? "#f97316"
+                : r === 4
+                  ? "#ea580c"
+                  : "#7f1d1d";
+    } else if (bastion) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#f8fafc"
+          : r === 1
+            ? "#cbd5e1"
+            : r === 2
+              ? "#94a3b8"
+              : r === 3
+                ? "#64748b"
+                : r === 4
+                  ? "#4338ca"
+                  : "#1e1b4b";
+    } else if (venom) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#ecfccb"
+          : r === 1
+            ? "#bef264"
+            : r === 2
+              ? "#84cc16"
+              : r === 3
+                ? "#4d7c0f"
+                : r === 4
+                  ? "#166534"
+                  : "#14532d";
+    } else if (silStar) {
+      ctx.strokeStyle =
+        r === 0
+          ? "#f8fafc"
+          : r === 1
+            ? "#bae6fd"
+            : r === 2
+              ? "#c4b5fd"
+              : r === 3
+                ? "#e0e7ff"
+                : r === 4
+                  ? "#94a3b8"
+                  : "#ddd6fe";
+    } else if (practice) {
+      ctx.strokeStyle = r === 0 ? "#fefce8" : "#e2e8f0";
     } else {
       ctx.strokeStyle = r === 0 ? "#fde047" : r === 1 ? "#fb923c" : "#fcd34d";
     }
@@ -1800,9 +2352,9 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
     ctx.stroke();
   }
 
-  ctx.globalAlpha = 1 - k * (dustLike ? 0.42 : 0.55);
-  const rg = splash * (dustLike ? 1.06 : 0.95);
-  const g = ctx.createRadialGradient(x, y, 6, x, y, rg);
+  ctx.globalAlpha = 1 - k * (dustLike ? 0.42 : practice ? 0.28 : silStar ? 0.22 : forest ? 0.26 : marine ? 0.24 : dune ? 0.25 : ember ? 0.23 : bastion ? 0.27 : venom ? 0.22 : 0.55);
+  const rg = splash * (dustLike ? 1.06 : practice ? 1.34 : silStar ? 1.48 : forest ? 1.46 : marine ? 1.44 : dune ? 1.43 : ember ? 1.41 : bastion ? 1.49 : venom ? 1.395 : 0.95);
+  const g = ctx.createRadialGradient(x, y, practice || silStar || biomeBloom ? 2 : 6, x, y, rg);
   if (ez) {
     g.addColorStop(0, "rgba(224,242,254,0.98)");
     g.addColorStop(0.42, "rgba(125,211,252,0.62)");
@@ -1823,6 +2375,61 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
     g.addColorStop(0.42, "rgba(253,224,71,0.62)");
     g.addColorStop(0.75, "rgba(249,115,22,0.28)");
     g.addColorStop(1, "rgba(239,68,68,0)");
+  } else if (silStar) {
+    g.addColorStop(0, "rgba(255,255,255,0.98)");
+    g.addColorStop(0.22, "rgba(224,242,254,0.72)");
+    g.addColorStop(0.48, "rgba(165,180,252,0.5)");
+    g.addColorStop(0.72, "rgba(196,181,253,0.32)");
+    g.addColorStop(0.9, "rgba(99,102,241,0.14)");
+    g.addColorStop(1, "rgba(30,27,75,0)");
+  } else if (forest) {
+    g.addColorStop(0, "rgba(247,254,231,0.98)");
+    g.addColorStop(0.24, "rgba(190,242,100,0.72)");
+    g.addColorStop(0.48, "rgba(74,222,128,0.52)");
+    g.addColorStop(0.7, "rgba(16,185,129,0.34)");
+    g.addColorStop(0.88, "rgba(5,150,105,0.2)");
+    g.addColorStop(1, "rgba(6,78,59,0)");
+  } else if (marine) {
+    g.addColorStop(0, "rgba(240,249,255,0.98)");
+    g.addColorStop(0.22, "rgba(186,230,253,0.76)");
+    g.addColorStop(0.45, "rgba(56,189,248,0.55)");
+    g.addColorStop(0.68, "rgba(14,165,233,0.36)");
+    g.addColorStop(0.86, "rgba(37,99,235,0.22)");
+    g.addColorStop(1, "rgba(15,23,42,0)");
+  } else if (dune) {
+    g.addColorStop(0, "rgba(255,251,235,0.98)");
+    g.addColorStop(0.2, "rgba(254,243,199,0.78)");
+    g.addColorStop(0.42, "rgba(251,191,36,0.58)");
+    g.addColorStop(0.64, "rgba(249,115,22,0.4)");
+    g.addColorStop(0.82, "rgba(194,65,12,0.26)");
+    g.addColorStop(1, "rgba(69,26,3,0)");
+  } else if (ember) {
+    g.addColorStop(0, "rgba(255,255,255,0.98)");
+    g.addColorStop(0.2, "rgba(254,215,170,0.82)");
+    g.addColorStop(0.42, "rgba(251,113,133,0.58)");
+    g.addColorStop(0.64, "rgba(234,88,12,0.42)");
+    g.addColorStop(0.82, "rgba(153,27,27,0.28)");
+    g.addColorStop(1, "rgba(67,20,7,0)");
+  } else if (bastion) {
+    g.addColorStop(0, "rgba(248,250,252,0.98)");
+    g.addColorStop(0.22, "rgba(203,213,225,0.76)");
+    g.addColorStop(0.45, "rgba(100,116,139,0.52)");
+    g.addColorStop(0.68, "rgba(67,56,202,0.36)");
+    g.addColorStop(0.86, "rgba(30,27,75,0.24)");
+    g.addColorStop(1, "rgba(15,23,42,0)");
+  } else if (venom) {
+    g.addColorStop(0, "rgba(240,253,244,0.98)");
+    g.addColorStop(0.22, "rgba(217,249,157,0.72)");
+    g.addColorStop(0.45, "rgba(132,204,22,0.52)");
+    g.addColorStop(0.68, "rgba(22,101,52,0.36)");
+    g.addColorStop(0.86, "rgba(20,83,45,0.22)");
+    g.addColorStop(1, "rgba(5,46,22,0)");
+  } else if (practice) {
+    g.addColorStop(0, "rgba(255,255,252,0.96)");
+    g.addColorStop(0.32, "rgba(254,249,195,0.58)");
+    g.addColorStop(0.55, "rgba(251,191,36,0.34)");
+    g.addColorStop(0.78, "rgba(148,163,184,0.22)");
+    g.addColorStop(1, "rgba(71,85,105,0)");
   } else {
     g.addColorStop(0, "rgba(255,255,230,0.95)");
     g.addColorStop(0.42, "rgba(253,224,71,0.55)");
@@ -1831,7 +2438,53 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
   }
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(x, y, splash * (dustLike ? 1.02 : 0.9) + k * splash * (dustLike ? 0.76 : 0.65), 0, Math.PI * 2);
+  ctx.arc(
+    x,
+    y,
+    splash *
+      (silStar
+        ? 1.02
+        : forest
+          ? 1.0
+          : marine
+            ? 0.99
+            : dune
+              ? 0.985
+              : ember
+                ? 0.98
+                : bastion
+                  ? 1.01
+                  : venom
+                    ? 0.975
+                    : practice
+                      ? 0.95
+                      : dustLike
+                        ? 1.02
+                        : 0.9) +
+      k *
+        splash *
+        (silStar
+          ? 0.82
+          : forest
+            ? 0.78
+            : marine
+              ? 0.77
+              : dune
+                ? 0.768
+                : ember
+                  ? 0.765
+                  : bastion
+                    ? 0.79
+                    : venom
+                      ? 0.758
+                      : practice
+                        ? 0.68
+                        : dustLike
+                          ? 0.76
+                          : 0.65),
+    0,
+    Math.PI * 2,
+  );
   ctx.fill();
 
   if (dustLike) {
@@ -1863,7 +2516,397 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
     }
   }
 
-  const nSpark = dustLike ? 48 : pl ? 36 : 22;
+  if (practice) {
+    const upBias = -Math.PI / 2;
+    const smokePhase = x * 0.0086 + y * 0.0104;
+    const drift = k * splash * 0.88;
+    for (let w = 0; w < 14; w++) {
+      const rot = smokePhase + w * 0.93 + k * 1.72;
+      const rx = splash * (0.52 + (w % 7) * 0.11 + k * 1.22);
+      const ry = splash * (0.24 + (w % 5) * 0.045 + k * 0.58);
+      ctx.globalAlpha = (1 - k * 0.74) * (0.34 - (w % 8) * 0.028);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(226,232,240,0.62)"
+          : w % 3 === 1
+            ? "rgba(148,163,184,0.52)"
+            : "rgba(71,85,105,0.44)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.32) * splash * (0.08 + (w % 4) * 0.04),
+        y + Math.sin(upBias) * splash * (0.12 + k * 0.62 + w * 0.025) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    for (let w = 0; w < 7; w++) {
+      const rot = smokePhase * 1.4 + w * 1.31 + k * 1.1;
+      const rx = splash * (0.72 + w * 0.14 + k * 0.95);
+      const ry = splash * (0.32 + k * 0.42);
+      ctx.globalAlpha = (1 - k * 0.82) * (0.14 - w * 0.014);
+      ctx.fillStyle = w % 2 === 0 ? "rgba(241,245,249,0.38)" : "rgba(100,116,139,0.32)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(rot * 0.2) * splash * 0.28,
+        y + Math.sin(upBias) * splash * (0.35 + k * 0.45 + w * 0.06) - drift * 0.72,
+        rx,
+        ry,
+        rot * 0.55,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+  }
+
+  if (forest) {
+    const upBias = -Math.PI / 2;
+    const fPhase = x * 0.0089 + y * 0.0102;
+    const drift = k * splash * 0.72;
+    for (let w = 0; w < 13; w++) {
+      const rot = fPhase + w * 0.91 + k * 1.62;
+      const rx = splash * (0.46 + (w % 6) * 0.1 + k * 1.08);
+      const ry = splash * (0.2 + (w % 4) * 0.042 + k * 0.54);
+      ctx.globalAlpha = (1 - k * 0.76) * (0.32 - (w % 8) * 0.026);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(220,252,231,0.58)"
+          : w % 3 === 1
+            ? "rgba(52,211,153,0.48)"
+            : "rgba(20,184,166,0.42)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.3) * splash * 0.1,
+        y + Math.sin(upBias) * splash * (0.1 + k * 0.58 + w * 0.028) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 0.95 + x * 0.0026;
+    const nRay = 14;
+    const rayLen = splash * (0.18 + k * 1.35) * (1 - k * 0.22);
+    for (let q = 0; q < nRay; q++) {
+      const ang = (q / nRay) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.85) * 0.36;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(236,253,245,0.92)" : "rgba(163,230,53,0.78)";
+      ctx.lineWidth = 3.8 - k * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLen, y + Math.sin(ang) * rayLen * 0.76);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (marine) {
+    const upBias = -Math.PI / 2;
+    const mPhase = x * 0.009 + y * 0.0105;
+    const drift = k * splash * 0.7;
+    for (let w = 0; w < 13; w++) {
+      const rot = mPhase + w * 0.89 + k * 1.58;
+      const rx = splash * (0.45 + (w % 6) * 0.1 + k * 1.06);
+      const ry = splash * (0.19 + (w % 4) * 0.04 + k * 0.53);
+      ctx.globalAlpha = (1 - k * 0.77) * (0.3 - (w % 8) * 0.024);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(224,242,254,0.58)"
+          : w % 3 === 1
+            ? "rgba(125,211,252,0.5)"
+            : "rgba(96,165,250,0.44)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.29) * splash * 0.11,
+        y + Math.sin(upBias) * splash * (0.1 + k * 0.56 + w * 0.027) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 1.02 + x * 0.0028;
+    const nRayM = 15;
+    const rayLenM = splash * (0.19 + k * 1.38) * (1 - k * 0.24);
+    for (let q = 0; q < nRayM; q++) {
+      const ang = (q / nRayM) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.86) * 0.38;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(255,255,255,0.94)" : "rgba(56,189,248,0.82)";
+      ctx.lineWidth = 3.6 - k * 2.35;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLenM, y + Math.sin(ang) * rayLenM * 0.75);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (dune) {
+    const upBias = -Math.PI / 2;
+    const dPhase = x * 0.0088 + y * 0.0103;
+    const drift = k * splash * 0.74;
+    for (let w = 0; w < 13; w++) {
+      const rot = dPhase + w * 0.9 + k * 1.6;
+      const rx = splash * (0.47 + (w % 6) * 0.1 + k * 1.07);
+      const ry = splash * (0.2 + (w % 4) * 0.043 + k * 0.55);
+      ctx.globalAlpha = (1 - k * 0.75) * (0.31 - (w % 8) * 0.025);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(255,247,237,0.6)"
+          : w % 3 === 1
+            ? "rgba(253,230,138,0.52)"
+            : "rgba(251,146,60,0.44)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.31) * splash * 0.1,
+        y + Math.sin(upBias) * splash * (0.1 + k * 0.57 + w * 0.026) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 0.99 + x * 0.0027;
+    const nRayD = 14;
+    const rayLenD = splash * (0.18 + k * 1.36) * (1 - k * 0.23);
+    for (let q = 0; q < nRayD; q++) {
+      const ang = (q / nRayD) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.84) * 0.37;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(255,255,250,0.93)" : "rgba(251,191,36,0.84)";
+      ctx.lineWidth = 3.7 - k * 2.38;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLenD, y + Math.sin(ang) * rayLenD * 0.76);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (ember) {
+    const upBias = -Math.PI / 2;
+    const ePhase = x * 0.0089 + y * 0.0101;
+    const drift = k * splash * 0.71;
+    for (let w = 0; w < 13; w++) {
+      const rot = ePhase + w * 0.91 + k * 1.64;
+      const rx = splash * (0.46 + (w % 6) * 0.1 + k * 1.09);
+      const ry = splash * (0.2 + (w % 4) * 0.042 + k * 0.56);
+      ctx.globalAlpha = (1 - k * 0.78) * (0.3 - (w % 8) * 0.024);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(255,241,242,0.62)"
+          : w % 3 === 1
+            ? "rgba(254,202,202,0.5)"
+            : "rgba(251,113,133,0.45)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.3) * splash * 0.1,
+        y + Math.sin(upBias) * splash * (0.1 + k * 0.58 + w * 0.027) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 1.04 + x * 0.00275;
+    const nRayE = 15;
+    const rayLenE = splash * (0.19 + k * 1.4) * (1 - k * 0.24);
+    for (let q = 0; q < nRayE; q++) {
+      const ang = (q / nRayE) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.85) * 0.39;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(255,255,255,0.95)" : "rgba(251,146,60,0.86)";
+      ctx.lineWidth = 3.65 - k * 2.36;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLenE, y + Math.sin(ang) * rayLenE * 0.75);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (bastion) {
+    const upBias = -Math.PI / 2;
+    const bPhase = x * 0.0085 + y * 0.0099;
+    const drift = k * splash * 0.68;
+    for (let w = 0; w < 14; w++) {
+      const rot = bPhase + w * 0.87 + k * 1.52;
+      const rx = splash * (0.48 + (w % 6) * 0.095 + k * 1.04);
+      const ry = splash * (0.21 + (w % 4) * 0.041 + k * 0.52);
+      ctx.globalAlpha = (1 - k * 0.72) * (0.28 - (w % 8) * 0.022);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(241,245,249,0.55)"
+          : w % 3 === 1
+            ? "rgba(148,163,184,0.48)"
+            : "rgba(99,102,241,0.4)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.28) * splash * 0.095,
+        y + Math.sin(upBias) * splash * (0.11 + k * 0.54 + w * 0.025) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 0.96 + x * 0.0025;
+    const nRayB = 13;
+    const rayLenB = splash * (0.17 + k * 1.32) * (1 - k * 0.22);
+    for (let q = 0; q < nRayB; q++) {
+      const ang = (q / nRayB) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.83) * 0.34;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(248,250,252,0.9)" : "rgba(129,140,248,0.78)";
+      ctx.lineWidth = 3.5 - k * 2.28;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLenB, y + Math.sin(ang) * rayLenB * 0.74);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (venom) {
+    const upBias = -Math.PI / 2;
+    const vPhase = x * 0.0091 + y * 0.0104;
+    const drift = k * splash * 0.73;
+    for (let w = 0; w < 13; w++) {
+      const rot = vPhase + w * 0.92 + k * 1.66;
+      const rx = splash * (0.45 + (w % 6) * 0.098 + k * 1.08);
+      const ry = splash * (0.19 + (w % 4) * 0.044 + k * 0.54);
+      ctx.globalAlpha = (1 - k * 0.79) * (0.29 - (w % 8) * 0.023);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(236,252,203,0.58)"
+          : w % 3 === 1
+            ? "rgba(190,242,100,0.5)"
+            : "rgba(34,197,94,0.44)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.295) * splash * 0.1,
+        y + Math.sin(upBias) * splash * (0.1 + k * 0.57 + w * 0.026) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = k * 1.01 + x * 0.00285;
+    const nRayV = 14;
+    const rayLenV = splash * (0.18 + k * 1.37) * (1 - k * 0.23);
+    for (let q = 0; q < nRayV; q++) {
+      const ang = (q / nRayV) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.84) * 0.36;
+      ctx.strokeStyle = q % 2 === 0 ? "rgba(255,255,255,0.92)" : "rgba(163,230,53,0.8)";
+      ctx.lineWidth = 3.55 - k * 2.32;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLenV, y + Math.sin(ang) * rayLenV * 0.76);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  }
+
+  if (silStar) {
+    const upBias = -Math.PI / 2;
+    const spin = k * 1.15 + x * 0.003 + y * 0.0027;
+    const rayLen = splash * (0.22 + k * 1.55) * (1 - k * 0.25);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const nRay = 20;
+    for (let r = 0; r < nRay; r++) {
+      const ang = (r / nRay) * Math.PI * 2 + spin;
+      ctx.globalAlpha = (1 - k * 0.88) * (0.38 + (r % 3) * 0.08);
+      ctx.strokeStyle =
+        r % 3 === 0 ? "rgba(240,249,255,0.95)" : r % 3 === 1 ? "rgba(165,180,252,0.85)" : "rgba(196,181,253,0.78)";
+      ctx.lineWidth = 4.2 - k * 2.8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * rayLen, y + Math.sin(ang) * rayLen * 0.74);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    const ionPhase = x * 0.0091 + y * 0.0108;
+    for (let w = 0; w < 12; w++) {
+      const rot = ionPhase + w * 0.88 + k * 1.55;
+      const rx = splash * (0.48 + (w % 6) * 0.1 + k * 1.05);
+      const ry = splash * (0.22 + (w % 4) * 0.04 + k * 0.52);
+      const drift = k * splash * 0.62;
+      ctx.globalAlpha = (1 - k * 0.78) * (0.26 - (w % 7) * 0.022);
+      ctx.fillStyle =
+        w % 3 === 0
+          ? "rgba(224,231,255,0.55)"
+          : w % 3 === 1
+            ? "rgba(196,181,253,0.42)"
+            : "rgba(125,211,252,0.38)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + Math.cos(upBias + rot * 0.28) * splash * 0.14,
+        y + Math.sin(upBias) * splash * (0.14 + k * 0.58 + w * 0.03) - drift,
+        rx,
+        ry,
+        rot,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  const nSpark = dustLike
+    ? 48
+    : silStar
+      ? 62
+      : forest
+        ? 48
+        : marine
+          ? 50
+          : dune
+            ? 49
+            : ember
+              ? 51
+              : bastion
+                ? 47
+                : venom
+                  ? 52
+                  : pl
+                    ? 36
+                    : practice
+                      ? 42
+                      : 22;
   const sparkSpread = k;
   for (let i = 0; i < nSpark; i++) {
     let a: number;
@@ -1872,14 +2915,64 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
       const fan = Math.PI * 1.55;
       a = -Math.PI / 2 + (i / Math.max(1, nSpark - 1) - 0.5) * fan + Math.sin(k * 4 + i * 0.31) * 0.35;
       radial = splash * (0.42 + ((i * 29) % 7) * 0.07) * (0.85 + sparkSpread * 1.05);
+    } else if (silStar) {
+      const spikes = 10;
+      const slot = i % spikes;
+      const wave = Math.floor(i / spikes);
+      a = (slot / spikes) * Math.PI * 2 + k * 1.55 + wave * 0.11;
+      radial = splash * (0.16 + wave * 0.1 + sparkSpread * 1.08) * (0.52 + (i % 8) * 0.042);
+    } else if (biomeBloom) {
+      a = ((i / Math.max(1, nSpark)) * Math.PI * 2 + k * 5.4 + i * 8.91) % (Math.PI * 2);
+      radial = splash * (0.19 + (i % 7) * 0.048) * (0.64 + sparkSpread * 1.08);
+    } else if (practice) {
+      a = ((i / Math.max(1, nSpark)) * Math.PI * 2 + k * 5.1 + i * 9.17) % (Math.PI * 2);
+      radial = splash * (0.2 + (i % 6) * 0.052) * (0.62 + sparkSpread * 1.12);
     } else {
       a = ((i / nSpark) * Math.PI * 2 + k * 3.9 + i * 7.71) % (Math.PI * 2);
       radial = splash * (0.35 + (i % 5) * 0.06) * sparkSpread;
       if (pl) radial *= 1.08;
     }
     const sx = x + Math.cos(a) * radial * 1.05;
-    const sy = y + Math.sin(a) * radial * (dustLike ? 1.08 : 0.85) + sparkSpread * splash * (dustLike ? 0.2 : 0.12);
-    ctx.globalAlpha = (1 - k) * (dustLike ? 0.62 : pl ? 0.55 : 0.5) * (0.65 + roll() * 0.35);
+    const sy =
+      y +
+      Math.sin(a) *
+        radial *
+        (dustLike
+          ? 1.08
+          : silStar
+            ? 0.9
+            : biomeBloom
+              ? 0.865
+              : practice
+                ? 0.82
+                : 0.85) +
+      sparkSpread *
+        splash *
+        (dustLike ? 0.2 : silStar ? 0.14 : biomeBloom ? 0.122 : practice ? 0.11 : 0.12);
+    ctx.globalAlpha =
+      (1 - k) *
+      (dustLike
+        ? 0.62
+        : silStar
+          ? 0.52
+          : forest
+            ? 0.5
+            : marine
+              ? 0.51
+              : dune
+                ? 0.505
+                : ember
+                  ? 0.508
+                  : bastion
+                    ? 0.499
+                    : venom
+                      ? 0.511
+                      : pl
+                        ? 0.55
+                        : practice
+                          ? 0.46
+                          : 0.5) *
+      (0.65 + roll() * 0.35);
     if (ez) {
       ctx.fillStyle = i % 2 === 0 ? "#dbeafe" : "#e0f2fe";
     } else if (toxic) {
@@ -1889,16 +2982,223 @@ function drawSingleImpactBurst(now: number, b: ImpactBurstFx): void {
         i % 3 === 0 ? "#fef3c7" : i % 3 === 1 ? "#fde68a" : "rgba(180,83,9,0.85)";
     } else if (pl) {
       ctx.fillStyle = i % 2 === 0 ? "#fffbeb" : "#fed7aa";
+    } else if (silStar) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#f0f9ff"
+          : i % 4 === 1
+            ? "#e0e7ff"
+            : i % 4 === 2
+              ? "#ddd6fe"
+              : "rgba(56,189,248,0.92)";
+    } else if (forest) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#ecfccb"
+          : i % 4 === 1
+            ? "#bbf7d0"
+            : i % 4 === 2
+              ? "#34d399"
+              : "#facc15";
+    } else if (marine) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#f0f9ff"
+          : i % 4 === 1
+            ? "#bae6fd"
+            : i % 4 === 2
+              ? "#22d3ee"
+              : "#60a5fa";
+    } else if (dune) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#fffbeb"
+          : i % 4 === 1
+            ? "#fde68a"
+            : i % 4 === 2
+              ? "#fb923c"
+              : "#ea580c";
+    } else if (ember) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#fff1f2"
+          : i % 4 === 1
+            ? "#fecdd3"
+            : i % 4 === 2
+              ? "#fb7185"
+              : "#f97316";
+    } else if (bastion) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#f8fafc"
+          : i % 4 === 1
+            ? "#cbd5e1"
+            : i % 4 === 2
+              ? "#a5b4fc"
+              : "#6366f1";
+    } else if (venom) {
+      ctx.fillStyle =
+        i % 4 === 0
+          ? "#ecfccb"
+          : i % 4 === 1
+            ? "#bef264"
+            : i % 4 === 2
+              ? "#4ade80"
+              : "#15803d";
+    } else if (practice) {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#ffffff" : i % 3 === 1 ? "#fef9c3" : "rgba(203,213,225,0.9)";
     } else {
       ctx.fillStyle = i % 2 === 0 ? "#fff7ed" : "#fed7aa";
     }
-    ctx.strokeStyle = "rgba(15,23,42,0.35)";
-    ctx.lineWidth = dustLike || pl ? 1.55 : 1.25;
-    const pr = (dustLike ? 2.85 : pl ? 2.6 : 2.2) + sparkSpread * (dustLike ? 6.2 : pl ? 5.5 : 5);
+    ctx.strokeStyle = silStar
+      ? "rgba(30,58,138,0.26)"
+      : forest
+        ? "rgba(6,78,59,0.32)"
+        : marine
+          ? "rgba(12,74,110,0.3)"
+          : dune
+            ? "rgba(120,53,15,0.29)"
+            : ember
+              ? "rgba(127,29,29,0.3)"
+              : bastion
+                ? "rgba(51,65,85,0.32)"
+                : venom
+                  ? "rgba(21,128,61,0.3)"
+                  : "rgba(15,23,42,0.35)";
+    ctx.lineWidth = dustLike || pl ? 1.55 : silStar ? 1.2 : forest ? 1.18 : marine ? 1.19 : dune ? 1.175 : ember ? 1.18 : bastion ? 1.2 : venom ? 1.17 : practice ? 1.15 : 1.25;
+    const pr =
+      (dustLike ? 2.85 : pl ? 2.6 : silStar ? 1.9 : forest ? 1.72 : marine ? 1.74 : dune ? 1.73 : ember ? 1.75 : bastion ? 1.71 : venom ? 1.76 : practice ? 1.65 : 2.2) +
+      sparkSpread *
+        (dustLike ? 6.2 : pl ? 5.5 : silStar ? 4.6 : forest ? 3.95 : marine ? 4.0 : dune ? 3.98 : ember ? 4.02 : bastion ? 3.9 : venom ? 4.05 : practice ? 3.35 : 5);
     ctx.beginPath();
     ctx.arc(sx, sy, pr, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  }
+  if (forest && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.58;
+    const r0 = 9 + (1 - k) * 16;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.12);
+    g2.addColorStop(0, "rgba(255,255,255,0.96)");
+    g2.addColorStop(0.3, "rgba(190,242,100,0.52)");
+    g2.addColorStop(0.58, "rgba(52,211,153,0.32)");
+    g2.addColorStop(1, "rgba(5,150,105,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.055, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (marine && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.6;
+    const r0 = 9 + (1 - k) * 15;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.11);
+    g2.addColorStop(0, "rgba(255,255,255,0.98)");
+    g2.addColorStop(0.28, "rgba(186,230,253,0.58)");
+    g2.addColorStop(0.52, "rgba(56,189,248,0.38)");
+    g2.addColorStop(0.78, "rgba(37,99,235,0.22)");
+    g2.addColorStop(1, "rgba(15,23,42,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.052, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (dune && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.59;
+    const r0 = 9 + (1 - k) * 15;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.108);
+    g2.addColorStop(0, "rgba(255,255,255,0.97)");
+    g2.addColorStop(0.26, "rgba(254,243,199,0.62)");
+    g2.addColorStop(0.5, "rgba(251,191,36,0.42)");
+    g2.addColorStop(0.74, "rgba(234,88,12,0.24)");
+    g2.addColorStop(1, "rgba(67,20,7,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.051, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (ember && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.61;
+    const r0 = 9 + (1 - k) * 15;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.11);
+    g2.addColorStop(0, "rgba(255,255,255,0.98)");
+    g2.addColorStop(0.26, "rgba(254,215,170,0.6)");
+    g2.addColorStop(0.5, "rgba(251,113,133,0.4)");
+    g2.addColorStop(0.74, "rgba(234,88,12,0.26)");
+    g2.addColorStop(1, "rgba(69,10,10,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.053, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (bastion && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.55;
+    const r0 = 10 + (1 - k) * 16;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.115);
+    g2.addColorStop(0, "rgba(248,250,252,0.96)");
+    g2.addColorStop(0.28, "rgba(203,213,225,0.58)");
+    g2.addColorStop(0.52, "rgba(99,102,241,0.36)");
+    g2.addColorStop(0.78, "rgba(49,46,129,0.2)");
+    g2.addColorStop(1, "rgba(15,23,42,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.054, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (venom && k < 0.38) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.38;
+    ctx.globalAlpha = gl * 0.57;
+    const r0 = 9 + (1 - k) * 14;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.106);
+    g2.addColorStop(0, "rgba(255,255,255,0.96)");
+    g2.addColorStop(0.27, "rgba(217,249,157,0.58)");
+    g2.addColorStop(0.52, "rgba(74,222,128,0.38)");
+    g2.addColorStop(0.76, "rgba(21,128,61,0.22)");
+    g2.addColorStop(1, "rgba(5,46,22,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (silStar && k < 0.4) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 1 - k / 0.4;
+    ctx.globalAlpha = gl * 0.62;
+    const r0 = 10 + (1 - k) * 18;
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r0 + splash * 0.14);
+    g2.addColorStop(0, "rgba(255,255,255,0.98)");
+    g2.addColorStop(0.28, "rgba(224,242,254,0.55)");
+    g2.addColorStop(0.55, "rgba(167,139,250,0.28)");
+    g2.addColorStop(1, "rgba(99,102,241,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(x, y, r0 + splash * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1963,6 +3263,7 @@ function abortActiveCombatFlightState(): void {
   ti = 0;
   playerPelletFlights = null;
   projectileInFlightStyle = null;
+  projectileFlightWeaponId = null;
   impactBursts = [];
   muzzleExpire = 0;
   botMuzzleExpire = 0;
@@ -1973,6 +3274,7 @@ function abortActiveCombatFlightState(): void {
   playerTankMotionUntil = 0;
   barrelBlockedHintUntil = 0;
   shakeUntil = 0;
+  shakeDurMs = 260;
   shieldImpactUntil = 0;
   shieldImpactAbsorbed = 0;
   lightningBolt = null;
@@ -1983,6 +3285,7 @@ function abortActiveCombatFlightState(): void {
   bwI = 0;
   bWait = 0;
   surrenderStep = 0;
+  enemyUfoWinPending = null;
   clearDriveTrailParticles();
 }
 
@@ -2012,7 +3315,8 @@ function resetMatchRound(): void {
   wa = (roll() - 0.5) * 64;
   battleMaxHp = activeTankDef().maxHp;
   hpP = battleMaxHp;
-  hpB = battleMaxHp;
+  battleMaxHpEnemy = enemyMaxHpForPlayerTank(activeTankId(), battleMaxHp);
+  hpB = battleMaxHpEnemy;
   if (mapDifficulty === "insane") {
     camX = clampCamX((worldW - VIEW_W) / 2);
     px = sx(camX + VIEW_W * 0.145 + roll() * VIEW_W * 0.05, camX + VIEW_W / 2);
@@ -2025,7 +3329,7 @@ function resetMatchRound(): void {
   px = findStableTankX(px, bx);
   bx = findStableTankX(bx, px);
   ang = 50 + Math.floor(seed % 22);
-  barrelVisAng = ang;
+  barrelVisAng = playerBarrelDrawDeg(activeTankId(), ang);
   pow = 520 + Math.floor(seed % 180);
   selectedSlot = seed % 3;
   const cap = playerFuelCapacity();
@@ -2045,6 +3349,7 @@ function resetMatchRound(): void {
   playerTankMotionUntil = 0;
   barrelBlockedHintUntil = 0;
   shakeUntil = 0;
+  shakeDurMs = 260;
   shieldImpactUntil = 0;
   shieldImpactAbsorbed = 0;
   surrenderStep = 0;
@@ -2058,6 +3363,14 @@ function resetMatchRound(): void {
   rainbowBuffAnchorMs = 0;
   rainbowRushConsumedThisMatch = false;
   rainbowRushSparks = [];
+  skipShotUsedThisMatch = false;
+  bunkerLaserEndMs = 0;
+  bunkerLaserConsumedThisMatch = false;
+  bunkerLaserBannerUntil = 0;
+  bunkerLaserBannerLines = [];
+  bunkerLaserLastSampleMs = 0;
+  bunkerLaserDamageAcc = 0;
+  enemyUfoWinPending = null;
   clearDriveTrailParticles();
 }
 
@@ -2101,7 +3414,8 @@ function applySkyBolt(nowMs: number): void {
     style: "electric",
   });
   lightningBolt = { t0: nowMs, cx: ix, gy: iy, jagA, jagB };
-  shakeUntil = nowMs + 420;
+  shakeDurMs = 420;
+  shakeUntil = nowMs + shakeDurMs;
 
   lightningBannerUntil = nowMs + 2680;
   blitzConsumedThisMatch = true;
@@ -2308,6 +3622,7 @@ function syncBattleTestLeaveUi(): void {
 /** Testspiel sofort beenden — ohne Aufgeben-Dialog (Esc oder Button). */
 function leaveBattleTestToLobby(): void {
   if (!battleTestModeActive()) return;
+  clearOnlineLobbySession();
   closeSurrenderDialog(false);
   abortActiveCombatFlightState();
   matchResult = null;
@@ -2339,6 +3654,7 @@ function leaveBattleTestToLobby(): void {
 
 /** Spielfeld zu, Fortnite-Lobby zeigen — inkl. rotierende Panzer-Vorschau neu anwerfen */
 function revealTankLobbyAfterEndingMatch(polishUi: () => void): void {
+  clearOnlineLobbySession();
   const st = document.getElementById("taStage");
   const bt = document.getElementById("taBottom");
   const hb = document.getElementById("taHub");
@@ -2370,6 +3686,54 @@ function closeSurrenderDialog(focusCanvas = true): void {
   if (focusCanvas) cv?.focus();
 }
 
+function isBattlePauseMenuPanelOpen(): boolean {
+  const el = document.getElementById("taBattleMenuPanel");
+  return !!(el && !el.hidden);
+}
+
+function closeBattlePauseMenuPanel(): void {
+  const sheet = document.getElementById("taBattleMenuPanel");
+  const btn = document.getElementById("taBattleMenuOpen") as HTMLButtonElement | null;
+  if (sheet) sheet.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  btn?.focus();
+}
+
+function openBattlePauseMenuPanel(): void {
+  setWeaponPickerOpen(false);
+  const sheet = document.getElementById("taBattleMenuPanel");
+  const btn = document.getElementById("taBattleMenuOpen") as HTMLButtonElement | null;
+  if (sheet) sheet.hidden = false;
+  btn?.setAttribute("aria-expanded", "true");
+  document.getElementById("taBattleMenuContinue")?.focus();
+}
+
+function toggleBattlePauseMenuPanel(): void {
+  if (isBattlePauseMenuPanelOpen()) closeBattlePauseMenuPanel();
+  else openBattlePauseMenuPanel();
+}
+
+/** Hamburger-Menü nur während aktivem Kampf (Stage sichtbar, kein Aufgeben-Dialog). */
+function syncBattlePauseMenu(): void {
+  const wrap = document.getElementById("taBattleMenuWrap");
+  if (!wrap) return;
+  const hub = document.getElementById("taHub");
+  const stage = document.getElementById("taStage");
+  if (!stage || stage.hidden || !hub?.hidden) {
+    wrap.hidden = true;
+    closeBattlePauseMenuPanel();
+    return;
+  }
+  const inBattle =
+    matchResult === null && surrenderStep === 0 && hpP > 0 && hpB > 0;
+  if (!inBattle) {
+    wrap.hidden = true;
+    closeBattlePauseMenuPanel();
+    return;
+  }
+  wrap.hidden = false;
+}
+
 function confirmSurrender(): void {
   closeSurrenderDialog(false);
   abortActiveCombatFlightState();
@@ -2398,7 +3762,7 @@ function onSurrenderNein(): void {
   closeSurrenderDialog();
 }
 
-function openGameOverOverlay(kind: "win" | "lose" | "surrender", winGems?: number): void {
+function openGameOverOverlay(kind: "win" | "lose" | "surrender", winGems?: number, winXp?: number): void {
   matchResult = kind;
   const root = document.getElementById("taGameOver");
   const title = document.getElementById("taGameOverTitle");
@@ -2425,7 +3789,7 @@ function openGameOverOverlay(kind: "win" | "lose" | "surrender", winGems?: numbe
       kind === "win"
         ? isTest
           ? testLine
-          : `Sieg · +${XP_WIN} XP · +${winGems ?? 0} 💎 · Level ${levelFromXp(readXp())}`
+          : `Sieg · +${winXp ?? XP_WIN} XP · +${winGems ?? 0} 💎 · Level ${levelFromXp(readXp())}`
         : kind === "surrender"
           ? "Der Gegner gewinnt diese Runde. XP und 💎 bleiben unverändert. „Ins Spiel“ startet eine neue Runde."
           : isTest
@@ -2505,9 +3869,23 @@ function refreshTankShopAndLocker(): void {
 }
 
 function rarityClassTank(id: PlayerTankId): string {
-  if (id === "viper" || id === "bunker" || id === "desert") return "legendary";
+  if (id === "bunker") return "mythic";
+  if (id === "viper" || id === "desert") return "legendary";
   if (id === "crimson" || id === "navy") return "epic";
   return "rare";
+}
+
+function tankShopRarityLabelDe(tier: string): string {
+  switch (tier) {
+    case "mythic":
+      return "Ultra";
+    case "legendary":
+      return "Legendär";
+    case "epic":
+      return "Episch";
+    default:
+      return "Rare";
+  }
 }
 
 function refreshShopTankOffers(): void {
@@ -2528,6 +3906,10 @@ function refreshShopTankOffers(): void {
       hubPreviewPaintUrgent = true;
       syncHubTankPreviewHints();
     });
+
+    const rarityTag = document.createElement("span");
+    rarityTag.className = "taShopCardRarity";
+    rarityTag.textContent = tankShopRarityLabelDe(rarity);
 
     const title = document.createElement("span");
     title.className = "taShopCardTitle";
@@ -2590,6 +3972,7 @@ function refreshShopTankOffers(): void {
       actions.appendChild(btn);
     }
 
+    li.appendChild(rarityTag);
     li.appendChild(title);
     li.appendChild(meta);
     li.appendChild(priceRow);
@@ -2877,7 +4260,8 @@ function refreshLockerTankOffers(): void {
     const isOwned = ownedSet.has(def.id);
     const active = equipped === def.id;
     const li = document.createElement("li");
-    li.className = `taLockerSlot taLockerTankRow${active ? " taLockerTankRow--active" : ""}${!isOwned ? " taLockerSlot--soon" : ""}`;
+    const mythicRow = def.id === "bunker" ? " taLockerTankRow--mythic" : "";
+    li.className = `taLockerSlot taLockerTankRow${mythicRow}${active ? " taLockerTankRow--active" : ""}${!isOwned ? " taLockerSlot--soon" : ""}`;
     li.style.cursor = "pointer";
     li.addEventListener("click", (ev) => {
       if (ev.target instanceof HTMLElement && ev.target.closest("button")) return;
@@ -3028,31 +4412,43 @@ function hudTxt(): void {
     hHp.textContent = "Du " + hpP + sh + " · Gegner " + hpB + rainbowOverdriveHudSuffix(performance.now());
   }
   const testPrefix = hudBattleTestPrefix();
-  if (ph === "m") hPh.textContent = testPrefix + "Fahren · Treibstoff " + fuelP;
+  if (ph === "m") hPh.textContent = testPrefix + "Fahren · Treibstoff " + fuelP + bunkerSiegeLaserHudSuffix();
   else if (ph === "aim") {
     const now = performance.now();
     const wall =
-      !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked()
+      !isBlitzSlot(selectedSlot) &&
+      !playerSiegeLaserWeaponSelected() &&
+      playerBarrelLosBlocked()
         ? " · Rohr blockiert (Gelände) — Winkel/Power ändern"
         : "";
     const bump = now < barrelBlockedHintUntil ? " · Schuss geblockt" : "";
+    const skipHint = isBlitzSlot(selectedSlot)
+      ? ""
+      : skipShotUsedThisMatch
+        ? " · Pass verbraucht"
+        : " · X = Schuss überspringen (1×)";
     const blitzAlt = lockerMaxSpecialUnlocked() ? "1–3 oder 6" : "1–3";
     hPh.textContent =
       isBlitzSlot(selectedSlot)
         ? canUseBlitzNow()
-          ? testPrefix + `Blitz · ${blitzBuddyDe ? blitzBuddyDe + " · " : ""}A/D Platz · Klick · Leertaste`
-          : testPrefix + `Blitz nicht verfügbar — andere Wahl mit ${blitzAlt}`
+          ? testPrefix +
+              `Blitz · ${blitzBuddyDe ? blitzBuddyDe + " · " : ""}A/D Platz · Klick · Leertaste` +
+              bunkerSiegeLaserHudSuffix()
+          : testPrefix + `Blitz nicht verfügbar — andere Wahl mit ${blitzAlt}` + bunkerSiegeLaserHudSuffix()
         : testPrefix +
-            "Zielen · A/D Winkel · W/S Kraft · " +
-            ang.toFixed(1) +
-            "° · " +
-            Math.round(pow) +
+            playerAimHudCoreDe() +
             " · Shift fein" +
             wall +
-            bump;
+            bump +
+            bunkerSiegeLaserHudSuffix() +
+            skipHint;
   }
   else if (ph === "pf" || ph === "bf") hPh.textContent = "Flug…";
   else hPh.textContent = "Bot zielt …";
+  syncTouchBattleHud();
+  syncBattlePauseMenu();
+  if (weaponPickerSheetOpen) syncWeaponPickerRowHighlight();
+  updateAimKnobFromBattleState();
 }
 
 function hash01(n: number): number {
@@ -3404,6 +4800,7 @@ function drawAimTrajectoryPreview(): void {
     return;
   }
   const Wp = pw()[selectedSlot]!;
+  if (Wp.siegeLaser) return;
   if (playerBarrelLosBlocked()) return;
   const mu = mP(px, true);
   const pb = Wp.pelletBurst;
@@ -3421,7 +4818,13 @@ function drawAimTrajectoryPreview(): void {
 
     for (let q = 0; q < nFan; q++) {
       const k = nFan <= 1 ? 0 : (q / (nFan - 1)) * 2 - 1;
-      const v = velocityFromElevDeg(true, ang + k * pb.spreadHalfDeg, pow, Wp.velMul);
+      const v = playerShotVelocityForTank(
+        activeTankId(),
+        true,
+        ang + k * pb.spreadHalfDeg,
+        pow,
+        Wp.velMul,
+      );
       const pts = sampleTrajectory(
         T,
         mu.x,
@@ -3432,6 +4835,7 @@ function drawAimTrajectoryPreview(): void {
         1000,
         FLIGHT_DT,
         weaponDragMul(Wp),
+        enemyImpactHullOpts(),
       );
       if (pts.length < 2) continue;
       const center = q === ((nFan - 1) >> 1);
@@ -3449,7 +4853,7 @@ function drawAimTrajectoryPreview(): void {
     return;
   }
 
-  const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
+  const v = playerShotVelocityForTank(activeTankId(), true, ang, pow, Wp.velMul);
   const pts = sampleTrajectory(
     T,
     mu.x,
@@ -3460,6 +4864,7 @@ function drawAimTrajectoryPreview(): void {
     1200,
     FLIGHT_DT,
     weaponDragMul(Wp),
+    enemyImpactHullOpts(),
   );
   if (pts.length < 2) return;
 
@@ -3635,10 +5040,12 @@ function drawTankPlaced(
   facingRight: boolean,
   tankFxId?: PlayerTankId,
   timeMs = performance.now(),
+  /** Negativ = Panzer höher (z. B. UFO-Abduktion). */
+  verticalOffsetPx = 0,
 ): void {
   const img = spriteSheet;
   if (!img?.complete || img.naturalWidth < 16) return;
-  const groundY = hullGroundY(cx);
+  const groundY = hullGroundY(cx) + verticalOffsetPx;
   const slope = hullSlope(cx);
   drawTankSprite(cx, groundY, slope, facingRight, rect, img, tankFxId, timeMs);
 }
@@ -3757,9 +5164,63 @@ function drawPlayerDesertShieldBubble(): void {
   ctx.restore();
 }
 
+function isGreenFieldWeaponId(id: string | undefined): boolean {
+  return (
+    id === "gr_streak" ||
+    id === "gr_bunker" ||
+    id === "gr_needle" ||
+    id === "grn_lock_special"
+  );
+}
+
+function isMarineWeaponId(id: string | undefined): boolean {
+  return (
+    id === "nav_g" ||
+    id === "nav_h" ||
+    id === "nav_s" ||
+    id === "nvy_lock_special"
+  );
+}
+
+function isDesertWeaponId(id: string | undefined): boolean {
+  return (
+    id === "des_g" ||
+    id === "des_h" ||
+    id === "des_s" ||
+    id === "dst_lock_special"
+  );
+}
+
+function isCrimsonWeaponId(id: string | undefined): boolean {
+  return (
+    id === "cr_he" ||
+    id === "cr_breaker" ||
+    id === "cr_sparks" ||
+    id === "crm_lock_special"
+  );
+}
+
+function isBunkerWeaponId(id: string | undefined): boolean {
+  return typeof id === "string" && id.startsWith("bnk_");
+}
+
+function isViperWeaponId(id: string | undefined): boolean {
+  return id === "vip_lance" || id === "vip_fang" || id === "vip_swarm";
+}
+
 function drawSmokeTrailAhead(
   j: number,
-  tone: "warm" | "dust" | "pellet" | "rainbow" = "warm",
+  tone:
+    | "warm"
+    | "dust"
+    | "pellet"
+    | "rainbow"
+    | "forest"
+    | "marine"
+    | "desert"
+    | "ember"
+    | "slag"
+    | "venom" = "warm",
 ): void {
   if (tr.length >= 4) drawSmokeTrailOnPath(tr, j, 26, tone);
 }
@@ -3769,7 +5230,17 @@ function drawSmokeTrailOnPath(
   path: Array<{ x: number; y: number }>,
   j: number,
   spanMax = 18,
-  tone: "warm" | "dust" | "pellet" | "rainbow" = "warm",
+  tone:
+    | "warm"
+    | "dust"
+    | "pellet"
+    | "rainbow"
+    | "forest"
+    | "marine"
+    | "desert"
+    | "ember"
+    | "slag"
+    | "venom" = "warm",
 ): void {
   if (j < 3 || path.length < 4) return;
   const span = Math.min(spanMax, j);
@@ -3779,10 +5250,33 @@ function drawSmokeTrailOnPath(
   for (let i = lo; i < j; i++) {
     const p = path[i]!;
     const t = (i - lo) / Math.max(1, j - lo);
+    const themedTrail =
+      tone === "forest" ||
+      tone === "marine" ||
+      tone === "desert" ||
+      tone === "ember" ||
+      tone === "slag" ||
+      tone === "venom";
     const baseA =
-      tone === "dust" ? 0.16 : tone === "pellet" ? 0.14 : tone === "rainbow" ? 0.12 : 0.1;
+      tone === "dust"
+        ? 0.16
+        : tone === "pellet"
+          ? 0.14
+          : tone === "rainbow"
+            ? 0.12
+            : themedTrail
+              ? 0.13
+              : 0.1;
     const topA =
-      tone === "dust" ? 0.48 : tone === "pellet" ? 0.44 : tone === "rainbow" ? 0.4 : 0.32;
+      tone === "dust"
+        ? 0.48
+        : tone === "pellet"
+          ? 0.44
+          : tone === "rainbow"
+            ? 0.4
+            : themedTrail
+              ? 0.46
+              : 0.32;
     ctx.globalAlpha = baseA + t * topA;
     if (tone === "dust") {
       ctx.fillStyle = i % 3 === 0 ? "#fef9c3" : i % 3 === 1 ? "#fde68a" : "#d4a574";
@@ -3791,6 +5285,24 @@ function drawSmokeTrailOnPath(
     } else if (tone === "rainbow") {
       const hue = (now * 0.08 + p.x * 0.06 + p.y * 0.04 + i * 14) % 360;
       ctx.fillStyle = `hsla(${hue}, 88%, ${72 + (i % 3) * 6}%, ${0.55 + t * 0.35})`;
+    } else if (tone === "forest") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#ecfccb" : i % 3 === 1 ? "rgba(134,239,172,0.85)" : "rgba(45,212,191,0.72)";
+    } else if (tone === "marine") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#f0f9ff" : i % 3 === 1 ? "rgba(125,211,252,0.88)" : "rgba(56,189,248,0.76)";
+    } else if (tone === "desert") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#fffbeb" : i % 3 === 1 ? "rgba(253,230,138,0.9)" : "rgba(251,146,60,0.78)";
+    } else if (tone === "ember") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#fff1f2" : i % 3 === 1 ? "rgba(254,202,202,0.88)" : "rgba(251,113,133,0.76)";
+    } else if (tone === "slag") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#f1f5f9" : i % 3 === 1 ? "rgba(148,163,184,0.88)" : "rgba(99,102,241,0.72)";
+    } else if (tone === "venom") {
+      ctx.fillStyle =
+        i % 3 === 0 ? "#ecfccb" : i % 3 === 1 ? "rgba(190,242,100,0.85)" : "rgba(34,197,94,0.74)";
     } else {
       ctx.fillStyle = i % 3 === 0 ? "#fffde4" : "#fde68a";
     }
@@ -3799,11 +5311,51 @@ function drawSmokeTrailOnPath(
         ? "rgba(120,53,15,0.22)"
         : tone === "rainbow"
           ? "rgba(15,23,42,0.14)"
-          : "rgba(15,23,42,0.2)";
-    ctx.lineWidth = tone === "dust" || tone === "pellet" || tone === "rainbow" ? 2 : 1.5;
+          : tone === "forest"
+            ? "rgba(6,78,59,0.24)"
+            : tone === "marine"
+              ? "rgba(12,74,110,0.26)"
+              : tone === "desert"
+                ? "rgba(120,53,15,0.25)"
+                : tone === "ember"
+                  ? "rgba(127,29,29,0.26)"
+                  : tone === "slag"
+                    ? "rgba(51,65,85,0.26)"
+                    : tone === "venom"
+                      ? "rgba(21,128,61,0.24)"
+                      : "rgba(15,23,42,0.2)";
+    ctx.lineWidth =
+      tone === "dust" ||
+      tone === "pellet" ||
+      tone === "rainbow" ||
+      tone === "forest" ||
+      tone === "marine" ||
+      tone === "desert" ||
+      tone === "ember" ||
+      tone === "slag" ||
+      tone === "venom"
+        ? 2
+        : 1.5;
     const r =
-      (tone === "dust" ? 2.2 : tone === "pellet" ? 2 : tone === "rainbow" ? 2.1 : 1.8) +
-      t * (tone === "dust" ? 3.4 : tone === "pellet" ? 3.2 : tone === "rainbow" ? 3.3 : 2.6);
+      (tone === "dust"
+        ? 2.2
+        : tone === "pellet"
+          ? 2
+          : tone === "rainbow"
+            ? 2.1
+            : themedTrail
+              ? 2.05
+              : 1.8) +
+      t *
+        (tone === "dust"
+          ? 3.4
+          : tone === "pellet"
+            ? 3.2
+            : tone === "rainbow"
+              ? 3.3
+              : themedTrail
+                ? 3.25
+                : 2.6);
     ctx.beginPath();
     ctx.arc(p.x, p.y + 1, r, 0, Math.PI * 2);
     ctx.fill();
@@ -3836,54 +5388,368 @@ function effectiveProjectileGlowForPlayerFlight(
   return rainbowProjectileGlowAt(nowMs, pos.x, pos.y);
 }
 
-/** Kleine Streukügelchen — gleiches Sprite, ca. halbe Größe */
+/**
+ * Panzerfarbene Chassis-Geschosse (Gradient aus `ProjectileGlow`) — ersetzt Kenney-Sprite
+ * für alle Waffen ohne eigene Flug-PNG (Silber behält PNG).
+ */
+function drawChassisShellAtOrigin(
+  W: CanvasRenderingContext2D,
+  kind: WeaponShellKind,
+  g: ProjectileGlow,
+  sizeMul: number,
+  shadowBlurPx: number,
+  timeMs: number,
+): void {
+  const L = 56 * sizeMul;
+  const T = L * 0.36;
+  const pulse = 0.5 + 0.5 * Math.sin(timeMs * 0.014);
+  W.shadowColor = g.shadow;
+  W.shadowBlur = Math.min(26, shadowBlurPx * 0.95);
+
+  const drawBodyGradient = (x0: number, x1: number): CanvasGradient => {
+    const lg = W.createLinearGradient(x0, -T * 0.5, x1, T * 0.5);
+    lg.addColorStop(0, g.mid);
+    lg.addColorStop(0.35, g.core);
+    lg.addColorStop(0.78, g.mid);
+    lg.addColorStop(1, g.rim);
+    return lg;
+  };
+
+  if (kind === "swarm") {
+    const s = 0.82;
+    const Ls = L * s;
+    const Ts = T * s;
+    W.fillStyle = drawBodyGradient(-Ls * 0.55, Ls * 0.62);
+    W.beginPath();
+    W.ellipse(-Ls * 0.08, 0, Ls * 0.34, Ts * 0.38, 0, 0, Math.PI * 2);
+    W.fill();
+    W.beginPath();
+    W.moveTo(Ls * 0.28, 0);
+    W.lineTo(Ls * 0.62, -Ts * 0.22);
+    W.lineTo(Ls * 0.72, 0);
+    W.lineTo(Ls * 0.62, Ts * 0.22);
+    W.closePath();
+    W.fillStyle = g.core;
+    W.fill();
+    for (let f = 0; f < 4; f++) {
+      const fa = (f / 4) * Math.PI * 2 + timeMs * 0.002;
+      W.strokeStyle = "rgba(15,23,42,0.35)";
+      W.lineWidth = 1.1;
+      W.beginPath();
+      W.moveTo(-Ls * 0.22 + Math.cos(fa) * 2, Math.sin(fa) * 2);
+      W.lineTo(-Ls * 0.42 + Math.cos(fa) * 5, Ts * 0.52 * Math.sin(fa));
+      W.stroke();
+    }
+  } else if (kind === "heavy") {
+    W.fillStyle = drawBodyGradient(-L * 0.58, L * 0.52);
+    W.beginPath();
+    W.ellipse(-L * 0.04, 0, L * 0.38, T * 0.48, 0, 0, Math.PI * 2);
+    W.fill();
+    W.strokeStyle = "rgba(15,23,42,0.42)";
+    W.lineWidth = 2.2;
+    W.stroke();
+    W.fillStyle = g.core;
+    W.globalAlpha = 0.55 + pulse * 0.2;
+    W.beginPath();
+    W.ellipse(L * 0.34, 0, L * 0.22, T * 0.4, 0, 0, Math.PI * 2);
+    W.fill();
+    W.globalAlpha = 1;
+    W.beginPath();
+    W.moveTo(L * 0.48, 0);
+    W.lineTo(L * 0.62, -T * 0.26);
+    W.lineTo(L * 0.72, 0);
+    W.lineTo(L * 0.62, T * 0.26);
+    W.closePath();
+    W.fillStyle = drawBodyGradient(L * 0.35, L * 0.78);
+    W.fill();
+    W.strokeStyle = "rgba(15,23,42,0.38)";
+    W.lineWidth = 1.6;
+    W.stroke();
+    W.strokeStyle = "rgba(255,255,255,0.35)";
+    W.lineWidth = 1.2;
+    W.beginPath();
+    W.moveTo(-L * 0.28, -T * 0.12);
+    W.lineTo(L * 0.28, -T * 0.12);
+    W.stroke();
+  } else {
+    W.fillStyle = drawBodyGradient(-L * 0.52, L * 0.48);
+    W.beginPath();
+    W.ellipse(L * 0.04, 0, L * 0.36, T * 0.4, 0, 0, Math.PI * 2);
+    W.fill();
+    W.beginPath();
+    W.moveTo(L * 0.38, 0);
+    W.lineTo(L * 0.58, -T * 0.2);
+    W.lineTo(L * 0.68, 0);
+    W.lineTo(L * 0.58, T * 0.2);
+    W.closePath();
+    W.fillStyle = g.core;
+    W.fill();
+    W.strokeStyle = "rgba(15,23,42,0.4)";
+    W.lineWidth = 1.5;
+    W.beginPath();
+    W.ellipse(L * 0.04, 0, L * 0.36, T * 0.4, 0, 0, Math.PI * 2);
+    W.stroke();
+    W.strokeStyle = "rgba(255,255,255,0.42)";
+    W.lineWidth = 1;
+    W.beginPath();
+    W.moveTo(-L * 0.28, -T * 0.08);
+    W.lineTo(L * 0.18, -T * 0.08);
+    W.stroke();
+  }
+
+  W.save();
+  W.globalCompositeOperation = "lighter";
+  W.globalAlpha = 0.28 + pulse * 0.12;
+  const hx = L * (kind === "heavy" ? 0.08 : kind === "swarm" ? -0.02 : 0.02);
+  const hy = -T * 0.26;
+  const sg = W.createRadialGradient(hx, hy, 1, hx, hy, L * 0.28);
+  sg.addColorStop(0, "rgba(255,255,255,0.85)");
+  sg.addColorStop(0.45, g.core);
+  sg.addColorStop(1, "rgba(255,255,255,0)");
+  W.fillStyle = sg;
+  W.beginPath();
+  W.ellipse(hx, hy, L * 0.14, T * 0.2, 0, 0, Math.PI * 2);
+  W.fill();
+  W.restore();
+  W.shadowBlur = 0;
+}
+
+/** Kleine Streukügelchen — Chassis-Canvas, Silber-PNG-Textur oder Kenney-Fallback */
 function drawProjectileSized(
   pos: { x: number; y: number },
   prev: { x: number; y: number } | null,
   g: ProjectileGlow,
   sizeMul: number,
+  shadowBlurPx = 14,
+  flightTexWeaponId?: string,
 ): void {
-  const img = spriteSheet;
-  const r = ATLAS.bulletFly3;
   const flyRot = prev ? Math.atan2(pos.y - prev.y, pos.x - prev.x) : 0;
-  if (img?.complete && img.naturalWidth > 2) {
-    const bw = 56 * sizeMul;
-    const bh = bw * (r.h / r.w);
+  const texKey = silverFlightProjectileTextureKey(flightTexWeaponId);
+  const drawable = texKey ? silverFlightProjectileDrawables[texKey] : undefined;
+  if (drawable && drawable.width > 2 && drawable.height > 2) {
+    /** Größere Darstellung; nur PNG-Patrone — kein zusätzlicher Glow-Körper unter dem Sprite. */
+    const SILVER_TEX_THICK_MUL = texKey === "silv_burst" ? 1.28 : 1.52;
+    const bw = 56 * sizeMul * SILVER_TEX_THICK_MUL;
+    const bh = bw * (drawable.height / drawable.width);
     ctx.save();
     ctx.translate(pos.x, pos.y);
     ctx.rotate(flyRot);
-    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, bw * 0.55);
-    glow.addColorStop(0, g.core);
-    glow.addColorStop(0.5, g.mid);
-    glow.addColorStop(1, g.rim);
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, bw * 0.45, bh * 0.35, 0, 0, Math.PI * 2);
-    ctx.fill();
     ctx.shadowColor = g.shadow;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = Math.min(20, shadowBlurPx * 0.72);
     if (g.core.startsWith("hsla(")) {
       const hr = (performance.now() * 0.09 + pos.x * 0.025 + pos.y * 0.018) % 360;
       ctx.filter = `saturate(1.28) hue-rotate(${hr}deg)`;
     }
-    ctx.drawImage(img, r.x, r.y, r.w, r.h, -bw / 2, -bh / 2, bw, bh);
+    ctx.drawImage(drawable, 0, 0, drawable.width, drawable.height, -bw / 2, -bh / 2, bw, bh);
     ctx.filter = "none";
     ctx.restore();
-  } else {
-    const pr = 9 * sizeMul;
-    ctx.save();
-    ctx.fillStyle = g.core;
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = Math.max(2, 4 * sizeMul);
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, pr, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(pos.x - pr * 0.22, pos.y - pr * 0.22, Math.max(1.8, pr * 0.35), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    return;
+  }
+
+  const shellKind: WeaponShellKind = flightTexWeaponId ? shellKindForWeaponId(flightTexWeaponId) : "light";
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(flyRot);
+  if (g.core.startsWith("hsla(")) {
+    const hr = (performance.now() * 0.09 + pos.x * 0.025 + pos.y * 0.018) % 360;
+    ctx.filter = `saturate(1.28) hue-rotate(${hr}deg)`;
+  }
+  drawChassisShellAtOrigin(ctx, shellKind, g, sizeMul, shadowBlurPx, performance.now());
+  ctx.filter = "none";
+  ctx.restore();
+}
+
+/** Vorschau-Geschoss für Waffenliste (kleines Canvas, gleiches Sprite wie im Flug). */
+const BLITZ_PICKER_GLOW: ProjectileGlow = {
+  core: "rgba(250, 252, 255, 0.97)",
+  mid: "rgba(125, 211, 252, 0.52)",
+  rim: "rgba(37, 99, 235, 0)",
+  shadow: "rgba(59, 130, 246, 0.88)",
+};
+
+function drawProjectilePreviewOnCanvas(cvs: HTMLCanvasElement, g: ProjectileGlow, weaponId?: string): void {
+  const tc = cvs.getContext("2d");
+  if (!tc) return;
+  const w = cvs.width;
+  const h = cvs.height;
+  tc.clearRect(0, 0, w, h);
+  if (weaponId === "bnk_siege_laser") {
+    tc.save();
+    tc.translate(w / 2, h / 2);
+    tc.rotate(-0.52);
+    tc.lineCap = "round";
+    tc.strokeStyle = "rgba(168, 24, 200, 0.92)";
+    tc.lineWidth = 7;
+    tc.shadowBlur = 18;
+    tc.shadowColor = "rgba(192, 38, 255, 0.95)";
+    tc.beginPath();
+    tc.moveTo(-22, 0);
+    tc.lineTo(22, 0);
+    tc.stroke();
+    tc.strokeStyle = "rgba(250, 232, 255, 0.95)";
+    tc.lineWidth = 2.5;
+    tc.shadowBlur = 8;
+    tc.shadowColor = "rgba(233, 213, 255, 0.75)";
+    tc.beginPath();
+    tc.moveTo(-22, 0);
+    tc.lineTo(22, 0);
+    tc.stroke();
+    tc.restore();
+    return;
+  }
+  const pickProf = weaponProjectileFlightVisualProfile(weaponId ?? "");
+  const sizeMul = (Math.min(w, h) / 62) * pickProf.pickerPreviewMul;
+  const shellKind: WeaponShellKind = weaponId ? shellKindForWeaponId(weaponId) : "light";
+  tc.save();
+  tc.translate(w / 2, h / 2);
+  if (g.core.startsWith("hsla(")) {
+    const hr = (performance.now() * 0.09 + w * 0.12) % 360;
+    tc.filter = `saturate(1.28) hue-rotate(${hr}deg)`;
+  }
+  drawChassisShellAtOrigin(tc, shellKind, g, sizeMul, pickProf.shadowBlur, performance.now());
+  tc.filter = "none";
+  tc.restore();
+}
+
+function weaponPickerKeyHint(slot: number): string {
+  if (isBlitzSlot(slot)) return "Taste 4";
+  if (lockerMaxSpecialUnlocked() && slot === pw().length - 1) return "Taste 6";
+  if (slot < 3) return `Taste ${slot + 1}`;
+  if (pw()[slot]?.siegeLaser) return "Taste 8";
+  return "";
+}
+
+function weaponPickerSlotDisabled(slot: number): boolean {
+  return isBlitzSlot(slot) && !canUseBlitzNow();
+}
+
+function weaponPickerVisualForSlot(slot: number): { nameDe: string; glow: ProjectileGlow } {
+  if (isBlitzSlot(slot)) {
+    return { nameDe: BLITZ_DISPLAY_NAME_DE, glow: BLITZ_PICKER_GLOW };
+  }
+  const W = pw()[slot]!;
+  return { nameDe: W.nameDe, glow: W.glow ?? DEFAULT_PROJECTILE_GLOW };
+}
+
+function weaponPickerWeaponIdForSlot(slot: number): string | undefined {
+  if (isBlitzSlot(slot)) return undefined;
+  return pw()[slot]?.id;
+}
+
+/** PNG-Vorschau in der Waffenliste (Silber-Starter + Locker-Spezial); sonst Canvas-Kenney-Sprite. */
+function weaponPickerStaticShotSrc(weaponId: string | undefined): string | null {
+  if (!weaponId) return null;
+  const base = `${import.meta.env.BASE_URL}games/tank-artillery/ui/`;
+  switch (weaponId) {
+    case "silv_pop":
+      return `${base}silver-ammo-platzpatrone.png`;
+    case "silv_med":
+      return `${base}silver-ammo-leichtkaliber.png`;
+    case "silv_burst":
+      return `${base}silver-ammo-einstreu.png`;
+    case "silv_lock_special":
+      return `${base}silver-chassis-explosion-burst.png`;
+    default:
+      return null;
+  }
+}
+
+function refreshWeaponPickerPreviews(): void {
+  const ul = document.getElementById("taWeaponPickerList");
+  if (!ul) return;
+  ul.querySelectorAll<HTMLCanvasElement>("canvas.taWeaponPickerShot").forEach((cvs) => {
+    const s = cvs.dataset.slot;
+    if (s == null) return;
+    const slot = Number(s);
+    if (Number.isNaN(slot)) return;
+    drawProjectilePreviewOnCanvas(cvs, weaponPickerVisualForSlot(slot).glow, weaponPickerWeaponIdForSlot(slot));
+  });
+}
+
+function syncWeaponPickerRowHighlight(): void {
+  const ul = document.getElementById("taWeaponPickerList");
+  if (!ul || !weaponPickerSheetOpen) return;
+  ul.querySelectorAll<HTMLButtonElement>(".taWeaponPickerRow").forEach((btn) => {
+    const s = btn.dataset.slot;
+    if (s == null) return;
+    const slot = Number(s);
+    btn.classList.toggle("taWeaponPickerRow--active", selectedSlot === slot);
+  });
+}
+
+function rebuildWeaponPickerList(): void {
+  const ul = document.getElementById("taWeaponPickerList");
+  if (!ul) return;
+  ul.replaceChildren();
+  const bi = blitzSlotIndex();
+  for (let slot = 0; slot <= bi; slot++) {
+    const { nameDe, glow } = weaponPickerVisualForSlot(slot);
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "taWeaponPickerRow";
+    btn.dataset.slot = String(slot);
+    if (weaponPickerSlotDisabled(slot)) btn.disabled = true;
+    btn.classList.toggle("taWeaponPickerRow--active", selectedSlot === slot);
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "taWeaponPickerThumb";
+    const wid = weaponPickerWeaponIdForSlot(slot);
+    const staticSrc = weaponPickerStaticShotSrc(wid);
+    if (staticSrc) {
+      const img = document.createElement("img");
+      img.className = "taWeaponPickerShot taWeaponPickerShot--static";
+      img.src = staticSrc;
+      img.alt = "";
+      img.loading = "eager";
+      img.decoding = "async";
+      img.dataset.slot = String(slot);
+      img.setAttribute("aria-hidden", "true");
+      thumbWrap.append(img);
+    } else {
+      const cvs = document.createElement("canvas");
+      cvs.width = 52;
+      cvs.height = 52;
+      cvs.className = "taWeaponPickerShot";
+      cvs.dataset.slot = String(slot);
+      cvs.setAttribute("aria-hidden", "true");
+      thumbWrap.append(cvs);
+      drawProjectilePreviewOnCanvas(cvs, glow, wid);
+    }
+    const meta = document.createElement("div");
+    meta.className = "taWeaponPickerRowMeta";
+    const nm = document.createElement("span");
+    nm.className = "taWeaponPickerName";
+    nm.textContent = nameDe;
+    const sub = document.createElement("span");
+    sub.className = "taWeaponPickerSub";
+    sub.textContent = weaponPickerKeyHint(slot);
+    meta.append(nm, sub);
+    btn.append(thumbWrap, meta);
+    btn.addEventListener("click", () => {
+      if (weaponPickerSlotDisabled(slot)) return;
+      selectedSlot = slot;
+      if (isBlitzSlot(slot)) refreshBlitzAimAroundTanks();
+      hudTxt();
+      setWeaponPickerOpen(false);
+      cv.focus();
+    });
+    li.append(btn);
+    ul.append(li);
+  }
+}
+
+function setWeaponPickerOpen(open: boolean): void {
+  const root = document.getElementById("taWeaponPicker");
+  if (!root) return;
+  weaponPickerSheetOpen = open;
+  root.hidden = !open;
+  root.setAttribute("aria-hidden", open ? "false" : "true");
+  const expanded = open ? "true" : "false";
+  for (const id of ["taWeaponPickerOpenBtn", "taWeaponPickerOpenBtnAim"] as const) {
+    document.getElementById(id)?.setAttribute("aria-expanded", expanded);
+  }
+  if (open) {
+    rebuildWeaponPickerList();
   }
 }
 
@@ -3902,7 +5768,11 @@ function drawPlayerBarrelAim(): void {
   const visDeg = barrelVisAng + barrelRecoilDeg + windWobble;
   const tip = muzzleAt(px, true, visDeg);
   const faded = ph === "m";
-  const blocked = ph === "aim" && !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked();
+  const blocked =
+    ph === "aim" &&
+    !isBlitzSlot(selectedSlot) &&
+    !playerSiegeLaserWeaponSelected() &&
+    playerBarrelLosBlocked();
   const lwOuter = faded ? 9 : ph === "aim" ? 14 : 12;
   const lwMid = faded ? 5 : ph === "aim" ? 7.5 : 6;
   const lwInner = faded ? 1.75 : ph === "aim" ? 2.85 : 2.35;
@@ -3942,85 +5812,6 @@ function strokeHudText(text: string, x: number, y: number, align: CanvasTextAlig
   ctx.restore();
 }
 
-/** Unten links: Munition & Blitz-Zeile (Canvas) */
-function drawWeaponLoadoutHud(): void {
-  const pad = 14;
-  const rowTop = 30;
-  const rowGap = 32;
-  const titleSz = 16;
-  const baseSz = 18;
-  const selSz = 22;
-
-  type HudRow =
-    | { row: "weapon"; slot: number; line: string }
-    | { row: "shield"; line: string }
-    | { row: "rainbow"; line: string };
-  const P = pw();
-  const rows: HudRow[] = [];
-  for (let idx = 0; idx < P.length; idx++) {
-    const w = P[idx]!;
-    const label = lockerMaxSpecialUnlocked() && idx === 3 ? `6. ${w.nameDe}` : `${idx + 1}. ${w.nameDe}`;
-    rows.push({ row: "weapon", slot: idx, line: label });
-  }
-  rows.push({ row: "weapon", slot: blitzSlotIndex(), line: blitzLoadoutHudLine() });
-  const sh = shieldLoadoutHudLine();
-  if (sh) rows.push({ row: "shield", line: sh });
-  const rb = rainbowLoadoutHudLine();
-  if (rb) rows.push({ row: "rainbow", line: rb });
-
-  ctx.save();
-  ctx.font = `900 ${titleSz}px ${HUD_FF}`;
-  const header = "Waffen wählen";
-  let maxTw = ctx.measureText(header).width;
-  for (const r of rows) {
-    ctx.font = `900 ${baseSz}px ${HUD_FF}`;
-    maxTw = Math.max(maxTw, ctx.measureText(r.line).width);
-  }
-
-  const boxW = Math.min(WORLD.W * 0.54, Math.max(maxTw + 52, 268));
-  const boxH = rowTop + rows.length * rowGap + 18;
-  const bx = pad;
-  const by = WORLD.H - boxH - 14;
-
-  pathRoundRect(bx, by, boxW, boxH, 18);
-  ctx.fillStyle = "rgba(240,251,255,0.98)";
-  ctx.fill();
-  ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 4;
-  ctx.stroke();
-
-  strokeHudText(header, bx + boxW / 2, by + 22, "center", titleSz);
-
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    const isW = r.row === "weapon";
-    const sel = isW && selectedSlot === r.slot;
-    const nowHud = performance.now();
-    const dim = isW
-      ? r.slot === blitzSlotIndex() && !canUseBlitzNow()
-      : r.row === "shield"
-        ? !(playerShieldAbsorb > 0 || canActivateDesertShieldNow())
-        : r.row === "rainbow"
-          ? !(rainbowOverdriveBuffActive(nowHud) || canActivateRainbowRushNow())
-          : false;
-    const ty = by + rowTop + i * rowGap + 8;
-    ctx.save();
-    if (dim) ctx.globalAlpha = 0.42;
-    if (sel && !dim) {
-      pathRoundRect(bx + 10, ty - selSz * 0.46, boxW - 20, selSz + 10, 12);
-      ctx.fillStyle = "rgba(251,191,36,0.6)";
-      ctx.fill();
-      ctx.strokeStyle = "#0f172a";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-    strokeHudText(r.line, bx + 22, ty + selSz * (sel && !dim ? 0.06 : -0.04), "left", sel && !dim ? selSz : baseSz);
-    ctx.restore();
-  }
-
-  ctx.restore();
-}
-
 /** Kurzer Hinweis bei Blitz (obere Mitte), große erste Zeile. */
 function drawLightningBannerHud(now: number): void {
   if (now >= lightningBannerUntil || lightningBannerLines.length === 0) return;
@@ -4045,6 +5836,373 @@ function drawShieldBannerHud(now: number): void {
   ctx.globalAlpha = 0.95;
   strokeHudText(l0, x, y0, "center", 26);
   if (l1) strokeHudText(l1, x, y1, "center", 16);
+  ctx.restore();
+}
+
+function drawBunkerLaserBannerHud(now: number): void {
+  if (now >= bunkerLaserBannerUntil || bunkerLaserBannerLines.length === 0) return;
+  const l0 = bunkerLaserBannerLines[0]!;
+  const l1 = bunkerLaserBannerLines[1] ?? "";
+  const stackBlitz = now < lightningBannerUntil && lightningBannerLines.length > 0;
+  const stackShield = now < shieldBannerUntil && shieldBannerLines.length > 0;
+  let yOff = 0;
+  if (stackBlitz) yOff += 86;
+  if (stackShield) yOff += 86;
+  const x = WORLD.W / 2;
+  const y0 = 76 + yOff;
+  const y1 = 118 + yOff;
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  strokeHudText(l0, x, y0, "center", 26);
+  if (l1) strokeHudText(l1, x, y1, "center", 16);
+  ctx.restore();
+}
+
+function taSmoothstep01(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+function taEaseOutCubic(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return 1 - (1 - x) ** 3;
+}
+
+function taEaseInCubic(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * x;
+}
+
+function enemyUfoNormT(now: number): number {
+  if (!enemyUfoWinPending) return 0;
+  return Math.min(1, (now - enemyUfoWinPending.startMs) / ENEMY_WIN_UFO_TOTAL_MS);
+}
+
+function enemyUfoEscapeFade(now: number): number {
+  const u = enemyUfoNormT(now);
+  if (u < 0.8) return 1;
+  return 1 - taSmoothstep01((u - 0.8) / 0.16);
+}
+
+/** Vertikaler Offset des Gegner-Panzers (px, negativ = nach oben) — zuletzt mit UFO gemeinsam abtransportiert. */
+function enemyUfoTankLiftPx(now: number): number {
+  if (!enemyUfoWinPending) return 0;
+  const u = enemyUfoNormT(now);
+  const L0 = -170;
+  const L1 = -455;
+  if (u < 0.26) return 0;
+  if (u < 0.54) return L0 * taSmoothstep01((u - 0.26) / 0.28);
+  if (u < 0.62) {
+    const w = Math.sin(((u - 0.54) / 0.08) * Math.PI * 2.4) * 5;
+    return L0 + w;
+  }
+  if (u < 0.93) return L0 + (L1 - L0) * taEaseInCubic((u - 0.62) / 0.31);
+  return L1;
+}
+
+function enemyUfoSaucerPose(now: number, bx0: number, liftPx: number): {
+  sx: number;
+  sy: number;
+  scale: number;
+  tilt: number;
+  beam: number;
+} {
+  const u = enemyUfoNormT(now);
+  const gy = hullGroundY(bx0);
+  const bob = Math.sin(now * 0.0046) * 5;
+  const sway = Math.sin(now * 0.0021) * 7;
+
+  let beamBase = 0;
+  if (u < 0.26) beamBase = taSmoothstep01(u / 0.26) * 0.38;
+  else if (u < 0.58) beamBase = 0.38 + taSmoothstep01((u - 0.26) / 0.32) * 0.58;
+  else if (u < 0.74) beamBase = 0.96 * (1 - taSmoothstep01((u - 0.58) / 0.16));
+  else beamBase = 0;
+
+  if (u < 0.22) {
+    const k = taSmoothstep01(u / 0.22);
+    const syTrack = gy + liftPx - 118 + bob;
+    return {
+      sx: bx0 + 280 * (1 - k) + sway * 0.25,
+      sy: syTrack - 168 * (1 - k) + bob * 0.12,
+      scale: 0.84 + 0.14 * k,
+      tilt: 0.13 * (1 - k),
+      beam: beamBase,
+    };
+  }
+
+  const sx = bx0 + sway * (1 - Math.min(1, Math.max(0, u - 0.85) * 6.5));
+  const sy = gy + liftPx - 118 + bob;
+  let scale = 1 + 0.035 * Math.sin(now * 0.006);
+  if (u > 0.86) scale *= 1 - 0.22 * taSmoothstep01((u - 0.86) / 0.11);
+  const tilt = 0.05 * Math.sin(now * 0.0032) + (u > 0.62 ? (u - 0.62) * 0.09 : 0);
+
+  return { sx, sy, scale, tilt, beam: beamBase };
+}
+
+function drawEnemyUfoTractorBeam(now: number, bx0: number, liftPx: number, pose: ReturnType<typeof enemyUfoSaucerPose>): void {
+  if (pose.beam <= 0.02) return;
+  const fade = enemyUfoEscapeFade(now);
+  const gy = hullGroundY(bx0);
+  const tankCx = bx0;
+  const tankTopY = gy + liftPx - 52;
+  const sx = pose.sx;
+  const sy = pose.sy + 22;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.38 * pose.beam * fade;
+  const g = ctx.createLinearGradient(sx, sy, tankCx, tankTopY + 20);
+  g.addColorStop(0, "rgba(216,180,254,0.95)");
+  g.addColorStop(0.45, "rgba(168,85,247,0.55)");
+  g.addColorStop(1, "rgba(124,58,237,0.02)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  const halfTop = 16 + pose.beam * 10;
+  const halfBot = 38 + pose.beam * 22;
+  ctx.moveTo(sx - halfTop, sy);
+  ctx.lineTo(sx + halfTop, sy);
+  ctx.lineTo(tankCx + halfBot, tankTopY + 28);
+  ctx.lineTo(tankCx - halfBot, tankTopY + 28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 0.22 * pose.beam * fade;
+  ctx.strokeStyle = "rgba(233,213,255,0.9)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEnemyUfoSaucer(now: number, pose: ReturnType<typeof enemyUfoSaucerPose>): void {
+  const u = enemyUfoNormT(now);
+  if (u >= 0.97) return;
+  const fade = enemyUfoEscapeFade(now);
+  const { sx, sy, scale, tilt } = pose;
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(tilt);
+  ctx.scale(scale, scale);
+
+  const pulse = 0.5 + 0.5 * Math.sin(now * 0.007);
+  ctx.globalAlpha = 0.94 * fade;
+  ctx.shadowBlur = 28 + pulse * 10;
+  ctx.shadowColor = "rgba(147,51,234,0.75)";
+
+  const body = ctx.createRadialGradient(-12, -8, 4, 0, 0, 56);
+  body.addColorStop(0, "rgba(250,245,255,0.98)");
+  body.addColorStop(0.25, "rgba(192,132,252,0.92)");
+  body.addColorStop(0.55, "rgba(126,34,206,0.88)");
+  body.addColorStop(1, "rgba(59,7,100,0.35)");
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 58, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = "rgba(233,213,255,0.55)";
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+
+  const dome = ctx.createRadialGradient(-6, -28, 2, -4, -30, 26);
+  dome.addColorStop(0, "rgba(255,255,255,0.95)");
+  dome.addColorStop(0.5, "rgba(216,180,254,0.75)");
+  dome.addColorStop(1, "rgba(91,33,182,0.25)");
+  ctx.fillStyle = dome;
+  ctx.beginPath();
+  ctx.ellipse(-4, -30, 24, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const portAlpha = 0.55 + pulse * 0.4;
+  for (let i = -1; i <= 1; i++) {
+    const blink = 0.45 + 0.55 * Math.sin(now * 0.011 + i * 1.7);
+    ctx.fillStyle = `rgba(251,207,232,${portAlpha * blink})`;
+    ctx.beginPath();
+    ctx.arc(i * 22, 6, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = "rgba(196,181,253,0.65)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, -48);
+  ctx.lineTo(-4, -56 - pulse * 5);
+  ctx.stroke();
+  ctx.fillStyle = `rgba(254,249,195,${0.35 + pulse * 0.45})`;
+  ctx.beginPath();
+  ctx.arc(-4, -58 - pulse * 5, 2.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/** Grabstein „R.I.P.“ fällt an der Abholstelle ein, sobald der Gegner mit dem UFO weg ist. */
+function drawEnemyUfoRipTombstone(now: number, ripX: number, ripGroundY: number): void {
+  const u = enemyUfoNormT(now);
+  if (u < 0.48) return;
+  const t = Math.min(1, (u - 0.48) / 0.36);
+  const prog = taEaseOutCubic(t);
+  const h = 56;
+  const w = 38;
+  const landCy = ripGroundY - h * 0.48;
+  const startCy = ripGroundY - 228;
+  let cy = startCy + (landCy - startCy) * prog;
+  if (t > 0.82) {
+    const b = (t - 0.82) / 0.18;
+    cy += Math.sin(b * Math.PI) * 9 * (1 - b);
+  }
+  const rot = (1 - Math.min(1, t * 1.28)) * 0.24;
+
+  ctx.save();
+  ctx.translate(ripX, cy);
+  ctx.rotate(rot);
+
+  const g = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+  g.addColorStop(0, "#cbd5e1");
+  g.addColorStop(0.35, "#64748b");
+  g.addColorStop(0.72, "#475569");
+  g.addColorStop(1, "#1e293b");
+  ctx.fillStyle = g;
+  pathRoundRect(-w / 2, -h / 2, w, h, 7);
+  ctx.fill();
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 2.8;
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#166534";
+  pathRoundRect(-w / 2 + 3, -h / 2 + 4, w - 6, 10, 4);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = "rgba(15,23,42,0.55)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.22);
+  ctx.lineTo(0, h * 0.28);
+  ctx.moveTo(-w * 0.2, -h * 0.02);
+  ctx.lineTo(w * 0.2, -h * 0.02);
+  ctx.stroke();
+
+  strokeHudText("R.I.P.", 0, h * 0.06, "center", 13);
+
+  ctx.restore();
+}
+
+/** Aufprall: Glut und Funken steigen am Gegner und am Gelände entlang des Strahls (nicht „runterfallen“). */
+function drawBunkerSiegeLaserBurnEffects(now: number, ax: number, ay: number, x2: number, y2: number): void {
+  const t = now * 0.0021;
+  const ex = x2;
+  const ey = y2;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  const steps = 20;
+  for (let i = 1; i < steps; i++) {
+    const u = i / steps;
+    const wx = ax + (x2 - ax) * u;
+    const wy = ay + (y2 - ay) * u;
+    const surfY = heightAt(T, wx);
+    if (wy < surfY - 16) continue;
+    const baseY = surfY - 4;
+    const flick = 0.4 + 0.35 * Math.sin(now * 0.028 + i * 1.05);
+    ctx.globalAlpha = flick * 0.55;
+    const g = ctx.createRadialGradient(wx, baseY - 6, 0, wx, baseY - 22, 24);
+    g.addColorStop(0, "rgba(255,220,160,0.9)");
+    g.addColorStop(0.4, "rgba(251,133,60,0.45)");
+    g.addColorStop(1, "rgba(60,20,8,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(wx, baseY - 10 * flick, 9 + (i % 3), 0, Math.PI * 2);
+    ctx.fill();
+    for (let s = 0; s < 2; s++) {
+      const cyc = (now * 0.0038 * (1.05 + s * 0.12) + i * 2.4 + s * 1.7) % 1;
+      const sx = wx + Math.sin(i * 2.3 + s * 3.1) * 7 * cyc;
+      const sy = baseY - 6 - cyc * (26 + s * 12);
+      ctx.globalAlpha = (1 - cyc) * 0.9;
+      ctx.fillStyle = cyc < 0.28 ? "#fffbeb" : cyc < 0.58 ? "#fdba74" : "#c2410c";
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.6 * (1 - cyc * 0.45), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const pulse = 0.4 + 0.38 * Math.sin(now * 0.052);
+  ctx.globalAlpha = pulse;
+  const hullRg = ctx.createRadialGradient(ex, ey - 10, 0, ex, ey + 4, 52);
+  hullRg.addColorStop(0, "rgba(255,248,220,0.98)");
+  hullRg.addColorStop(0.18, "rgba(253,186,116,0.85)");
+  hullRg.addColorStop(0.42, "rgba(249,115,22,0.62)");
+  hullRg.addColorStop(0.72, "rgba(185,28,28,0.38)");
+  hullRg.addColorStop(1, "rgba(30,12,8,0)");
+  ctx.fillStyle = hullRg;
+  ctx.beginPath();
+  ctx.ellipse(ex, ey - 6, 42, 28, 0.06 * Math.sin(now * 0.038), 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let i = 0; i < 40; i++) {
+    const seed = i * 18.91 + bx * 0.015;
+    const cyc = (t * (1.08 + (i % 7) * 0.07) + seed * 0.13) % 1;
+    const spread = Math.sin(seed * 1.7) * 26 * (0.2 + cyc * 0.85) + Math.cos(seed * 2.3) * 10 * cyc;
+    const px = ex + spread;
+    const py = ey - 10 - cyc * (72 + (i % 6) * 9);
+    const sz = 1.8 + (i % 5) * 0.55;
+    ctx.globalAlpha = (1 - cyc * 0.88) * (0.5 + 0.5 * Math.sin(now * 0.11 + i * 0.31));
+    ctx.fillStyle =
+      cyc < 0.18 ? "#fffef5" : cyc < 0.42 ? "#fde68a" : cyc < 0.68 ? "#fb923c" : "rgba(70,22,12,0.95)";
+    ctx.beginPath();
+    ctx.arc(px, py, sz * (1 - cyc * 0.4), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  for (let j = 0; j < 6; j++) {
+    const cyc2 = (t * 0.48 + j * 0.27) % 1;
+    ctx.globalAlpha = 0.14 * (1 - cyc2);
+    ctx.fillStyle = "rgba(28,24,28,0.95)";
+    const smx = ex + Math.sin(now * 0.0009 + j * 1.9) * 14;
+    const smy = ey - 24 - cyc2 * 95;
+    ctx.beginPath();
+    ctx.ellipse(smx, smy, 14 + cyc2 * 12, 9 + cyc2 * 7, j * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/** Violetter Siegelaser: Mündung → Gegner-Turm (nur bei aktivem Bunker-Laser). */
+function drawBunkerSiegeLaserWorld(now: number): void {
+  if (!bunkerSiegeLaserActive(now)) return;
+  const ax = mP(px, true).x;
+  const ay = mP(px, true).y;
+  const ex = bx;
+  const ey = hullGroundY(bx) - 24;
+  const wob = Math.sin(now * 0.019) * 9 + Math.cos(now * 0.013) * 5;
+  const dx = ex - ax;
+  const dy = ey - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  const ox = (-dy / len) * wob;
+  const oy = (dx / len) * wob;
+  const x2 = ex + ox * 0.35;
+  const y2 = ey + oy * 0.35;
+  drawBunkerSiegeLaserBurnEffects(now, ax, ay, x2, y2);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const alpha = 0.82 + 0.16 * Math.sin(now * 0.021);
+  ctx.strokeStyle = `rgba(168, 24, 200, ${alpha})`;
+  ctx.lineWidth = 16;
+  ctx.shadowBlur = 32;
+  ctx.shadowColor = "rgba(192, 38, 255, 0.95)";
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(250, 232, 255, 0.9)";
+  ctx.lineWidth = 5.5;
+  ctx.shadowBlur = 16;
+  ctx.shadowColor = "rgba(233, 213, 255, 0.88)";
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -4107,17 +6265,26 @@ function drawLightningBoltLayer(now: number): void {
 function phaseHintLine(): string {
   const s5 = canActivateDesertShieldNow() ? " · 5=Schild" : "";
   const s7 = canActivateRainbowRushNow() ? " · 7=Regenbogen" : "";
-  if (ph === "m") return `Fahren · Treibstoff ${fuelP}${s5}${s7}`;
+  if (ph === "m") return `Fahren · Treibstoff ${fuelP}${s5}${s7}${bunkerSiegeLaserHudSuffix()}`;
   if (ph === "aim" && isBlitzSlot(selectedSlot))
-    return `Blitz · von oben · A/D Platz · Klick · Leertaste${s5}${s7}`;
+    return `Blitz · von oben · A/D Platz · Klick · Leertaste${s5}${s7}${bunkerSiegeLaserHudSuffix()}`;
   if (ph === "aim") {
     const now = performance.now();
     const wall =
-      !isBlitzSlot(selectedSlot) && playerBarrelLosBlocked()
+      !isBlitzSlot(selectedSlot) && !playerSiegeLaserWeaponSelected() && playerBarrelLosBlocked()
         ? " · Rohr blockiert"
         : "";
     const bump = now < barrelBlockedHintUntil ? " · nicht schießbar" : "";
-    return `Zielen · ${ang.toFixed(1)}° · Kraft ${Math.round(pow)}${s5}${s7}${wall}${bump}`;
+    const skipHint = isBlitzSlot(selectedSlot)
+      ? ""
+      : skipShotUsedThisMatch
+        ? " · Pass weg"
+        : " · X überspringen 1×";
+    const aimCore =
+      activeTankId() === "bunker"
+        ? `Seite ${ang.toFixed(1)}° · R ${Math.round(pow)}`
+        : `${ang.toFixed(1)}° · Kraft ${Math.round(pow)}`;
+    return `Zielen · ${aimCore}${s5}${s7}${bunkerSiegeLaserHudSuffix()}${wall}${bump}${skipHint}`;
   }
   if (ph === "pf" || ph === "bf") return "Flug…";
   return "Bot zielt …";
@@ -4125,7 +6292,6 @@ function phaseHintLine(): string {
 
 /** Wind, XP & Status — Comic-Sprechblase im Canvas (keine Kästen oben). */
 function drawCartoonHudOverlay(nowMs: number): void {
-  drawWeaponLoadoutHud();
   const pad = 12;
   const wHud = effectiveWindAccel(nowMs);
   const windLine = `${wHud >= 0 ? "+" : ""}${wHud.toFixed(1)} WIND${
@@ -4166,6 +6332,7 @@ function drawCartoonHudOverlay(nowMs: number): void {
   strokeHudText(msg, mx + mw / 2, my + mh / 2 - 2, "center", 13);
   drawLightningBannerHud(nowMs);
   drawShieldBannerHud(nowMs);
+  drawBunkerLaserBannerHud(nowMs);
   drawRainbowRushBattleUi(nowMs);
   ctx.restore();
 }
@@ -4175,7 +6342,11 @@ function rainbowRushButtonRect(): { x: number; y: number; w: number; h: number }
   if (effectiveMoveTrail() !== "rainbow") return null;
   const now = performance.now();
   if (rainbowRushConsumedThisMatch && !rainbowOverdriveBuffActive(now)) return null;
-  return { x: WORLD.W - 112, y: WORLD.H - 182, w: 102, h: 58 };
+  const pad = 14;
+  const w = 102;
+  const h = 58;
+  /** Unten links, über der Phasen-Zeile — Canvas-Waffenliste entfällt (Wahl per Touch-Panel). */
+  return { x: pad, y: WORLD.H - h - 68, w, h };
 }
 
 function drawRainbowRushBattleUi(nowMs: number): void {
@@ -4237,29 +6408,68 @@ function paint(): void {
   drawAimTrajectoryPreview();
   drawPlayerTankPlaced(now);
   drawRainbowRushSparksLayer(now);
-  drawTankPlaced(bx, atlasRectForEnemySkin(enemyTankSkin), false);
+  const enemyLift = enemyUfoTankLiftPx(now);
+  const ufoPose = enemyUfoWinPending ? enemyUfoSaucerPose(now, bx, enemyLift) : null;
+  if (ufoPose) drawEnemyUfoTractorBeam(now, bx, enemyLift, ufoPose);
+  const ufoFade = enemyUfoEscapeFade(now);
+  if (enemyUfoWinPending && ufoFade < 1) {
+    ctx.save();
+    ctx.globalAlpha = ufoFade;
+  }
+  drawTankPlaced(bx, atlasRectForEnemySkin(enemyTankSkin), false, undefined, now, enemyLift);
+  if (enemyUfoWinPending && ufoFade < 1) ctx.restore();
+  if (ufoPose) drawEnemyUfoSaucer(now, ufoPose);
+  if (enemyUfoWinPending) {
+    drawEnemyUfoRipTombstone(now, enemyUfoWinPending.ripX, enemyUfoWinPending.ripGroundY);
+  }
   drawPlayerDesertShieldBubble();
   drawLifeBar(px, hullGroundY(px), hpP, battleMaxHp, "left");
-  drawLifeBar(bx, hullGroundY(bx), hpB, battleMaxHp, "right");
+  drawLifeBar(bx, hullGroundY(bx), hpB, battleMaxHpEnemy, "right");
   drawPlayerBarrelAim();
   drawMuzzleFlashes(now);
 
   const gFly = projectileInFlightStyle ?? DEFAULT_PROJECTILE_GLOW;
+  const flightWid =
+    projectileFlightWeaponId ??
+    (ph === "pf"
+      ? pw()[isBlitzSlot(selectedSlot) ? 0 : selectedSlot]?.id
+      : ph === "bf"
+        ? WEAPONS[bwI]?.id
+        : "");
+  const flightProf = weaponProjectileFlightVisualProfile(flightWid ?? "");
   const playerRainbowShots = ph === "pf" && cosmeticMoveTrailForDraw(now) === "rainbow";
   const siPf = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
   const wpPf = pw()[siPf];
   const pbPreview = wpPf?.pelletBurst;
-  const trailTone: "warm" | "dust" | "pellet" | "rainbow" = pbPreview
-    ? pbPreview.spreadHalfDeg >= 11
-      ? playerRainbowShots
-        ? "rainbow"
-        : "dust"
-      : playerRainbowShots
-        ? "rainbow"
-        : "pellet"
-    : playerRainbowShots
-      ? "rainbow"
-      : "warm";
+  const trailTone:
+    | "warm"
+    | "dust"
+    | "pellet"
+    | "rainbow"
+    | "forest"
+    | "marine"
+    | "desert"
+    | "ember"
+    | "slag"
+    | "venom" = playerRainbowShots
+    ? "rainbow"
+    : ph === "pf" && isGreenFieldWeaponId(flightWid)
+      ? "forest"
+      : ph === "pf" && isMarineWeaponId(flightWid)
+        ? "marine"
+        : ph === "pf" && isDesertWeaponId(flightWid)
+          ? "desert"
+          : ph === "pf" && isCrimsonWeaponId(flightWid)
+            ? "ember"
+            : ph === "pf" && isBunkerWeaponId(flightWid)
+              ? "slag"
+              : ph === "pf" && isViperWeaponId(flightWid)
+                ? "venom"
+                : pbPreview
+                  ? pbPreview.spreadHalfDeg >= 11
+                    ? "dust"
+                    : "pellet"
+                  : "warm";
   const pelletTrailSpan = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 30 : 24) : 14;
   const pelletBulletScale = pbPreview ? (pbPreview.spreadHalfDeg >= 11 ? 0.62 : 0.58) : 0.48;
 
@@ -4270,18 +6480,43 @@ function paint(): void {
       drawSmokeTrailOnPath(pe.pts, j, pelletTrailSpan, trailTone);
       const p = pe.pts[j]!;
       const prev = j > 0 ? pe.pts[j - 1]! : null;
-      drawProjectileSized(p, prev, effectiveProjectileGlowForPlayerFlight(gFly, now, p), pelletBulletScale);
+      drawProjectileSized(
+        p,
+        prev,
+        effectiveProjectileGlowForPlayerFlight(gFly, now, p),
+        pelletBulletScale * flightProf.pelletScaleMul,
+        flightProf.shadowBlur,
+        flightWid,
+      );
     }
   } else if ((ph === "pf" || ph === "bf") && tr.length) {
     const j = Math.min(ti, tr.length - 1);
-    drawSmokeTrailAhead(j, playerRainbowShots ? "rainbow" : "warm");
+    drawSmokeTrailAhead(
+      j,
+      playerRainbowShots
+        ? "rainbow"
+        : ph === "pf" && isGreenFieldWeaponId(flightWid)
+          ? "forest"
+          : ph === "pf" && isMarineWeaponId(flightWid)
+            ? "marine"
+            : ph === "pf" && isDesertWeaponId(flightWid)
+              ? "desert"
+              : ph === "pf" && isCrimsonWeaponId(flightWid)
+                ? "ember"
+                : ph === "pf" && isBunkerWeaponId(flightWid)
+                  ? "slag"
+                  : ph === "pf" && isViperWeaponId(flightWid)
+                    ? "venom"
+                    : "warm",
+    );
     const p = tr[j]!;
     const prev = j > 0 ? tr[j - 1]! : null;
     const gSingle = ph === "pf" ? effectiveProjectileGlowForPlayerFlight(gFly, now, p) : gFly;
-    drawProjectileSized(p, prev, gSingle, 1);
+    drawProjectileSized(p, prev, gSingle, flightProf.singleScale, flightProf.shadowBlur, flightWid);
   }
   drawImpactBurstLayer(now);
   drawLightningBoltLayer(now);
+  drawBunkerSiegeLaserWorld(now);
   if (mapDifficulty === "insane") {
     drawInsaneFireAndSmoke(now);
   }
@@ -4295,21 +6530,28 @@ function paint(): void {
 
 function finishPlayer(): void {
   projectileInFlightStyle = null;
+  projectileFlightWeaponId = null;
   const si = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
   const Wp = pw()[si]!;
-  const mu = mP(px, true);
-  const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-  const hi = simulateUntilImpact(
-    T,
-    mu.x,
-    mu.y,
-    v.x,
-    v.y,
-    effectiveWindAccel(performance.now()),
-    FLIGHT_DT,
-    weaponDragMul(Wp),
-  );
-  spl(hi.x, hi.y, Wp);
+  const last = tr.length ? tr[tr.length - 1]! : null;
+  if (last) {
+    spl(last.x, last.y, Wp);
+  } else {
+    const mu = mP(px, true);
+    const v = playerShotVelocityForTank(activeTankId(), true, ang, pow, Wp.velMul);
+    const hi = simulateUntilImpact(
+      T,
+      mu.x,
+      mu.y,
+      v.x,
+      v.y,
+      effectiveWindAccel(performance.now()),
+      FLIGHT_DT,
+      weaponDragMul(Wp),
+      enemyImpactHullOpts(),
+    );
+    spl(hi.x, hi.y, Wp);
+  }
   if (chk()) return;
   ph = 'bw';
   bWait = performance.now() + 650;
@@ -4317,20 +6559,27 @@ function finishPlayer(): void {
 
 function finishBot(): void {
   projectileInFlightStyle = null;
+  projectileFlightWeaponId = null;
   const Wb = WEAPONS[bwI]!;
-  const mu = mB(bx, false, bθ);
-  const v = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
-  const hi = simulateUntilImpact(
-    T,
-    mu.x,
-    mu.y,
-    v.x,
-    v.y,
-    effectiveWindAccel(performance.now()),
-    FLIGHT_DT,
-    weaponDragMul(Wb),
-  );
-  spl(hi.x, hi.y, Wb);
+  const last = tr.length ? tr[tr.length - 1]! : null;
+  if (last) {
+    spl(last.x, last.y, Wb);
+  } else {
+    const mu = mB(bx, false, bθ);
+    const v = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
+    const hi = simulateUntilImpact(
+      T,
+      mu.x,
+      mu.y,
+      v.x,
+      v.y,
+      effectiveWindAccel(performance.now()),
+      FLIGHT_DT,
+      weaponDragMul(Wb),
+      playerImpactHullOpts(),
+    );
+    spl(hi.x, hi.y, Wb);
+  }
   fuelB -= 6;
   if (chk()) return;
   ph = 'm';
@@ -4343,11 +6592,16 @@ function chk(): boolean {
       openGameOverOverlay("win", 0);
       return true;
     }
-    addXp(XP_WIN);
-    const gems = rollGemsForWin(Math.random);
-    addGems(gems);
-    refreshPurseDisplays();
-    openGameOverOverlay("win", gems);
+    if (enemyUfoWinPending) return true;
+    const xpW = xpWinForMapDifficulty(mapDifficulty);
+    const gems = rollGemsForMapDifficulty(Math.random, mapDifficulty);
+    enemyUfoWinPending = {
+      startMs: performance.now(),
+      winXp: xpW,
+      winGems: gems,
+      ripX: bx,
+      ripGroundY: hullGroundY(bx),
+    };
     return true;
   }
   if (hpP <= 0) {
@@ -4355,6 +6609,255 @@ function chk(): boolean {
     return true;
   }
   return false;
+}
+
+/** Zug ohne Schuss abgeben — nur mit normaler Munition (nicht Blitz), höchstens einmal pro Partie. */
+function commitPlayerSkipShot(): void {
+  if (ph !== "aim") return;
+  if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen()) return;
+  if (hpP <= 0 || hpB <= 0) return;
+  if (isBlitzSlot(selectedSlot)) return;
+  if (skipShotUsedThisMatch) return;
+  skipShotUsedThisMatch = true;
+  projectileInFlightStyle = null;
+  projectileFlightWeaponId = null;
+  playerPelletFlights = null;
+  tr = [];
+  ti = 0;
+  muzzleExpire = 0;
+  if (chk()) return;
+  const t0 = performance.now();
+  ph = "bw";
+  bWait = t0 + 650;
+  hudTxt();
+}
+
+/** Schuss auslösen (Leertaste / FEUER-Button) — gleiche Logik wie Tastatur. */
+function commitPlayerShot(): void {
+  if (ph !== "aim") return;
+  if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen()) return;
+  if (hpP <= 0 || hpB <= 0) return;
+
+  if (isBlitzSlot(selectedSlot)) {
+    if (!canUseBlitzNow()) return;
+    const t0 = performance.now();
+    applySkyBolt(t0);
+    selectedSlot = 0;
+    if (chk()) return;
+    ph = "bw";
+    bWait = t0 + 650;
+    return;
+  }
+
+  const WpPre = pw()[selectedSlot]!;
+  if (WpPre.siegeLaser) {
+    if (!tryActivateBunkerSiegeLaserFromKeys()) {
+      barrelBlockedHintUntil = performance.now() + 900;
+    }
+    return;
+  }
+
+  if (playerBarrelLosBlocked()) {
+    barrelBlockedHintUntil = performance.now() + 900;
+    return;
+  }
+  barrelVisAng = playerBarrelDrawDeg(activeTankId(), ang);
+  barrelVisVel *= 0.38;
+  barrelRecoilDeg = 8.8 + Math.min(6.2, pow * 0.0042);
+  muzzleExpire = performance.now() + 300;
+  const Wp = WpPre;
+  const pb = Wp.pelletBurst;
+  const mu = mP(px, true);
+  projectileInFlightStyle = Wp.glow ?? DEFAULT_PROJECTILE_GLOW;
+  projectileFlightWeaponId = Wp.id;
+  if (pb && pb.count >= 2) {
+    playerPelletFlights = [];
+    for (let n = 0; n < pb.count; n++) {
+      const v = jitteredPlayerShotVelocity(
+        activeTankId(),
+        true,
+        ang,
+        pow,
+        Wp.velMul,
+        pb.spreadHalfDeg,
+        roll,
+      );
+      const pts = flightPath(mu, v.x, v.y, weaponDragMul(Wp), enemyImpactHullOpts());
+      const hit = pts[pts.length - 1]!;
+      playerPelletFlights.push({ pts, hit, ti: 0, applied: false });
+    }
+    tr = [];
+    ti = 0;
+  } else {
+    playerPelletFlights = null;
+    const v = playerShotVelocityForTank(activeTankId(), true, ang, pow, Wp.velMul);
+    tr = flightPath(mu, v.x, v.y, weaponDragMul(Wp), enemyImpactHullOpts());
+    ti = 0;
+  }
+  ph = "pf";
+}
+
+function resetMoveStickUi(): void {
+  taMoveStickDragging = false;
+  taMoveDriveDir = 0;
+  taMoveNextDriveAt = 0;
+  const knob = document.getElementById("taMoveKnob");
+  if (knob) knob.style.transform = "translate(-50%, -50%)";
+  const stick = document.getElementById("taMoveStick");
+  if (stick) stick.setAttribute("aria-valuenow", "0");
+}
+
+function tickMoveStickDrive(now: number): void {
+  if (ph !== "m" || taMoveDriveDir === 0) return;
+  if (now < taMoveNextDriveAt) return;
+  taMoveNextDriveAt = now + TA_MOVE_REPEAT_MS;
+  if (fuelP <= 9) return;
+  const dx = taMoveDriveDir * 5;
+  if (movePlayerTank(dx)) fuelP -= 9;
+}
+
+function moveStickRadiusPx(ring: HTMLElement): number {
+  return Math.max(12, Math.min(ring.clientWidth, ring.clientHeight) * 0.38);
+}
+
+/** Normierter Knüppel [-1,1] aus Zeiger-X relativ zur Kreismitte. */
+function applyMoveStickClientX(clientX: number): void {
+  const ring = document.getElementById("taMoveStick");
+  const knob = document.getElementById("taMoveKnob");
+  if (!ring || !knob) return;
+  const rect = ring.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const R = moveStickRadiusPx(ring as HTMLElement);
+  let nx = R > 0 ? (clientX - cx) / R : 0;
+  nx = Math.max(-1, Math.min(1, nx));
+  knob.style.transform = `translate(calc(-50% + ${nx * R}px), -50%)`;
+  const dead = 0.18;
+  const dir: -1 | 0 | 1 = nx > dead ? 1 : nx < -dead ? -1 : 0;
+  taMoveDriveDir = dir;
+  ring.setAttribute("aria-valuenow", nx.toFixed(2));
+}
+
+function syncTouchBattleHud(): void {
+  const hud = document.getElementById("taTouchHud");
+  const moveHud = document.getElementById("taMoveDriveHud");
+  if (!hud) return;
+  const hub = document.getElementById("taHub");
+  const stage = document.getElementById("taStage");
+  if (!stage || stage.hidden) {
+    hud.hidden = true;
+    if (moveHud) moveHud.hidden = true;
+    resetMoveStickUi();
+    setWeaponPickerOpen(false);
+    return;
+  }
+  const inBattle =
+    hub?.hidden &&
+    matchResult === null &&
+    surrenderStep === 0 &&
+    hpP > 0 &&
+    hpB > 0;
+  const show = !!(inBattle && (ph === "aim" || ph === "m"));
+  hud.hidden = !show;
+  hud.classList.toggle("taTouchHud--driving", show && ph === "m");
+  if (!show) setWeaponPickerOpen(false);
+  if (moveHud) {
+    const showMove = show && ph === "m";
+    if (!showMove) resetMoveStickUi();
+    moveHud.hidden = !showMove;
+  }
+  const fuelVal = document.getElementById("taFuelPillVal");
+  if (fuelVal) fuelVal.textContent = String(fuelP);
+  const feuer = document.getElementById("taFeuerBtn") as HTMLButtonElement | null;
+  if (feuer) {
+    const blitzGrey = ph === "aim" && isBlitzSlot(selectedSlot) && !canUseBlitzNow();
+    const siegeGrey =
+      ph === "aim" && playerSiegeLaserWeaponSelected() && !canActivateBunkerSiegeLaserNow();
+    feuer.disabled = blitzGrey || siegeGrey;
+    feuer.textContent = ph === "m" ? "ZIELEN" : "FEUER!";
+    feuer.setAttribute("aria-label", ph === "m" ? "Zielmodus — dann Winkel und Kraft" : "Schuss abgeben");
+  }
+  const skipBtn = document.getElementById("taSkipShotBtn") as HTMLButtonElement | null;
+  const skipKbd = document.getElementById("taSkipShotKbd");
+  if (skipBtn) {
+    const showSkip = ph === "aim" && !isBlitzSlot(selectedSlot);
+    skipBtn.hidden = !showSkip;
+    if (skipKbd) skipKbd.hidden = !showSkip;
+    if (showSkip) {
+      skipBtn.disabled = skipShotUsedThisMatch;
+      skipBtn.textContent = skipShotUsedThisMatch ? "Pass verbraucht" : "Schuss überspringen";
+      skipBtn.setAttribute(
+        "aria-label",
+        skipShotUsedThisMatch
+          ? "Schuss überspringen — bereits einmal genutzt"
+          : "Schuss überspringen — einmal pro Partie ohne zu feuern",
+      );
+    }
+  }
+}
+
+function aimRingRadiusPx(ring: HTMLElement): number {
+  return Math.max(14, Math.min(ring.clientWidth, ring.clientHeight) * 0.38);
+}
+
+/** Knopf-Position unter dem Finger (im Kreis begrenzt). */
+function positionAimKnobAtClientXY(clientX: number, clientY: number): void {
+  const ring = document.getElementById("taAimRing");
+  const knob = document.getElementById("taAimKnob");
+  if (!ring || !knob) return;
+  const rect = ring.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const R = aimRingRadiusPx(ring as HTMLElement);
+  let dx = clientX - cx;
+  let dy = clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > R && dist > 0) {
+    dx = (dx / dist) * R;
+    dy = (dy / dist) * R;
+  }
+  knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+
+/** Relatives Ziehen ab Finger-Down — gleiches Gefühl wie A/D und W/S. */
+function applyAimRingDragTo(clientX: number, clientY: number): void {
+  const dlx = clientX - taAimDragClientX0;
+  const dly = clientY - taAimDragClientY0;
+  if (isBlitzSlot(selectedSlot)) {
+    blitzStrikeX = taAimDragBlitz0 + dlx * 0.95;
+    clampBlitzAim();
+  } else {
+    ang = taAimDragAng0 + dlx * 0.1;
+    ang = Math.max(18, Math.min(86, ang));
+    pow = taAimDragPow0 - dly * 1.35;
+    pow = Math.max(PLAYER_POW_MIN, Math.min(playerPowMax(), pow));
+  }
+  positionAimKnobAtClientXY(clientX, clientY);
+}
+
+function updateAimKnobFromBattleState(): void {
+  if (taAimRingDragging) return;
+  const ring = document.getElementById("taAimRing");
+  const knob = document.getElementById("taAimKnob");
+  const hud = document.getElementById("taTouchHud");
+  if (!ring || !knob || !hud || hud.hidden) return;
+  const R = aimRingRadiusPx(ring as HTMLElement);
+  if (R < 8) return;
+  let dx: number;
+  let dy: number;
+  if (isBlitzSlot(selectedSlot)) {
+    const span = Math.max(120, worldW * 0.45);
+    const mid = (px + bx) / 2;
+    dx = ((blitzStrikeX - mid) / (span * 0.55)) * R;
+    dy = 0;
+  } else {
+    dx = ((ang - 52) / 34) * R;
+    const mid = (PLAYER_POW_MIN + playerPowMax()) * 0.5;
+    const half = (playerPowMax() - PLAYER_POW_MIN) * 0.5;
+    dy = (-(pow - mid) / half) * R;
+  }
+  const d = Math.hypot(dx, dy);
+  const s = d > R && d > 0 ? R / d : 1;
+  knob.style.transform = `translate(calc(-50% + ${dx * s}px), calc(-50% + ${dy * s}px))`;
 }
 
 function pickBotShot(): void {
@@ -4379,6 +6882,7 @@ function pickBotShot(): void {
       effectiveWindAccel(performance.now()),
       FLIGHT_DT,
       weaponDragMul(W),
+      playerImpactHullOpts(),
     );
     const dx = hi.x - aimX;
     const dy = hi.y - aimY;
@@ -4427,10 +6931,11 @@ function pickBotShot(): void {
   const Wb = WEAPONS[bwI]!;
   const vv = velocityFromElevDeg(false, bθ, bPow, Wb.velMul);
   const mb = mB(bx, false, bθ);
-  tr = flightPath(mb, vv.x, vv.y, weaponDragMul(Wb));
+  tr = flightPath(mb, vv.x, vv.y, weaponDragMul(Wb), playerImpactHullOpts());
   ti = 0;
   enemyBarrelRecoilDeg = 6.1 + Math.min(4.4, bPow * 0.0035);
   projectileInFlightStyle = Wb.glow ?? DEFAULT_PROJECTILE_GLOW;
+  projectileFlightWeaponId = Wb.id;
   ph = "bf";
 }
 
@@ -4442,13 +6947,27 @@ function frame(): void {
     return;
   }
   hudTxt();
-  if (surrenderStep === 0 && matchResult === null) {
+  if (enemyUfoWinPending) {
+    const el = nowFrame - enemyUfoWinPending.startMs;
+    if (el >= ENEMY_WIN_UFO_TOTAL_MS) {
+      const { winXp, winGems } = enemyUfoWinPending;
+      enemyUfoWinPending = null;
+      addXp(winXp);
+      addGems(winGems);
+      refreshPurseDisplays();
+      openGameOverOverlay("win", winGems, winXp);
+    }
+  }
+  const battlePaused = isBattlePauseMenuPanelOpen();
+  if (!battlePaused) tickMoveStickDrive(nowFrame);
+  if (surrenderStep === 0 && matchResult === null && !battlePaused && !enemyUfoWinPending) {
     if (ph === "bw" && nowFrame > bWait) pickBotShot();
     tickBarrelVis();
     tickEnemyBarrelVis();
     tickCamera();
     tickDriveTrailParticles();
     tickRainbowRushSparks();
+    tickBunkerSiegeLaser(nowFrame);
     if ((ph === "pf" || ph === "bf") && (playerPelletFlights?.length || tr.length)) {
       if (ph === "pf" && playerPelletFlights?.length) {
         const si = isBlitzSlot(selectedSlot) ? 0 : selectedSlot;
@@ -4474,9 +6993,11 @@ function frame(): void {
         if (matchEnd) {
           playerPelletFlights = null;
           projectileInFlightStyle = null;
+          projectileFlightWeaponId = null;
         } else if (allDone) {
           playerPelletFlights = null;
           projectileInFlightStyle = null;
+          projectileFlightWeaponId = null;
           ph = "bw";
           bWait = nowFrame + 650;
         }
@@ -4617,11 +7138,13 @@ async function applyPromoFromShopUi(): Promise<void> {
     addPromoUsedKey(r.key);
     refreshPurseDisplays();
     msg.textContent =
-      typeof r.gems === "number"
-        ? `+${r.gems} 💎 — eingelöst!`
-        : typeof r.xp === "number"
-          ? `+${r.xp} XP — eingelöst!`
-          : "Eingelöst!";
+      typeof r.gems === "number" && typeof r.xp === "number"
+        ? `+${r.gems} 💎 & +${r.xp} XP — eingelöst!`
+        : typeof r.gems === "number"
+          ? `+${r.gems} 💎 — eingelöst!`
+          : typeof r.xp === "number"
+            ? `+${r.xp} XP — eingelöst!`
+            : "Eingelöst!";
     input.value = "";
     return;
   }
@@ -4656,11 +7179,13 @@ async function applyPromoFromShopUi(): Promise<void> {
     addPromoUsedKey(r.key);
     refreshPurseDisplays();
     msg.textContent =
-      typeof r.gems === "number"
-        ? `+${r.gems} 💎 — eingelöst!`
-        : typeof r.xp === "number"
-          ? `+${r.xp} XP — eingelöst!`
-          : "Eingelöst!";
+      typeof r.gems === "number" && typeof r.xp === "number"
+        ? `+${r.gems} 💎 & +${r.xp} XP — eingelöst!`
+        : typeof r.gems === "number"
+          ? `+${r.gems} 💎 — eingelöst!`
+          : typeof r.xp === "number"
+            ? `+${r.xp} XP — eingelöst!`
+            : "Eingelöst!";
     input.value = "";
   } finally {
     promoApplyInFlight = false;
@@ -4711,6 +7236,156 @@ function setHubTab(which: "lobby" | "shop" | "locker"): void {
 }
 
 let rafStarted = false;
+
+function tankArtilleryWebRtcSignalUrl(): string {
+  const raw = import.meta.env.VITE_TANK_WEBRTC_SIGNAL as string | undefined;
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (t) return t;
+  const host =
+    typeof location !== "undefined" && location.hostname !== "" ? location.hostname : "127.0.0.1";
+  let room = TANK_ONLINE_MATCH_ROOM;
+  if (typeof location !== "undefined") {
+    const q = new URLSearchParams(location.search).get("taOnlineRoom")?.trim();
+    if (q) room = q;
+  }
+  return `ws://${host}:5800?room=${encodeURIComponent(room)}`;
+}
+
+type OnlineLobbyUiPhase = "idle" | "searching" | "matched" | "error";
+
+function syncOnlineLobbyControls(phase: OnlineLobbyUiPhase, message = ""): void {
+  const onlineBtn = document.getElementById("taHubPlayOnline") as HTMLButtonElement | null;
+  const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
+  const status = document.getElementById("taOnlineMatchStatus");
+  if (!onlineBtn || !status) return;
+
+  if (phase === "searching") {
+    if (playBtn && !playBtn.disabled) {
+      hubPlayDisabledForOnlineSearch = true;
+      playBtn.disabled = true;
+    }
+    onlineBtn.disabled = false;
+    onlineBtn.textContent = "Abbrechen";
+    onlineBtn.setAttribute("aria-label", "Online-Suche abbrechen");
+    status.hidden = false;
+    status.textContent =
+      message ||
+      "Suche Online-Gegner… Zweites Fenster oder zweites Gerät mit gleichem Raum, bis die Verbindung steht.";
+    return;
+  }
+
+  if (hubPlayDisabledForOnlineSearch && playBtn) {
+    hubPlayDisabledForOnlineSearch = false;
+    playBtn.disabled = false;
+  }
+
+  if (phase === "matched") {
+    onlineBtn.disabled = !hubSpritesReady;
+    onlineBtn.textContent = "Trennen";
+    onlineBtn.setAttribute("aria-label", "Online-Verbindung trennen");
+    status.hidden = false;
+    status.textContent =
+      message ||
+      "Gegner gefunden! Wenn ihr bereit seid: „Ins Spiel“. (Zug-Sync übers Netz folgt; vorerst spielst du wie gewohnt gegen den Computer.)";
+    return;
+  }
+
+  if (phase === "error") {
+    onlineBtn.disabled = !hubSpritesReady;
+    onlineBtn.textContent = "Online spielen";
+    onlineBtn.setAttribute("aria-label", "Online nach einem Gegner suchen");
+    status.hidden = false;
+    status.textContent = message;
+    return;
+  }
+
+  onlineBtn.disabled = !hubSpritesReady;
+  onlineBtn.textContent = "Online spielen";
+  onlineBtn.setAttribute("aria-label", "Online nach einem Gegner suchen");
+  status.hidden = true;
+  status.textContent = "";
+}
+
+function clearOnlineLobbySession(): void {
+  onlineLobbySearchAbort?.abort();
+  onlineLobbySearchAbort = null;
+  onlineLobbySearchRunning = false;
+  onlineSearchSeq += 1;
+  if (onlineLobbyMatch) {
+    try {
+      onlineLobbyMatch.close();
+    } catch {
+      /* ignore */
+    }
+    onlineLobbyMatch = null;
+  }
+  syncOnlineLobbyControls("idle");
+}
+
+async function onHubPlayOnlineClicked(): Promise<void> {
+  if (onlineLobbyMatch) {
+    clearOnlineLobbySession();
+    return;
+  }
+  if (onlineLobbySearchRunning) {
+    clearOnlineLobbySession();
+    return;
+  }
+  if (!hubSpritesReady) return;
+
+  const mySeq = ++onlineSearchSeq;
+  const ac = new AbortController();
+  onlineLobbySearchAbort = ac;
+  onlineLobbySearchRunning = true;
+  syncOnlineLobbyControls("searching");
+  const url = tankArtilleryWebRtcSignalUrl();
+  let searchDeadlineExceeded = false;
+  const timeoutId = window.setTimeout(() => {
+    searchDeadlineExceeded = true;
+    ac.abort();
+  }, TANK_ONLINE_SEARCH_MS);
+  try {
+    const p2p = await connectP2pJsonChannel({
+      signalingUrl: url,
+      signal: ac.signal,
+    });
+    if (mySeq !== onlineSearchSeq) {
+      p2p.close();
+      return;
+    }
+    onlineLobbySearchRunning = false;
+    onlineLobbySearchAbort = null;
+    onlineLobbyMatch = p2p;
+    p2p.channel.addEventListener("close", () => {
+      if (onlineLobbyMatch === p2p) clearOnlineLobbySession();
+    });
+    syncOnlineLobbyControls(
+      "matched",
+      "Gegner gefunden! Wenn ihr bereit seid: „Ins Spiel“. (Zug-Sync übers Netz folgt; vorerst spielst du wie gewohnt gegen den Computer.)",
+    );
+  } catch (e) {
+    if (mySeq !== onlineSearchSeq) return;
+    onlineLobbySearchRunning = false;
+    onlineLobbySearchAbort = null;
+    if (e instanceof DOMException && e.name === "AbortError") {
+      if (searchDeadlineExceeded) {
+        syncOnlineLobbyControls(
+          "error",
+          "Zeit abgelaufen — niemand in der Warteschlange. Tipp: zweites Fenster öffnen oder lokal pnpm run webrtc-stub (Port 5800).",
+        );
+      } else {
+        syncOnlineLobbyControls("idle");
+      }
+      return;
+    }
+    syncOnlineLobbyControls(
+      "error",
+      "Keine Verbindung zum Signaling-Server (Port 5800). Lokal: pnpm run webrtc-stub starten; optional VITE_TANK_WEBRTC_SIGNAL setzen.",
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 function enterGameFromHub(): void {
   hideHubOverlaysForGame();
@@ -4768,6 +7443,125 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("taHubTabShop")?.addEventListener("click", () => setHubTab("shop"));
   document.getElementById("taHubTabLocker")?.addEventListener("click", () => setHubTab("locker"));
   document.getElementById("taHubPlay")?.addEventListener("click", enterGameFromHub);
+  document.getElementById("taHubPlayOnline")?.addEventListener("click", () => {
+    void onHubPlayOnlineClicked();
+  });
+
+  document.getElementById("taFeuerBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen() || hpP <= 0 || hpB <= 0) return;
+    if (ph === "m") {
+      ph = "aim";
+      hudTxt();
+      cv.focus();
+      return;
+    }
+    commitPlayerShot();
+  });
+
+  document.getElementById("taSkipShotBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen() || hpP <= 0 || hpB <= 0) return;
+    if (ph !== "aim" || isBlitzSlot(selectedSlot)) return;
+    commitPlayerSkipShot();
+    cv.focus();
+  });
+
+  const aimRingEl = document.getElementById("taAimRing");
+  const endAimRingDrag = (e: PointerEvent): void => {
+    if (!taAimRingDragging) return;
+    if (aimRingEl?.hasPointerCapture(e.pointerId)) aimRingEl.releasePointerCapture(e.pointerId);
+    taAimRingDragging = false;
+    updateAimKnobFromBattleState();
+  };
+  aimRingEl?.addEventListener(
+    "pointerdown",
+    (e: PointerEvent) => {
+      if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen()) return;
+      const hub = document.getElementById("taHub");
+      if (hub && !hub.hidden) return;
+      if (hpP <= 0 || hpB <= 0) return;
+      if (ph === "m") {
+        ph = "aim";
+        hudTxt();
+      }
+      if (ph !== "aim") return;
+      e.preventDefault();
+      aimRingEl.setPointerCapture(e.pointerId);
+      taAimDragClientX0 = e.clientX;
+      taAimDragClientY0 = e.clientY;
+      taAimDragAng0 = ang;
+      taAimDragPow0 = pow;
+      taAimDragBlitz0 = blitzStrikeX;
+      taAimRingDragging = true;
+      positionAimKnobAtClientXY(e.clientX, e.clientY);
+    },
+    { passive: false },
+  );
+  aimRingEl?.addEventListener(
+    "pointermove",
+    (e: PointerEvent) => {
+      if (!taAimRingDragging || !aimRingEl?.hasPointerCapture(e.pointerId)) return;
+      e.preventDefault();
+      applyAimRingDragTo(e.clientX, e.clientY);
+    },
+    { passive: false },
+  );
+  aimRingEl?.addEventListener("pointerup", endAimRingDrag);
+  aimRingEl?.addEventListener("pointercancel", endAimRingDrag);
+
+  const moveStickEl = document.getElementById("taMoveStick");
+  const endMoveStickDrag = (e: PointerEvent): void => {
+    if (!taMoveStickDragging) return;
+    const stick = document.getElementById("taMoveStick");
+    if (stick?.hasPointerCapture(e.pointerId)) stick.releasePointerCapture(e.pointerId);
+    taMoveStickDragging = false;
+    taMoveDriveDir = 0;
+    const knob = document.getElementById("taMoveKnob");
+    if (knob) knob.style.transform = "translate(-50%, -50%)";
+    if (stick) stick.setAttribute("aria-valuenow", "0");
+  };
+  moveStickEl?.addEventListener(
+    "pointerdown",
+    (e: PointerEvent) => {
+      const stick = document.getElementById("taMoveStick");
+      if (!stick) return;
+      if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen()) return;
+      const hub = document.getElementById("taHub");
+      if (hub && !hub.hidden) return;
+      if (hpP <= 0 || hpB <= 0) return;
+      if (ph !== "m") return;
+      e.preventDefault();
+      stick.setPointerCapture(e.pointerId);
+      taMoveStickDragging = true;
+      taMoveNextDriveAt = 0;
+      applyMoveStickClientX(e.clientX);
+    },
+    { passive: false },
+  );
+  moveStickEl?.addEventListener(
+    "pointermove",
+    (e: PointerEvent) => {
+      const stick = document.getElementById("taMoveStick");
+      if (!stick || !taMoveStickDragging || !stick.hasPointerCapture(e.pointerId)) return;
+      e.preventDefault();
+      applyMoveStickClientX(e.clientX);
+    },
+    { passive: false },
+  );
+  moveStickEl?.addEventListener("pointerup", endMoveStickDrag);
+  moveStickEl?.addEventListener("pointercancel", endMoveStickDrag);
+
+  const onWeaponPickerOpenClick = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (matchResult !== null || surrenderStep !== 0 || isBattlePauseMenuPanelOpen() || hpP <= 0 || hpB <= 0) return;
+    if (ph !== "m" && ph !== "aim") return;
+    setWeaponPickerOpen(true);
+  };
+  document.getElementById("taWeaponPickerOpenBtn")?.addEventListener("click", onWeaponPickerOpenClick);
+  document.getElementById("taWeaponPickerOpenBtnAim")?.addEventListener("click", onWeaponPickerOpenClick);
+  document.getElementById("taWeaponPickerScrim")?.addEventListener("click", () => setWeaponPickerOpen(false));
 
   const onShopBackdropOrClose = () => closeShopOverlay();
   document.getElementById("taShopBackdrop")?.addEventListener("click", onShopBackdropOrClose);
@@ -4821,15 +7615,38 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("taSurrenderJa")?.addEventListener("click", onSurrenderJa);
   document.getElementById("taSurrenderNein")?.addEventListener("click", onSurrenderNein);
   document.getElementById("taSurrenderBackdrop")?.addEventListener("click", onSurrenderNein);
+
+  document.getElementById("taBattleMenuOpen")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleBattlePauseMenuPanel();
+  });
+  document.getElementById("taBattleMenuContinue")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeBattlePauseMenuPanel();
+  });
+  document.getElementById("taBattleMenuQuit")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeBattlePauseMenuPanel();
+    openSurrenderDialog();
+  });
+  document.getElementById("taBattleMenuScrim")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeBattlePauseMenuPanel();
+  });
   document.getElementById("taGameOverBtn")?.addEventListener("click", handleGameOverPlayAgain);
   document.getElementById("taGameOverLobbyBtn")?.addEventListener("click", handleGameOverWinToLobby);
   document.getElementById("taGameOverBackdrop")?.addEventListener("click", handleGameOverBackdropClick);
 
   loadSpritesheet(() => {
     refreshPurseDisplays();
+    hubSpritesReady = true;
     const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = false;
+    const onlineBtn = document.getElementById("taHubPlayOnline") as HTMLButtonElement | null;
+    if (onlineBtn) onlineBtn.disabled = false;
     startLobbyTankShowcase();
+    if (weaponPickerSheetOpen) refreshWeaponPickerPreviews();
   });
   cv.addEventListener(
     "pointerdown",
@@ -4838,7 +7655,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const stageEl = document.getElementById("taStage") as HTMLElement | null;
       if (hubHidden && stageEl && !stageEl.hidden) cv.focus();
 
-      if (surrenderStep === 0 && matchResult === null && hpP > 0 && hpB > 0 && hubHidden && stageEl && !stageEl.hidden) {
+      if (
+        surrenderStep === 0 &&
+        matchResult === null &&
+        hpP > 0 &&
+        hpB > 0 &&
+        hubHidden &&
+        stageEl &&
+        !stageEl.hidden &&
+        !isBattlePauseMenuPanelOpen()
+      ) {
         const p = clientToCanvasWorld(e.clientX, e.clientY);
         const br = rainbowRushButtonRect();
         if (br && p.x >= br.x && p.x <= br.x + br.w && p.y >= br.y && p.y <= br.y + br.h && tryActivateRainbowRush()) {
@@ -4847,7 +7673,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      if (surrenderStep !== 0 || matchResult !== null) return;
+      if (surrenderStep !== 0 || matchResult !== null || isBattlePauseMenuPanelOpen()) return;
       if (ph !== "aim" || !isBlitzSlot(selectedSlot)) return;
       const rect = cv.getBoundingClientRect();
       blitzStrikeX = camX + ((e.clientX - rect.left) / rect.width) * VIEW_W;
@@ -4878,6 +7704,13 @@ document.addEventListener("DOMContentLoaded", () => {
     "keydown",
     (e: KeyboardEvent) => {
       if (!tankBattleKeysActive(e)) return;
+      if (isBattlePauseMenuPanelOpen()) {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          closeBattlePauseMenuPanel();
+        }
+        return;
+      }
       if (surrenderStep !== 0) {
         if (e.code === "Escape") {
           e.preventDefault();
@@ -4899,7 +7732,18 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       if (hpP <= 0 || hpB <= 0) return;
+      if (weaponPickerSheetOpen) {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          setWeaponPickerOpen(false);
+        }
+        return;
+      }
       if (e.code === "Digit7" && tryActivateRainbowRush()) {
+        e.preventDefault();
+        return;
+      }
+      if (e.code === "Digit8" && tryActivateBunkerSiegeLaserFromKeys()) {
         e.preventDefault();
         return;
       }
@@ -4913,6 +7757,10 @@ document.addEventListener("DOMContentLoaded", () => {
           e.preventDefault();
           return;
         }
+        if (e.code === "Digit8" && tryActivateBunkerSiegeLaserFromKeys()) {
+          e.preventDefault();
+          return;
+        }
         /** Nur Pfeile fahren — A/D bleiben für die Zielphase frei */
         if (e.code === 'ArrowLeft' && fuelP > 9) {
           if (movePlayerTank(-5)) fuelP -= 9;
@@ -4922,8 +7770,9 @@ document.addEventListener("DOMContentLoaded", () => {
           if (movePlayerTank(5)) fuelP -= 9;
           e.preventDefault();
         }
-        if (e.code === 'Enter') {
-          ph = 'aim';
+        if (e.code === "Enter" || e.code === "Space") {
+          e.preventDefault();
+          ph = "aim";
         }
         return;
       }
@@ -4939,11 +7788,20 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (e.code === "Digit6" && lockerMaxSpecialUnlocked()) {
           e.preventDefault();
-          selectedSlot = 3;
+          selectedSlot = pw().length - 1;
           return;
         }
         if (e.code === "Digit5" && tryActivateDesertShieldFromKeys()) {
           e.preventDefault();
+          return;
+        }
+        if (e.code === "Digit8" && tryActivateBunkerSiegeLaserFromKeys()) {
+          e.preventDefault();
+          return;
+        }
+        if (e.code === "KeyX" && !isBlitzSlot(selectedSlot)) {
+          e.preventDefault();
+          commitPlayerSkipShot();
           return;
         }
 
@@ -4962,13 +7820,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           if (e.code === "Space") {
             e.preventDefault();
-            if (!canUseBlitzNow()) return;
-            const t0 = performance.now();
-            applySkyBolt(t0);
-            selectedSlot = 0;
-            if (chk()) return;
-            ph = "bw";
-            bWait = t0 + 650;
+            commitPlayerShot();
           }
           return;
         }
@@ -4983,44 +7835,7 @@ document.addEventListener("DOMContentLoaded", () => {
         pow = Math.max(PLAYER_POW_MIN, Math.min(playerPowMax(), pow));
         if (e.code === "Space") {
           e.preventDefault();
-          if (playerBarrelLosBlocked()) {
-            barrelBlockedHintUntil = performance.now() + 900;
-            return;
-          }
-          barrelVisAng = ang;
-          barrelVisVel *= 0.38;
-          barrelRecoilDeg = 8.8 + Math.min(6.2, pow * 0.0042);
-          muzzleExpire = performance.now() + 300;
-          const Wp = pw()[selectedSlot]!;
-          const pb = Wp.pelletBurst;
-          const mu = mP(px, true);
-          projectileInFlightStyle = Wp.glow ?? DEFAULT_PROJECTILE_GLOW;
-          if (pb && pb.count >= 2) {
-            playerPelletFlights = [];
-            for (let n = 0; n < pb.count; n++) {
-              const v = jitteredShotVelocity(true, ang, pow, Wp.velMul, pb.spreadHalfDeg, roll);
-              const pts = flightPath(mu, v.x, v.y, weaponDragMul(Wp));
-              const hit = simulateUntilImpact(
-                T,
-                mu.x,
-                mu.y,
-                v.x,
-                v.y,
-                effectiveWindAccel(performance.now()),
-                FLIGHT_DT,
-                weaponDragMul(Wp),
-              );
-              playerPelletFlights.push({ pts, hit, ti: 0, applied: false });
-            }
-            tr = [];
-            ti = 0;
-          } else {
-            playerPelletFlights = null;
-            const v = velocityFromElevDeg(true, ang, pow, Wp.velMul);
-            tr = flightPath(mu, v.x, v.y, weaponDragMul(Wp));
-            ti = 0;
-          }
-          ph = "pf";
+          commitPlayerShot();
         }
         return;
       }

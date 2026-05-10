@@ -32,6 +32,15 @@
   min-height: 0;
 }
 
+/* Im Kampf liegt die Stage über dem Zurück-Link, damit das Pause-Menü oben links klickbar bleibt */
+.taRoot:has(#taStage:not([hidden])) .taBack.link {
+  z-index: 5;
+}
+
+.taStage:not([hidden]) {
+  z-index: 8;
+}
+
 .taRoot:fullscreen {
   min-height: 100%;
   box-sizing: border-box;
@@ -50,7 +59,7 @@
     linear-gradient(180deg, #0a1628 0%, #070b18 42%, var(--fn-deep) 100%);
 }
 
-/* —— Fortnite-Shell: linke Rail + Hauptbereich —— */
+/* —— Fortnite-Shell: Hauptbereich + rechte Rail —— */
 .taHub.taFortniteShell {
   flex: 1;
   display: flex;
@@ -59,7 +68,7 @@
   gap: 0.35rem;
   min-height: 0;
   z-index: 12;
-  padding: clamp(3.2rem, 5vw, 3.85rem) clamp(0.4rem, 1.8vw, 1rem) 0.6rem clamp(0.35rem, 1.2vw, 0.75rem);
+  padding: clamp(3.2rem, 5vw, 3.85rem) clamp(0.35rem, 1.2vw, 0.75rem) 0.6rem clamp(0.4rem, 1.8vw, 1rem);
   max-width: min(92rem, calc(100vw - 0.5rem));
   width: 100%;
   margin-inline: auto;
@@ -467,8 +476,47 @@
   pointer-events: auto;
 }
 
+.taLobbyPlayRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .taLobbyPlayBtn {
   margin: 0;
+}
+
+.taHubPlayBtn--online {
+  min-width: min(94vw, 11.5rem);
+  color: #042f2e;
+  background: linear-gradient(180deg, #5eead4 0%, #2dd4bf 42%, #0d9488 100%);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.22),
+    0 10px 0 #0f766e,
+    0 14px 28px rgba(0, 0, 0, 0.42);
+}
+
+.taHubPlayBtn--online:hover:not(:disabled),
+.taHubPlayBtn--online:focus-visible:not(:disabled) {
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.22),
+    0 6px 0 #0f766e,
+    0 10px 22px rgba(0, 0, 0, 0.38);
+}
+
+.taOnlineMatchStatus {
+  margin: 0;
+  max-width: min(94vw, 22rem);
+  font-family: var(--fn-font), "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: clamp(0.82rem, 2.6vw, 0.95rem);
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  color: rgba(224, 242, 254, 0.92);
+  text-shadow: 0 1px 0 rgba(15, 23, 42, 0.65);
+  text-align: right;
 }
 
 .taHubTitle {
@@ -510,7 +558,7 @@
 
 .taHubPlayBtn {
   padding: 0.88rem 2.65rem;
-  min-width: min(94vw, 14.5rem);
+  min-width: min(94vw, 12.5rem);
   font-family: var(--fn-font), "Nunito", sans-serif;
   font-weight: 900;
   font-size: clamp(1.18rem, 3.9vw, 1.52rem);
@@ -581,23 +629,27 @@
 }
 
 .taShopTankCard.taShopCard--epic,
-.taShopTankCard.taShopCard--legendary {
+.taShopTankCard.taShopCard--legendary,
+.taShopTankCard.taShopCard--mythic {
   overflow: hidden;
   animation: taTankCardBreathe 4.8s ease-in-out infinite;
 }
 
 .taShopTankCard.taShopCard--epic:nth-child(2n),
-.taShopTankCard.taShopCard--legendary:nth-child(2n) {
+.taShopTankCard.taShopCard--legendary:nth-child(2n),
+.taShopTankCard.taShopCard--mythic:nth-child(2n) {
   animation-delay: -1.35s;
 }
 
 .taShopTankCard.taShopCard--epic:nth-child(3n),
-.taShopTankCard.taShopCard--legendary:nth-child(3n) {
+.taShopTankCard.taShopCard--legendary:nth-child(3n),
+.taShopTankCard.taShopCard--mythic:nth-child(3n) {
   animation-delay: -2.4s;
 }
 
 .taShopTankCard.taShopCard--epic::after,
-.taShopTankCard.taShopCard--legendary::after {
+.taShopTankCard.taShopCard--legendary::after,
+.taShopTankCard.taShopCard--mythic::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -615,8 +667,16 @@
   animation-iteration-count: infinite, infinite;
 }
 
+.taShopTankCard.taShopCard--mythic {
+  animation-name: taTankCardBreathe, taMythicTankGlow;
+  animation-duration: 4.8s, 2.2s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+
 .taShopTankCard.taShopCard--epic:nth-child(2n)::after,
-.taShopTankCard.taShopCard--legendary:nth-child(2n)::after {
+.taShopTankCard.taShopCard--legendary:nth-child(2n)::after,
+.taShopTankCard.taShopCard--mythic:nth-child(2n)::after {
   animation-delay: -1.8s;
 }
 
@@ -661,6 +721,22 @@
   }
 }
 
+@keyframes taMythicTankGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(192, 38, 211, 0.55),
+      0 0 28px rgba(168, 85, 247, 0.38),
+      0 0 48px rgba(59, 130, 246, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(232, 121, 249, 0.78),
+      0 0 40px rgba(168, 85, 247, 0.52),
+      0 0 72px rgba(34, 211, 238, 0.22);
+  }
+}
+
 .taShopCard--fn {
   backdrop-filter: blur(6px);
 }
@@ -681,6 +757,14 @@
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.4),
     0 0 26px rgba(251, 191, 36, 0.28);
+}
+
+.taShopCard--mythic {
+  border-color: #c026d3;
+  box-shadow:
+    0 0 0 1px rgba(192, 38, 211, 0.45),
+    0 0 28px rgba(168, 85, 247, 0.35),
+    0 0 44px rgba(34, 211, 238, 0.15);
 }
 
 .taShopCard--rare {
@@ -712,6 +796,11 @@
 
 .taShopCard--legendary .taShopCardRarity {
   color: #fde68a;
+}
+
+.taShopCard--mythic .taShopCardRarity {
+  color: #f5d0fe;
+  background: linear-gradient(90deg, rgba(88, 28, 135, 0.92), rgba(30, 58, 138, 0.88));
 }
 
 .taShopCard--rare .taShopCardRarity {
@@ -1005,6 +1094,7 @@
 @media (prefers-reduced-motion: reduce) {
   .taShopTankCard,
   .taShopTankCard::after,
+  .taShopTankCard.taShopCard--mythic,
   .taLockerTankRow--active,
   .taLockerTrailRow--active {
     animation: none;
@@ -1307,6 +1397,11 @@
   opacity: 0.86;
 }
 
+.taLockerSlot.taLockerTankRow--mythic:not(.taLockerSlot--soon) {
+  border-color: rgba(192, 38, 211, 0.45);
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.12), 0 0 22px rgba(168, 85, 247, 0.14);
+}
+
 .taLockerSlotLabel {
   font-family: var(--fn-font), "Nunito", sans-serif;
   font-weight: 800;
@@ -1405,12 +1500,147 @@
 }
 
 .taStage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: max(2.5rem, env(safe-area-inset-top)) 0.75rem 0.5rem;
+}
+
+/* Kampf: Menü (drei Striche) oben links — Fortfahren / Spiel beenden */
+.taBattleMenuWrap {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.taBattleMenuWrap[hidden] {
+  display: none !important;
+}
+
+.taBattleMenuOpen {
+  position: absolute;
+  top: max(0.35rem, env(safe-area-inset-top, 0px));
+  left: max(0.35rem, env(safe-area-inset-left, 0px));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+  border: 3px solid #0f172a;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #fefce8 0%, #fde68a 100%);
+  box-shadow: 4px 4px 0 rgba(15, 23, 42, 0.38);
+  transition: transform 75ms ease, box-shadow 75ms ease;
+}
+
+.taBattleMenuOpen:hover,
+.taBattleMenuOpen:focus-visible {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 rgba(15, 23, 42, 0.38);
+  outline: none;
+}
+
+.taBattleMenuOpenBars {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 1.1rem;
+}
+
+.taBattleMenuOpenBars > span {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: #0f172a;
+}
+
+.taBattleMenuPanel[hidden] {
+  display: none !important;
+}
+
+.taBattleMenuPanel {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+
+.taBattleMenuScrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.taBattleMenuSheet {
+  position: relative;
+  z-index: 19;
+  width: min(20rem, calc(100% - 1.5rem));
+  max-width: 94vw;
+  box-sizing: border-box;
+  padding: 1.1rem 1.2rem 1.15rem;
+  border-radius: 18px;
+  border: 4px solid #0f172a;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  box-shadow:
+    8px 8px 0 rgba(15, 23, 42, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.taBattleMenuTitle {
+  margin: 0 0 0.15rem;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 1.2rem;
+  letter-spacing: 0.03em;
+  color: #0f172a;
+  text-align: center;
+}
+
+.taBattleMenuBtn {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1.02rem;
+  border-radius: 14px;
+  border: 3px solid #0f172a;
+  cursor: pointer;
+  background: #bbf7d0;
+  color: #14532d;
+  box-shadow: 4px 4px 0 #0f172a;
+  transition: transform 75ms ease, box-shadow 75ms ease;
+}
+
+.taBattleMenuBtn:hover,
+.taBattleMenuBtn:focus-visible {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 #0f172a;
+  outline: none;
+}
+
+.taBattleMenuBtn--quit {
+  background: #fecaca;
+  color: #991b1b;
 }
 
 .taStage #taCanvas {
@@ -1443,6 +1673,532 @@
   background: linear-gradient(180deg, rgba(12, 18, 36, 0.45) 0%, rgba(8, 12, 26, 0.82) 100%);
   border-top: 1px solid rgba(56, 189, 248, 0.22);
   backdrop-filter: blur(10px);
+}
+
+/* —— Tank-Stars-ähnliche Leiste: FEUER + Kreis-Ziel (nur in der Ziel-Phase) —— */
+.taTouchHud[hidden] {
+  display: none !important;
+}
+
+.taTouchHud {
+  display: block;
+  margin: 0 0 0.65rem;
+  padding: 0.65rem 0.75rem 0.75rem;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #7a3d32 0%, #5c2a22 48%, #4a221c 100%);
+  border: 2px solid rgba(40, 18, 12, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 6px 0 rgba(30, 12, 8, 0.55),
+    0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Nur die zwei Bedienelemente — kein Leisten-Hintergrund (transparent) */
+.taTouchHud.taTouchHud--inGame {
+  position: absolute;
+  left: auto;
+  /* weiter nach links vom rechten Rand (inkl. Safe Area) */
+  right: max(env(safe-area-inset-right, 0px), clamp(2.25rem, 10vw, 6rem));
+  /* näher am unteren Rand: kleineres bottom = tiefer; Safe Area für Home-Indikator */
+  bottom: max(env(safe-area-inset-bottom, 0px), clamp(0.85rem, 2.5vh, 1.85rem));
+  transform: none;
+  width: auto;
+  max-width: min(19rem, calc(100vw - 1rem));
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.taTouchHud.taTouchHud--inGame .taTouchHudRow {
+  pointer-events: auto;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+/* Fahrphase: Zielring aus; Fahren unten links wie zuvor (Treibstoff + Joystick); Waffen-Bild rechts neben Joystick; Liste links */
+.taTouchHud.taTouchHud--inGame.taTouchHud--driving .taTouchCol--aim {
+  display: none;
+}
+
+/* Waffen-Bild nur in Zielphase — in Fahrphase nutzt der linke Block den gleichen Button */
+.taTouchHud.taTouchHud--inGame.taTouchHud--driving .taTouchCol--weaponAim {
+  display: none !important;
+}
+
+/* Tank-Stars-ähnlich: Treibstoff-Pille + blauer Joystick — ohne Vollflächen-Hintergrund */
+.taMoveDriveHud[hidden] {
+  display: none !important;
+}
+
+.taMoveDriveHud {
+  position: absolute;
+  left: max(env(safe-area-inset-left, 0px), clamp(0.35rem, 2vw, 1rem));
+  right: auto;
+  bottom: max(env(safe-area-inset-bottom, 0px), clamp(0.85rem, 2.5vh, 1.85rem));
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+
+.taMoveDriveHud .taFuelPill,
+.taMoveDriveHud .taMoveStick,
+.taMoveDriveHud .taWeaponPickerOpenBtn {
+  pointer-events: auto;
+}
+
+.taMoveDriveRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.taWeaponPickerOpenBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  align-self: flex-end;
+  margin: 0 0 0.08rem;
+  padding: 0;
+  width: clamp(3.1rem, 12vw, 3.65rem);
+  height: clamp(3.1rem, 12vw, 3.65rem);
+  border-radius: 50%;
+  border: 3px solid #1e4a7a;
+  cursor: pointer;
+  background: linear-gradient(168deg, #dff0ff 0%, #b8daf8 52%, #93c4ef 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 2px 0 rgba(30, 74, 122, 0.35),
+    0 4px 10px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.taWeaponPickerOpenBtn:hover {
+  filter: brightness(1.05);
+}
+
+.taWeaponPickerOpenBtn:active {
+  transform: translateY(1px);
+}
+
+.taWeaponPickerOpenBtnImg {
+  display: block;
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.taTouchCol.taTouchCol--weaponAim {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.taTouchHud.taTouchHud--inGame .taWeaponPickerOpenBtn--inTouchHud {
+  margin-bottom: 0.12rem;
+}
+
+.taWeaponPicker[hidden] {
+  display: none !important;
+}
+
+.taWeaponPicker {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.taWeaponPickerScrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.taWeaponPickerSheet {
+  position: absolute;
+  left: 0;
+  right: auto;
+  top: 0;
+  bottom: 0;
+  width: min(19rem, 88vw);
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.65rem 0.85rem;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(226, 232, 240, 0.97) 100%);
+  border-right: 3px solid #0f172a;
+  border-left: none;
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.taWeaponPickerTitle {
+  margin: 0;
+  padding: 0.15rem 0.25rem 0.35rem;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(1rem, 3.8vw, 1.15rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0f172a;
+  border-bottom: 2px solid rgba(15, 23, 42, 0.12);
+}
+
+.taWeaponPickerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.taWeaponPickerRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.45rem;
+  border-radius: 14px;
+  border: 3px solid #0f172a;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.88);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.taWeaponPickerRow:hover:not(:disabled) {
+  background: rgba(254, 249, 195, 0.55);
+}
+
+.taWeaponPickerRow.taWeaponPickerRow--active {
+  border-color: #ca8a04;
+  background: linear-gradient(180deg, rgba(254, 243, 199, 0.95) 0%, rgba(253, 224, 71, 0.55) 100%);
+}
+
+.taWeaponPickerRow:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.taWeaponPickerShot {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 2px solid rgba(15, 23, 42, 0.2);
+}
+
+.taWeaponPickerThumb {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+}
+
+.taWeaponPickerShot.taWeaponPickerShot--static {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
+.taWeaponPickerRowMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.taWeaponPickerName {
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(0.82rem, 3.2vw, 0.95rem);
+  line-height: 1.15;
+}
+
+.taWeaponPickerSub {
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: clamp(0.65rem, 2.5vw, 0.74rem);
+  color: #475569;
+}
+
+.taFuelPill {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.85rem 0.32rem;
+  border-radius: 999px;
+  border: 2px solid #5c3d14;
+  background: linear-gradient(180deg, #fff6a3 0%, #ffe24a 42%, #f5c41a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 0 rgba(92, 61, 20, 0.35),
+    0 4px 10px rgba(0, 0, 0, 0.2);
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7a3a12;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.taFuelPillLbl {
+  font-size: clamp(0.68rem, 2.6vw, 0.82rem);
+}
+
+.taFuelPillVal {
+  font-size: clamp(0.78rem, 3vw, 0.95rem);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.5em;
+  text-align: right;
+}
+
+.taMoveStick {
+  position: relative;
+  width: clamp(5.25rem, 21vw, 6.85rem);
+  height: clamp(5.25rem, 21vw, 6.85rem);
+  border-radius: 50%;
+  touch-action: none;
+  cursor: grab;
+  background: radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.62) 0%, transparent 42%),
+    linear-gradient(168deg, #dff0ff 0%, #b8daf8 52%, #93c4ef 100%);
+  border: 4px solid #1e4a7a;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 3px 10px rgba(0, 0, 0, 0.22);
+}
+
+.taMoveStick:active {
+  cursor: grabbing;
+}
+
+.taMoveKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44%;
+  height: 44%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 36% 30%, rgba(255, 255, 255, 0.75) 0%, transparent 46%),
+    linear-gradient(168deg, #f0f7ff 0%, #c8def9 100%);
+  border: 2px solid #1e4a7a;
+  box-shadow: 0 2px 6px rgba(30, 74, 122, 0.28);
+  pointer-events: none;
+}
+
+.taTouchHudRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(0.75rem, 4vw, 1.75rem);
+  flex-wrap: wrap;
+}
+
+.taTouchCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.taFeuerBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: clamp(7.5rem, 28vw, 10rem);
+  padding: 0.65rem 1.1rem 0.55rem;
+  border-radius: 14px;
+  border: 3px solid #3d2418;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(1.15rem, 4.2vw, 1.45rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #3d2418;
+  cursor: pointer;
+  background: linear-gradient(180deg, #ffe566 0%, #f5c41a 45%, #e6a800 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 5px 0 #2a1810,
+    0 8px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 80ms ease, filter 0.12s ease;
+}
+
+.taFeuerBtn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.taFeuerBtn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 2px 0 #2a1810,
+    0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.taFeuerBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.25);
+}
+
+.taFeuerKbd {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.taFeuerKbd kbd {
+  display: inline-block;
+  padding: 0.12rem 0.55rem 0.18rem;
+  border-radius: 8px;
+  border: 1px solid rgba(30, 41, 59, 0.35);
+  background: linear-gradient(180deg, #e8ecf4 0%, #cbd5e1 100%);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.78rem;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.taSkipShotBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin-top: 0.15rem;
+  padding: 0.38rem 0.65rem 0.35rem;
+  border-radius: 10px;
+  border: 2px solid #334155;
+  font-family: var(--fn-font), "Nunito", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(0.72rem, 2.8vw, 0.88rem);
+  letter-spacing: 0.02em;
+  color: #1e293b;
+  cursor: pointer;
+  background: linear-gradient(180deg, #f1f5f9 0%, #cbd5e1 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 0 #475569,
+    0 3px 8px rgba(0, 0, 0, 0.2);
+  max-width: min(100%, 11rem);
+  line-height: 1.15;
+}
+
+.taSkipShotBtn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.taSkipShotBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.taSkipShotBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+.taSkipShotKbd {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.taSkipShotKbd kbd {
+  display: inline-block;
+  padding: 0.08rem 0.42rem 0.12rem;
+  border-radius: 7px;
+  border: 1px solid rgba(30, 41, 59, 0.35);
+  background: linear-gradient(180deg, #e8ecf4 0%, #cbd5e1 100%);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.72rem;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.taAimRing {
+  position: relative;
+  width: clamp(5.5rem, 22vw, 7.25rem);
+  height: clamp(5.5rem, 22vw, 7.25rem);
+  border-radius: 50%;
+  touch-action: none;
+  cursor: grab;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.55) 0%, transparent 45%),
+    linear-gradient(165deg, #dce4fc 0%, #b8c9f5 55%, #9eb6eb 100%);
+  border: 4px solid #1e3a5f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 3px 10px rgba(0, 0, 0, 0.22);
+}
+
+.taAimRing:active {
+  cursor: grabbing;
+}
+
+.taAimKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42%;
+  height: 42%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.7) 0%, transparent 48%),
+    linear-gradient(165deg, #e8eeff 0%, #c4d4f8 100%);
+  border: 2px solid #1e3a5f;
+  box-shadow: 0 2px 6px rgba(30, 58, 95, 0.25);
+  pointer-events: none;
+}
+
+.taAimKnob::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52%;
+  height: 52%;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(30, 58, 95, 0.75);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background:
+    linear-gradient(#1e3a5f, #1e3a5f) center/2px 62% no-repeat,
+    linear-gradient(90deg, #1e3a5f, #1e3a5f) center/62% 2px no-repeat;
+  opacity: 0.9;
+  pointer-events: none;
 }
 
 .taBattleTestLeaveRow {

@@ -30,6 +30,9 @@ import {
   XP_STORAGE_KEY,
   tryBuyTank,
   tryBuyDesertShield,
+  weaponProjectileFlightVisualProfile,
+  packLabelToShellKind,
+  shellKindForWeaponId,
   readDesertShieldOwned,
   readDesertShieldCharges,
   MOVE_TRAIL_OWNED_KEY,
@@ -72,12 +75,26 @@ import {
   adminGemsUnlocked,
   GEM_WIN_MAX,
   GEM_WIN_MIN,
+  XP_WIN,
   rollGemsForWin,
+  xpWinForMapDifficulty,
+  gemWinRangeForMapDifficulty,
+  rollGemsForMapDifficulty,
   sampleTrajectory,
   simulateUntilImpact,
   splashDamage,
   velocityFromElevDeg,
   jitteredShotVelocity,
+  jitteredPlayerShotVelocity,
+  playerShotVelocityForTank,
+  playerBarrelDrawDeg,
+  playerBallisticModeForTank,
+  BUNKER_MORTAR_FIXED_ELEV_DEG,
+  BUNKER_MORTAR_EXTRA_VEL_MUL,
+  BUNKER_LASER_DURATION_MS,
+  BUNKER_LASER_DPS,
+  BUNKER_MATCH_BOT_MAX_HP,
+  enemyMaxHpForPlayerTank,
   describePromoRedeem,
   isLocalTankArtilleryPromoHost,
   normalizePromoCode,
@@ -88,9 +105,19 @@ import {
   WEAPONS,
   TANK_HALF_H,
   TANK_HALF_W,
+  TANK_IMPACT_HALF_W,
+  TANK_IMPACT_HULL_HEIGHT,
   WORLD,
   type TerrainSurface,
+  type TerrainDifficulty,
 } from "./artillery-logic";
+
+test("enemyMaxHpForPlayerTank: Bunker-Match hält Bot-LP niedrig", () => {
+  expect(enemyMaxHpForPlayerTank("bunker", 500)).toBe(BUNKER_MATCH_BOT_MAX_HP);
+  expect(enemyMaxHpForPlayerTank("bunker", getPlayerTankDef("bunker")!.maxHp)).toBe(BUNKER_MATCH_BOT_MAX_HP);
+  expect(enemyMaxHpForPlayerTank("viper", 158)).toBe(158);
+  expect(enemyMaxHpForPlayerTank("silver", DEFAULT_HP)).toBe(DEFAULT_HP);
+});
 
 test("terrainBlocksBarrelRay true when ridge crosses bore line", () => {
   const w = 800;
@@ -151,6 +178,25 @@ test("terrainHullPose clamps extreme cliff tilt", () => {
   expect(Math.abs(pose.slope)).toBeLessThanOrEqual(0.22);
 });
 
+test("terrainHullPose: schmaler Krater zieht Unterkante nicht bis auf Grubenboden", () => {
+  const w = 520;
+  const y = new Float32Array(w);
+  y.fill(398);
+  const cx0 = 260;
+  for (let xi = cx0 - 2; xi <= cx0 + 2; xi++) y[xi] = 612;
+  const surf: TerrainSurface = { y };
+  const poseMax = Math.max(
+    ...Array.from({ length: 11 }, (_, i) => {
+      const t = i / 10;
+      const x = cx0 - 44 + 88 * t;
+      return heightAt(surf, x);
+    }),
+  );
+  const pose = terrainHullPose(surf, cx0, 44, { sampleCount: 11 });
+  expect(pose.groundY).toBeLessThan(poseMax - 80);
+  expect(pose.groundY).toBeLessThan(520);
+});
+
 test("terrain build + height interpolation", () => {
   const t = buildTerrain(9001);
   expect(t.y.length).toBe(WORLD.W);
@@ -184,6 +230,22 @@ test("sampleTrajectory last point matches simulateUntilImpact (same dt and drag)
   const dt = 1 / 180;
   const imp = simulateUntilImpact(t, x0, y0, v.x, v.y, -4, dt, dragMul);
   const pts = sampleTrajectory(t, x0, y0, v.x, v.y, -4, 8000, dt, dragMul);
+  const last = pts[pts.length - 1]!;
+  expect(Math.abs(last.x - imp.x)).toBeLessThan(16);
+  expect(Math.abs(last.y - imp.y)).toBeLessThan(20);
+});
+
+test("sampleTrajectory last point matches simulateUntilImpact with hull opts", () => {
+  const t = buildTerrain(77);
+  const x0 = 300;
+  const y0 = heightAt(t, x0) - 120;
+  const v = velocityFromElevDeg(true, 52, 700, 1);
+  const dragMul = 1;
+  const dt = 1 / 180;
+  const hull = { cx: 650, baseY: heightAt(t, 650) };
+  const opts = { hull };
+  const imp = simulateUntilImpact(t, x0, y0, v.x, v.y, -4, dt, dragMul, opts);
+  const pts = sampleTrajectory(t, x0, y0, v.x, v.y, -4, 8000, dt, dragMul, opts);
   const last = pts[pts.length - 1]!;
   expect(Math.abs(last.x - imp.x)).toBeLessThan(16);
   expect(Math.abs(last.y - imp.y)).toBeLessThan(20);
@@ -256,11 +318,115 @@ test("splashDamage peak at center zero off", () => {
   expect(splashDamage(400, 200, 100, 200, TANK_HALF_W, TANK_HALF_H, 64, 100)).toBe(0);
 });
 
+test("splashDamage: splashFalloffPow stark kleiner am Rand als linear", () => {
+  const base = 400;
+  const cx = 220;
+  const ey = base - TANK_IMPACT_HULL_HEIGHT * 0.45;
+  const splashR = 48;
+  const dmgMax = 40;
+  const dLinCenter = splashDamage(cx, ey, cx, base, TANK_HALF_W, TANK_HALF_H, splashR, dmgMax);
+  const dPowCenter = splashDamage(cx, ey, cx, base, TANK_HALF_W, TANK_HALF_H, splashR, dmgMax, 3.45);
+  expect(dPowCenter).toBeCloseTo(dLinCenter, 5);
+
+  const exEdge = cx + TANK_IMPACT_HALF_W + 18;
+  const linEdge = splashDamage(exEdge, ey, cx, base, TANK_HALF_W, TANK_HALF_H, splashR, dmgMax);
+  const powEdge = splashDamage(exEdge, ey, cx, base, TANK_HALF_W, TANK_HALF_H, splashR, dmgMax, 3.45);
+  expect(linEdge).toBeGreaterThan(4);
+  expect(powEdge).toBeLessThan(linEdge * 0.42);
+});
+
+test("Lehrgranate: Peak-Schaden über linear, steiler Splash-Falloff", () => {
+  const pop = getPlayerTankDef("silver")!.weapons[0]!;
+  expect(pop.id).toBe("silv_pop");
+  expect(pop.dmg).toBe(38);
+  expect(pop.directHitBeforeSplashDmg).toBe(14);
+  expect(pop.splashFalloffPow).toBeCloseTo(3.5, 5);
+});
+
+test("Lehrgranate: Direktschaden plus Explosionssplash aus (dmg − directHit)", () => {
+  const pop = getPlayerTankDef("silver")!.weapons[0]!;
+  expect(pop.id).toBe("silv_pop");
+  const base = 400;
+  const cx = 220;
+  const ey = base - TANK_IMPACT_HULL_HEIGHT * 0.45;
+  const dir = pop.directHitBeforeSplashDmg!;
+  const splashMax = pop.dmg - dir;
+  const totalCenter = splashDamage(
+    cx,
+    ey,
+    cx,
+    base,
+    TANK_HALF_W,
+    TANK_HALF_H,
+    pop.splashPx,
+    pop.dmg,
+    pop.splashFalloffPow,
+    dir,
+  );
+  const waveOnly = splashDamage(
+    cx,
+    ey,
+    cx,
+    base,
+    TANK_HALF_W,
+    TANK_HALF_H,
+    pop.splashPx,
+    splashMax,
+    pop.splashFalloffPow,
+  );
+  expect(totalCenter).toBeCloseTo(dir + waveOnly, 5);
+  expect(totalCenter).toBeCloseTo(pop.dmg, 5);
+  const exEdge = cx + TANK_IMPACT_HALF_W + 18;
+  const edgeTotal = splashDamage(
+    exEdge,
+    ey,
+    cx,
+    base,
+    TANK_HALF_W,
+    TANK_HALF_H,
+    pop.splashPx,
+    pop.dmg,
+    pop.splashFalloffPow,
+    dir,
+  );
+  const edgeWave = splashDamage(
+    exEdge,
+    ey,
+    cx,
+    base,
+    TANK_HALF_W,
+    TANK_HALF_H,
+    pop.splashPx,
+    splashMax,
+    pop.splashFalloffPow,
+  );
+  expect(edgeTotal).toBeCloseTo(dir + edgeWave, 5);
+  expect(edgeTotal).toBeGreaterThan(dir);
+});
+
+/**
+ * Außerhalb der Hülle, aber im Splash: alter Kreis um (cx, base−halfH) oft 0,
+ * Abstand zur gleichen AABB wie der Flug-Treffer liefert messbaren Schaden.
+ */
+test("splashDamage: nahe oberer rechter Ecke der Hülle gibt Schaden", () => {
+  const base = 400;
+  const ex = 100 + TANK_IMPACT_HALF_W + 30;
+  const ey = base - TANK_IMPACT_HULL_HEIGHT - 30;
+  const splashR = 72;
+  const dmgMax = 100;
+  const newDmg = splashDamage(ex, ey, 100, base, TANK_HALF_W, TANK_HALF_H, splashR, dmgMax);
+  const cy = base - TANK_HALF_H;
+  const oldD = Math.hypot(ex - 100, ey - cy);
+  const oldThresh = splashR + Math.max(TANK_HALF_W, TANK_HALF_H * 1.15);
+  expect(oldD >= oldThresh).toBe(true);
+  expect(newDmg).toBeGreaterThan(40);
+});
+
 test("Blitz-Schaden-Spitze liegt bei LIGHTNING_DAMAGE am Trefferzentrum", () => {
   const cx = 500;
   const tankBase = 440;
   const cy = tankBase - TANK_HALF_H;
-  /** Explosion direkt auf die Panzer-Mitte (wie splashDamage-Rechteck verwendet wird) */
+  /** Explosion in der Hülle (Mitte) — voller Blitz-Schaden */
   const peak = Math.round(
     splashDamage(cx, cy, cx, tankBase, TANK_HALF_W, TANK_HALF_H, LIGHTNING_SPLASH_PX, LIGHTNING_DAMAGE),
   );
@@ -330,6 +496,29 @@ test("rollGemsForWin yields 50..120 inclusive at distribution edges", () => {
   expect(rollGemsForWin(() => 0.5)).toBeLessThanOrEqual(GEM_WIN_MAX);
 });
 
+test("Sieg-Belohnung: XP und Gems steigen mit Map-Schwierigkeit", () => {
+  const tiers = ["easy", "normal", "hard", "insane"] as const satisfies readonly TerrainDifficulty[];
+  let prevXp = 0;
+  for (const d of tiers) {
+    const xp = xpWinForMapDifficulty(d);
+    expect(xp).toBeGreaterThan(prevXp);
+    prevXp = xp;
+  }
+  expect(xpWinForMapDifficulty("normal")).toBe(XP_WIN);
+  let prevMid = 0;
+  for (const d of tiers) {
+    const { min, max } = gemWinRangeForMapDifficulty(d);
+    expect(min).toBeLessThanOrEqual(max);
+    const mid = (min + max) / 2;
+    expect(mid).toBeGreaterThan(prevMid);
+    prevMid = mid;
+  }
+  expect(rollGemsForMapDifficulty(() => 0, "easy")).toBe(gemWinRangeForMapDifficulty("easy").min);
+  expect(rollGemsForMapDifficulty(() => 0.999_999_999_999, "insane")).toBe(gemWinRangeForMapDifficulty("insane").max);
+  expect(rollGemsForMapDifficulty(() => 0, "normal")).toBe(GEM_WIN_MIN);
+  expect(rollGemsForMapDifficulty(() => 0.999_999_999_999, "normal")).toBe(GEM_WIN_MAX);
+});
+
 test("readGems / addGems mit localStorage", () => {
   try {
     localStorage.removeItem(GEM_STORAGE_KEY);
@@ -379,6 +568,28 @@ test("describePromoRedeem: Seba1 nur auf Loopback, sonst ungültig", () => {
   try {
     expect(describePromoRedeem(" Seba1 ", fresh)).toEqual({ ok: true, key: "seba1", gems: 10_000 });
     expect(describePromoRedeem("Seba1", new Set(["seba1"]))).toEqual({ ok: false, reason: "used" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("describePromoRedeem: seba nur auf Loopback, 1M Gems + 1M XP", () => {
+  const fresh = new Set<string>();
+  vi.stubGlobal("location", { hostname: "example.com" } as Location);
+  try {
+    expect(describePromoRedeem("seba", fresh)).toEqual({ ok: false, reason: "unknown" });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  vi.stubGlobal("location", { hostname: "localhost" } as Location);
+  try {
+    expect(describePromoRedeem(" Seba ", fresh)).toEqual({
+      ok: true,
+      key: "seba",
+      gems: 1_000_000,
+      xp: 1_000_000,
+    });
+    expect(describePromoRedeem("seba", new Set(["seba"]))).toEqual({ ok: false, reason: "used" });
   } finally {
     vi.unstubAllGlobals();
   }
@@ -440,9 +651,10 @@ test("isLocalTankArtilleryPromoHost: localhost und 127 vs Remote", () => {
   }
 });
 
-test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp/admins + Loopback", () => {
+test("promoSkipsGlobalSlotReserve: nur seba/seba1/sebaxp/admins + Loopback", () => {
   vi.stubGlobal("location", { hostname: "localhost" } as Location);
   try {
+    expect(promoSkipsGlobalSlotReserve("seba")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(true);
     expect(promoSkipsGlobalSlotReserve("admins")).toBe(true);
@@ -452,6 +664,7 @@ test("promoSkipsGlobalSlotReserve: nur seba1/sebaxp/admins + Loopback", () => {
   }
   vi.stubGlobal("location", { hostname: "evil.test" } as Location);
   try {
+    expect(promoSkipsGlobalSlotReserve("seba")).toBe(false);
     expect(promoSkipsGlobalSlotReserve("seba1")).toBe(false);
     expect(promoSkipsGlobalSlotReserve("sebaxp")).toBe(false);
     expect(promoSkipsGlobalSlotReserve("admins")).toBe(false);
@@ -564,28 +777,54 @@ test("Panzer maxHp steigt mit Stufe; Silber Basis", () => {
   expect(getPlayerTankDef("navy")!.maxHp).toBeLessThan(getPlayerTankDef("desert")!.maxHp);
   expect(getPlayerTankDef("desert")!.maxHp).toBeLessThan(getPlayerTankDef("crimson")!.maxHp);
   expect(getPlayerTankDef("crimson")!.maxHp).toBeLessThan(getPlayerTankDef("bunker")!.maxHp);
-  expect(getPlayerTankDef("bunker")!.maxHp).toBeLessThan(getPlayerTankDef("viper")!.maxHp);
+  expect(getPlayerTankDef("viper")!.maxHp).toBeLessThan(getPlayerTankDef("bunker")!.maxHp);
   expect(getPlayerTankDef("silver")!.maxHp).toBe(DEFAULT_HP);
 });
 
-test("Silber Einstreu: viele Kügelchen à 7 Schaden", () => {
+test("weaponProjectileFlightVisualProfile: Silber-Munition unterscheidet Canvas-Optik", () => {
+  expect(weaponProjectileFlightVisualProfile("").singleScale).toBe(1);
+  expect(weaponProjectileFlightVisualProfile("silv_pop").singleScale).toBeLessThan(1);
+  expect(weaponProjectileFlightVisualProfile("silv_med").singleScale).toBeGreaterThan(1);
+  expect(weaponProjectileFlightVisualProfile("silv_burst").pelletScaleMul).toBeGreaterThan(1);
+  expect(weaponProjectileFlightVisualProfile("silv_burst").pickerPreviewMul).toBeLessThan(1);
+  const gr = weaponProjectileFlightVisualProfile("gr_streak");
+  expect(gr.singleScale).toBeGreaterThan(0.82);
+  expect(gr.singleScale).toBeLessThan(1.02);
+  expect(weaponProjectileFlightVisualProfile("gr_bunker").shadowBlur).toBeGreaterThan(15);
+  expect(weaponProjectileFlightVisualProfile("gr_needle").pelletScaleMul).toBeGreaterThan(1.05);
+  expect(weaponProjectileFlightVisualProfile("bnk_siege_laser").shadowBlur).toBeGreaterThan(20);
+});
+
+test("packLabelToShellKind und shellKindForWeaponId", () => {
+  expect(packLabelToShellKind("tank_bullet1.png")).toBe("light");
+  expect(packLabelToShellKind("tank_bullet3.png")).toBe("heavy");
+  expect(packLabelToShellKind("tank_bulletFly3.png")).toBe("swarm");
+  expect(shellKindForWeaponId("streuer")).toBe("swarm");
+  expect(shellKindForWeaponId("granate")).toBe("light");
+  expect(shellKindForWeaponId("schwer")).toBe("heavy");
+  expect(shellKindForWeaponId("silv_lock_special")).toBe("heavy");
+  expect(shellKindForWeaponId("nav_s")).toBe("swarm");
+  expect(shellKindForWeaponId("bnk_siege_laser")).toBe("heavy");
+});
+
+test("Silber Splitterhagel: viele Kügelchen à 6 Schaden", () => {
   const e = getPlayerTankDef("silver")!.weapons[2]!;
-  expect(e.nameDe).toBe("Einstreu");
-  expect(e.dmg).toBe(7);
-  expect(e.pelletBurst?.count).toBe(16);
-  expect(e.pelletBurst?.spreadHalfDeg).toBe(7);
-  const nd = getPlayerTankDef("green")!.weapons.find((w) => w.nameDe === "Nadelwald")!;
-  expect(nd.pelletBurst).toEqual({ count: 10, spreadHalfDeg: 9 });
-  expect(nd.dmg).toBe(8);
-  const vip = getPlayerTankDef("viper")!.weapons.find((w) => w.nameDe === "Giftwolke")!;
-  expect(vip.pelletBurst).toEqual({ count: 16, spreadHalfDeg: 10 });
-  expect(vip.dmg).toBe(13);
+  expect(e.nameDe).toBe("Splitterhagel");
+  expect(e.dmg).toBe(6);
+  expect(e.pelletBurst?.count).toBe(18);
+  expect(e.pelletBurst?.spreadHalfDeg).toBe(6);
+  const nd = getPlayerTankDef("green")!.weapons.find((w) => w.id === "gr_needle")!;
+  expect(nd.pelletBurst).toEqual({ count: 12, spreadHalfDeg: 7.5 });
+  expect(nd.dmg).toBe(7);
+  const vip = getPlayerTankDef("viper")!.weapons.find((w) => w.id === "vip_swarm")!;
+  expect(vip.pelletBurst).toEqual({ count: 18, spreadHalfDeg: 9.5 });
+  expect(vip.dmg).toBe(10);
   expect(VIPER_GIFT_BOMB_WEAPON.nameDe).toBe("Giftbombe");
   expect(VIPER_GIFT_BOMB_WEAPON.id).toBe("viper_gift_bomb");
   expect(lockerMaxBonusWeaponFor("viper")).toBe(VIPER_GIFT_BOMB_WEAPON);
-  expect(lockerMaxBonusWeaponFor("silver").nameDe).toBe("Silbersterne");
-  expect(lockerMaxBonusWeaponFor("green").nameDe).toBe("Waldkanone");
-  expect(lockerMaxBonusWeaponFor("bunker").nameDe).toBe("Festungsbrecher");
+  expect(lockerMaxBonusWeaponFor("silver").nameDe).toBe("Konstellation");
+  expect(lockerMaxBonusWeaponFor("green").nameDe).toBe("Dickichtsperre");
+  expect(lockerMaxBonusWeaponFor("bunker").nameDe).toBe("Sternenfall");
 });
 
 test("Spezialattacke bei jedem Panzer, wenn Locker voll", () => {
@@ -875,6 +1114,98 @@ test("Locker: jeder Panzer eigene Stufen; früher flacher Save → alle 0", () =
 
   localStorage.removeItem(GEM_STORAGE_KEY);
   localStorage.removeItem(LOCKER_UPGRADES_STORAGE_KEY);
+  localStorage.removeItem(TANK_STORAGE_OWNED);
+  localStorage.removeItem(TANK_STORAGE_EQUIPPED);
+});
+
+test("playerBallisticModeForTank: jeder Panzer hat einen Modus", () => {
+  const ids = ["silver", "green", "navy", "desert", "crimson", "bunker", "viper"] as const;
+  const modes = new Set(ids.map((id) => playerBallisticModeForTank(id)));
+  expect(modes.size).toBe(ids.length);
+});
+
+test("playerShotVelocityForTank silver entspricht velocityFromElevDeg", () => {
+  const v0 = velocityFromElevDeg(true, 54, 520, 1.1);
+  const v1 = playerShotVelocityForTank("silver", true, 54, 520, 1.1);
+  expect(v1.x).toBeCloseTo(v0.x, 10);
+  expect(v1.y).toBeCloseTo(v0.y, 10);
+});
+
+test("playerShotVelocityForTank green quantisiert den Zielwinkel", () => {
+  const vRaw = velocityFromElevDeg(true, 45.27, 600, 1);
+  const vSnap = velocityFromElevDeg(true, 45.5, 600, 1);
+  const vG = playerShotVelocityForTank("green", true, 45.27, 600, 1);
+  expect(vG.x).toBeCloseTo(vSnap.x, 8);
+  expect(vG.y).toBeCloseTo(vSnap.y, 8);
+  expect(Math.abs(vG.x - vRaw.x) + Math.abs(vG.y - vRaw.y)).toBeGreaterThan(0.01);
+});
+
+test("playerShotVelocityForTank bunker: Seitenwinkel dreht Startvektor, Mitte wie hoher Mörser", () => {
+  const pow = 640;
+  const vm = 1;
+  const center = playerShotVelocityForTank("bunker", true, 52, pow, vm);
+  const base = velocityFromElevDeg(
+    true,
+    BUNKER_MORTAR_FIXED_ELEV_DEG,
+    pow,
+    vm * BUNKER_MORTAR_EXTRA_VEL_MUL,
+  );
+  expect(center.x).toBeCloseTo(base.x, 8);
+  expect(center.y).toBeCloseTo(base.y, 8);
+  const left = playerShotVelocityForTank("bunker", true, 40, pow, vm);
+  const right = playerShotVelocityForTank("bunker", true, 86, pow, vm);
+  expect(left.x).not.toBeCloseTo(right.x, 3);
+});
+
+test("playerBarrelDrawDeg bunker: hoher Ton, Seite neigt leicht", () => {
+  expect(playerBarrelDrawDeg("silver", 48)).toBe(48);
+  expect(playerBarrelDrawDeg("bunker", 52)).toBeCloseTo(BUNKER_MORTAR_FIXED_ELEV_DEG, 5);
+  expect(playerBarrelDrawDeg("bunker", 40)).toBeLessThan(BUNKER_MORTAR_FIXED_ELEV_DEG);
+  expect(playerBarrelDrawDeg("bunker", 86)).toBeGreaterThan(BUNKER_MORTAR_FIXED_ELEV_DEG);
+});
+
+test("Bunker Void-Bresche: horizontale Wucht vergleichbar mit Silber-Granate (Kampfdistanz)", () => {
+  const pow = 1220;
+  const heMul = getPlayerTankDef("bunker")!.weapons[0]!.velMul;
+  const vB = playerShotVelocityForTank("bunker", true, 52, pow, heMul);
+  const vS = velocityFromElevDeg(true, 55, pow, 1);
+  expect(vB.x).toBeGreaterThan(vS.x * 0.88);
+});
+
+test("jitteredPlayerShotVelocity nutzt tank-spezifische Basis", () => {
+  const rnd = () => 0.5;
+  const j0 = jitteredShotVelocity(true, 50, 500, 1, 4, rnd);
+  const j1 = jitteredPlayerShotVelocity("silver", true, 50, 500, 1, 4, rnd);
+  expect(j1.x).toBeCloseTo(j0.x, 10);
+  expect(j1.y).toBeCloseTo(j0.y, 10);
+});
+
+test("Bunker exklusiv: 10k 💎, Siegelaser-Parameter, Kauf bei vollem Guthaben", () => {
+  try {
+    localStorage.removeItem(GEM_STORAGE_KEY);
+    localStorage.removeItem(TANK_STORAGE_OWNED);
+    localStorage.removeItem(TANK_STORAGE_EQUIPPED);
+  } catch {
+    return;
+  }
+  expect(GEM_PRICE_TANK_BUNKER).toBe(10_000);
+  expect(GEM_PRICE_TANK_VIPER).toBe(12_000);
+  expect(BUNKER_LASER_DURATION_MS).toBe(5000);
+  expect(BUNKER_LASER_DPS).toBe(22);
+  const bunkerW = getPlayerTankDef("bunker")!.weapons;
+  expect(bunkerW).toHaveLength(4);
+  const siege = bunkerW.find((w) => w.id === "bnk_siege_laser");
+  expect(siege?.nameDe).toBe("Siegelaser");
+  expect(siege?.siegeLaser).toBe(true);
+  expect(getPlayerTankDef("bunker")!.maxHp).toBe(500);
+  addGems(9_999);
+  expect(tryBuyTank("bunker")).toBe("expensive");
+  addGems(1);
+  expect(tryBuyTank("bunker")).toBe("ok");
+  expect(readGems()).toBe(0);
+  expect(readEquippedTankId()).toBe("bunker");
+
+  localStorage.removeItem(GEM_STORAGE_KEY);
   localStorage.removeItem(TANK_STORAGE_OWNED);
   localStorage.removeItem(TANK_STORAGE_EQUIPPED);
 });

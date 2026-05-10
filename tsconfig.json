@@ -17,6 +17,7 @@
     "useDefineForClassFields": true
   },
   "include": [
+    "lib/**/*.ts",
     "assets/**/*.ts",
     "games/**/*.ts",
     "vite.config.ts",
