@@ -18,12 +18,6 @@ export default defineConfig({
       name: "promo-stub",
     },
     {
-      command: "node games/tank-artillery/webrtc-signal-stub.mjs",
-      url: "http://127.0.0.1:5800/health",
-      reuseExistingServer: !process.env.CI,
-      name: "webrtc-signal-stub",
-    },
-    {
       command: "pnpm exec vite --host 127.0.0.1 --port 5173",
       url: "http://127.0.0.1:5173",
       reuseExistingServer: !process.env.CI,

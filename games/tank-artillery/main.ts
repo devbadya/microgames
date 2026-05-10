@@ -103,7 +103,6 @@ import {
   enemyMaxHpForPlayerTank,
 } from "./artillery-logic";
 import { currentFullscreenElement, fullscreenToggleStrings, toggleRootFullscreen } from "./fullscreen";
-import { connectP2pJsonChannel, type P2pJsonChannelResult } from "../../lib/webrtc-p2p";
 
 declare global {
   interface Window {
@@ -179,17 +178,6 @@ let bunkerLaserLastSampleMs = 0;
 let bunkerLaserDamageAcc = 0;
 
 type Ph = "m" | "aim" | "pf" | "bw" | "bf";
-
-/** Signaling-Raum für „Gegner suchen“ (Stub: max. 2 Clients pro Raum). */
-const TANK_ONLINE_MATCH_ROOM = "matchmaking";
-const TANK_ONLINE_SEARCH_MS = 90_000;
-
-let hubSpritesReady = false;
-let onlineSearchSeq = 0;
-let onlineLobbyMatch: P2pJsonChannelResult | null = null;
-let onlineLobbySearchRunning = false;
-let onlineLobbySearchAbort: AbortController | null = null;
-let hubPlayDisabledForOnlineSearch = false;
 
 /** Laufende Kampf-Nummer seit Programmstart — resetMatchRound erhöht sie (3., 6., … = Blitz-Welle) */
 let kampfNr = 0;
@@ -3622,7 +3610,6 @@ function syncBattleTestLeaveUi(): void {
 /** Testspiel sofort beenden — ohne Aufgeben-Dialog (Esc oder Button). */
 function leaveBattleTestToLobby(): void {
   if (!battleTestModeActive()) return;
-  clearOnlineLobbySession();
   closeSurrenderDialog(false);
   abortActiveCombatFlightState();
   matchResult = null;
@@ -3654,7 +3641,6 @@ function leaveBattleTestToLobby(): void {
 
 /** Spielfeld zu, Fortnite-Lobby zeigen — inkl. rotierende Panzer-Vorschau neu anwerfen */
 function revealTankLobbyAfterEndingMatch(polishUi: () => void): void {
-  clearOnlineLobbySession();
   const st = document.getElementById("taStage");
   const bt = document.getElementById("taBottom");
   const hb = document.getElementById("taHub");
@@ -7237,156 +7223,6 @@ function setHubTab(which: "lobby" | "shop" | "locker"): void {
 
 let rafStarted = false;
 
-function tankArtilleryWebRtcSignalUrl(): string {
-  const raw = import.meta.env.VITE_TANK_WEBRTC_SIGNAL as string | undefined;
-  const t = typeof raw === "string" ? raw.trim() : "";
-  if (t) return t;
-  const host =
-    typeof location !== "undefined" && location.hostname !== "" ? location.hostname : "127.0.0.1";
-  let room = TANK_ONLINE_MATCH_ROOM;
-  if (typeof location !== "undefined") {
-    const q = new URLSearchParams(location.search).get("taOnlineRoom")?.trim();
-    if (q) room = q;
-  }
-  return `ws://${host}:5800?room=${encodeURIComponent(room)}`;
-}
-
-type OnlineLobbyUiPhase = "idle" | "searching" | "matched" | "error";
-
-function syncOnlineLobbyControls(phase: OnlineLobbyUiPhase, message = ""): void {
-  const onlineBtn = document.getElementById("taHubPlayOnline") as HTMLButtonElement | null;
-  const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
-  const status = document.getElementById("taOnlineMatchStatus");
-  if (!onlineBtn || !status) return;
-
-  if (phase === "searching") {
-    if (playBtn && !playBtn.disabled) {
-      hubPlayDisabledForOnlineSearch = true;
-      playBtn.disabled = true;
-    }
-    onlineBtn.disabled = false;
-    onlineBtn.textContent = "Abbrechen";
-    onlineBtn.setAttribute("aria-label", "Online-Suche abbrechen");
-    status.hidden = false;
-    status.textContent =
-      message ||
-      "Suche Online-Gegner… Zweites Fenster oder zweites Gerät mit gleichem Raum, bis die Verbindung steht.";
-    return;
-  }
-
-  if (hubPlayDisabledForOnlineSearch && playBtn) {
-    hubPlayDisabledForOnlineSearch = false;
-    playBtn.disabled = false;
-  }
-
-  if (phase === "matched") {
-    onlineBtn.disabled = !hubSpritesReady;
-    onlineBtn.textContent = "Trennen";
-    onlineBtn.setAttribute("aria-label", "Online-Verbindung trennen");
-    status.hidden = false;
-    status.textContent =
-      message ||
-      "Gegner gefunden! Wenn ihr bereit seid: „Ins Spiel“. (Zug-Sync übers Netz folgt; vorerst spielst du wie gewohnt gegen den Computer.)";
-    return;
-  }
-
-  if (phase === "error") {
-    onlineBtn.disabled = !hubSpritesReady;
-    onlineBtn.textContent = "Online spielen";
-    onlineBtn.setAttribute("aria-label", "Online nach einem Gegner suchen");
-    status.hidden = false;
-    status.textContent = message;
-    return;
-  }
-
-  onlineBtn.disabled = !hubSpritesReady;
-  onlineBtn.textContent = "Online spielen";
-  onlineBtn.setAttribute("aria-label", "Online nach einem Gegner suchen");
-  status.hidden = true;
-  status.textContent = "";
-}
-
-function clearOnlineLobbySession(): void {
-  onlineLobbySearchAbort?.abort();
-  onlineLobbySearchAbort = null;
-  onlineLobbySearchRunning = false;
-  onlineSearchSeq += 1;
-  if (onlineLobbyMatch) {
-    try {
-      onlineLobbyMatch.close();
-    } catch {
-      /* ignore */
-    }
-    onlineLobbyMatch = null;
-  }
-  syncOnlineLobbyControls("idle");
-}
-
-async function onHubPlayOnlineClicked(): Promise<void> {
-  if (onlineLobbyMatch) {
-    clearOnlineLobbySession();
-    return;
-  }
-  if (onlineLobbySearchRunning) {
-    clearOnlineLobbySession();
-    return;
-  }
-  if (!hubSpritesReady) return;
-
-  const mySeq = ++onlineSearchSeq;
-  const ac = new AbortController();
-  onlineLobbySearchAbort = ac;
-  onlineLobbySearchRunning = true;
-  syncOnlineLobbyControls("searching");
-  const url = tankArtilleryWebRtcSignalUrl();
-  let searchDeadlineExceeded = false;
-  const timeoutId = window.setTimeout(() => {
-    searchDeadlineExceeded = true;
-    ac.abort();
-  }, TANK_ONLINE_SEARCH_MS);
-  try {
-    const p2p = await connectP2pJsonChannel({
-      signalingUrl: url,
-      signal: ac.signal,
-    });
-    if (mySeq !== onlineSearchSeq) {
-      p2p.close();
-      return;
-    }
-    onlineLobbySearchRunning = false;
-    onlineLobbySearchAbort = null;
-    onlineLobbyMatch = p2p;
-    p2p.channel.addEventListener("close", () => {
-      if (onlineLobbyMatch === p2p) clearOnlineLobbySession();
-    });
-    syncOnlineLobbyControls(
-      "matched",
-      "Gegner gefunden! Wenn ihr bereit seid: „Ins Spiel“. (Zug-Sync übers Netz folgt; vorerst spielst du wie gewohnt gegen den Computer.)",
-    );
-  } catch (e) {
-    if (mySeq !== onlineSearchSeq) return;
-    onlineLobbySearchRunning = false;
-    onlineLobbySearchAbort = null;
-    if (e instanceof DOMException && e.name === "AbortError") {
-      if (searchDeadlineExceeded) {
-        syncOnlineLobbyControls(
-          "error",
-          "Zeit abgelaufen — niemand in der Warteschlange. Tipp: zweites Fenster öffnen oder lokal pnpm run webrtc-stub (Port 5800).",
-        );
-      } else {
-        syncOnlineLobbyControls("idle");
-      }
-      return;
-    }
-    syncOnlineLobbyControls(
-      "error",
-      "Keine Verbindung zum Signaling-Server (Port 5800). Lokal: pnpm run webrtc-stub starten; optional VITE_TANK_WEBRTC_SIGNAL setzen.",
-    );
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
 function enterGameFromHub(): void {
   hideHubOverlaysForGame();
   stopLobbyTankShowcase();
@@ -7443,9 +7279,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("taHubTabShop")?.addEventListener("click", () => setHubTab("shop"));
   document.getElementById("taHubTabLocker")?.addEventListener("click", () => setHubTab("locker"));
   document.getElementById("taHubPlay")?.addEventListener("click", enterGameFromHub);
-  document.getElementById("taHubPlayOnline")?.addEventListener("click", () => {
-    void onHubPlayOnlineClicked();
-  });
 
   document.getElementById("taFeuerBtn")?.addEventListener("click", (e) => {
     e.preventDefault();
@@ -7640,11 +7473,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadSpritesheet(() => {
     refreshPurseDisplays();
-    hubSpritesReady = true;
     const playBtn = document.getElementById("taHubPlay") as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = false;
-    const onlineBtn = document.getElementById("taHubPlayOnline") as HTMLButtonElement | null;
-    if (onlineBtn) onlineBtn.disabled = false;
     startLobbyTankShowcase();
     if (weaponPickerSheetOpen) refreshWeaponPickerPreviews();
   });

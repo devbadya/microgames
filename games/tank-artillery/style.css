@@ -476,47 +476,8 @@
   pointer-events: auto;
 }
 
-.taLobbyPlayRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  justify-content: flex-end;
-  align-items: center;
-}
-
 .taLobbyPlayBtn {
   margin: 0;
-}
-
-.taHubPlayBtn--online {
-  min-width: min(94vw, 11.5rem);
-  color: #042f2e;
-  background: linear-gradient(180deg, #5eead4 0%, #2dd4bf 42%, #0d9488 100%);
-  box-shadow:
-    0 0 0 2px rgba(15, 23, 42, 0.22),
-    0 10px 0 #0f766e,
-    0 14px 28px rgba(0, 0, 0, 0.42);
-}
-
-.taHubPlayBtn--online:hover:not(:disabled),
-.taHubPlayBtn--online:focus-visible:not(:disabled) {
-  box-shadow:
-    0 0 0 2px rgba(15, 23, 42, 0.22),
-    0 6px 0 #0f766e,
-    0 10px 22px rgba(0, 0, 0, 0.38);
-}
-
-.taOnlineMatchStatus {
-  margin: 0;
-  max-width: min(94vw, 22rem);
-  font-family: var(--fn-font), "Nunito", sans-serif;
-  font-weight: 800;
-  font-size: clamp(0.82rem, 2.6vw, 0.95rem);
-  letter-spacing: 0.04em;
-  line-height: 1.35;
-  color: rgba(224, 242, 254, 0.92);
-  text-shadow: 0 1px 0 rgba(15, 23, 42, 0.65);
-  text-align: right;
 }
 
 .taHubTitle {
@@ -558,7 +519,7 @@
 
 .taHubPlayBtn {
   padding: 0.88rem 2.65rem;
-  min-width: min(94vw, 12.5rem);
+  min-width: min(94vw, 14.5rem);
   font-family: var(--fn-font), "Nunito", sans-serif;
   font-weight: 900;
   font-size: clamp(1.18rem, 3.9vw, 1.52rem);

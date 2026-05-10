@@ -503,20 +503,3 @@ test("panzer-artillerie: Spezial (Taste 6) mit vollem Locker — Hitzewelle auf 
   await expect(page.locator("#taWeapon")).toContainText(/Hitzewelle/);
 });
 
-test.describe("Online-Lobby", () => {
-  test("Online spielen und Abbrechen", async ({ page }, testInfo) => {
-    const room = `e2e-cancel-${testInfo.workerIndex}`;
-    await page.goto(`/games/tank-artillery/?taOnlineRoom=${encodeURIComponent(room)}`);
-    const online = page.locator("#taHubPlayOnline");
-    await expect(online).toBeVisible();
-    await expect(online).toBeEnabled({ timeout: 15_000 });
-    await online.click();
-    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
-    await expect(page.locator("#taOnlineMatchStatus")).toContainText(/Suche|Gegner|Zweites|Verbindung/i);
-    await page.getByRole("button", { name: "Abbrechen" }).click();
-    await expect(page.getByRole("button", { name: "Ins Spiel" })).toBeEnabled();
-    await expect(online).toHaveText("Online spielen", { timeout: 15_000 });
-    await expect(online).toBeEnabled();
-  });
-});
-
