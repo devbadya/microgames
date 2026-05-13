@@ -1366,3 +1366,135 @@ html[data-device-layout="tablet"] .iconBtn {
 html[data-device-layout="desktop"] .grid {
   grid-template-columns: repeat(auto-fill, minmax(260px, 340px));
 }
+
+/* -------------------------------------------------------------------------
+ * Phone / small tablet in landscape (short viewport height)
+ * ------------------------------------------------------------------------- */
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .deviceGate {
+    align-items: flex-start;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-top: max(0.35rem, env(safe-area-inset-top));
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  }
+
+  .deviceGateCard {
+    width: min(100%, min(520px, 96vw));
+    max-height: min(96dvh, 96vh);
+    margin-block: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 1rem 1.1rem 1.05rem;
+  }
+
+  .deviceGateTitle {
+    font-size: clamp(1.02rem, 3.2vw, 1.28rem);
+  }
+
+  .deviceGateLead {
+    margin: 0.4rem 0 0.65rem;
+    font-size: 0.82rem;
+    line-height: 1.42;
+  }
+
+  .deviceGateActions {
+    gap: 0.45rem;
+  }
+
+  .deviceLayoutBtn {
+    min-height: 2.45rem;
+    padding: 0.5rem 0.55rem;
+    font-size: 0.82rem;
+  }
+
+  .siteHeaderInner {
+    min-height: 0;
+    padding: 0.32rem 0;
+  }
+
+  .brandTagline {
+    display: none;
+  }
+
+  .heroInner,
+  html[data-device-layout="phone"] .heroInner,
+  html[data-device-layout="tablet"] .heroInner {
+    padding: 0.75rem 0 0.85rem;
+    gap: 0.85rem;
+  }
+
+  .heroEyebrow {
+    margin: 0 0 0.35rem;
+    font-size: 0.65rem;
+  }
+
+  .heroTitle,
+  html[data-device-layout="phone"] .heroTitle,
+  html[data-device-layout="tablet"] .heroTitle {
+    font-size: clamp(1.2rem, 5.2dvh, 1.75rem);
+    line-height: 1.07;
+  }
+
+  .heroLead,
+  html[data-device-layout="phone"] .heroLead,
+  html[data-device-layout="tablet"] .heroLead {
+    margin: 0.4rem 0 0;
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+
+  .heroBadges {
+    margin-top: 0.55rem;
+    gap: 0.32rem;
+  }
+
+  .pill {
+    padding: 0.22rem 0.55rem;
+    font-size: 0.68rem;
+  }
+
+  .heroCta,
+  html[data-device-layout="phone"] .heroCta {
+    margin-top: 0.65rem;
+    min-height: 2.35rem;
+    padding: 0.48rem 1rem;
+    font-size: 0.86rem;
+  }
+
+  .sectionHead {
+    margin-bottom: 0.65rem;
+  }
+
+  .sectionTitle {
+    font-size: clamp(1.15rem, 3.5dvh, 1.45rem);
+  }
+
+  .sectionLead {
+    font-size: 0.84rem;
+  }
+
+  .controls {
+    margin: 0.85rem 0 0.5rem;
+  }
+
+  .input,
+  html[data-device-layout="phone"] .input {
+    padding: 0.65rem 0.85rem;
+    font-size: 0.92rem;
+  }
+
+  /* Center "Games" nav overlaps brand/actions on wide-but-short phones */
+  @media (max-width: 960px) {
+    .nav {
+      display: none;
+    }
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 520px) {
+  html[data-device-layout="phone"] .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

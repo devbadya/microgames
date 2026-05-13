@@ -37,3 +37,17 @@ test("first visit shows device gate; choice dismisses and sets layout", async ({
   await expect(page.locator("html")).toHaveAttribute("data-device-layout", "tablet");
   await context.close();
 });
+
+test("phone layout in landscape fits without horizontal scroll", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("microgames.deviceLayout", "phone");
+  });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Tiny games/i })).toBeVisible();
+  const extraWidth = await page.evaluate(() => {
+    const el = document.documentElement;
+    return el.scrollWidth - el.clientWidth;
+  });
+  expect(extraWidth).toBeLessThanOrEqual(2);
+});
