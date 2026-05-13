@@ -12,7 +12,66 @@ import {
   searchResultLine,
 } from "./i18n";
 import { publicAssetUrl, thumbUrl } from "./site-paths";
+import {
+  readStoredDeviceLayout,
+  writeStoredDeviceLayout,
+  applyDeviceLayoutToDocument,
+  updateDeviceLayoutButtons,
+  type DeviceLayout,
+} from "./device-layout";
 const SETTINGS_OPEN_CLASS = "settingsOpen";
+const DEVICE_GATE_OPEN_CLASS = "deviceGateOpen";
+
+function syncSkipLinkWhenDeviceGateOpen(): void {
+  const skip = qs<HTMLAnchorElement>(".skipLink");
+  const gate = qs<HTMLElement>("#deviceGate");
+  if (!skip || !gate) return;
+  const gateBlocking = !gate.hidden;
+  if (gateBlocking) {
+    skip.tabIndex = -1;
+    skip.setAttribute("aria-hidden", "true");
+  } else {
+    skip.removeAttribute("tabindex");
+    skip.removeAttribute("aria-hidden");
+  }
+}
+
+function dismissDeviceGate(): void {
+  const gate = qs<HTMLElement>("#deviceGate");
+  if (gate) gate.hidden = true;
+  document.body.classList.remove(DEVICE_GATE_OPEN_CLASS);
+  syncSkipLinkWhenDeviceGateOpen();
+  qs<HTMLAnchorElement>("a.brand")?.focus({ preventScroll: true });
+}
+
+function setDeviceLayout(layout: DeviceLayout): void {
+  writeStoredDeviceLayout(layout);
+  applyDeviceLayoutToDocument(layout);
+  updateDeviceLayoutButtons(layout);
+  const gate = qs<HTMLElement>("#deviceGate");
+  if (gate && !gate.hidden) {
+    dismissDeviceGate();
+  } else {
+    syncSkipLinkWhenDeviceGateOpen();
+  }
+}
+
+function wireDeviceLayoutPickers(): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-set-device-layout]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const layout = btn.getAttribute("data-set-device-layout") as DeviceLayout | null;
+      if (layout !== "phone" && layout !== "tablet" && layout !== "desktop") return;
+      setDeviceLayout(layout);
+    });
+  });
+}
+
+function initDeviceLayoutFromStorage(): void {
+  const stored = readStoredDeviceLayout();
+  if (stored) applyDeviceLayoutToDocument(stored);
+  updateDeviceLayoutButtons(stored);
+  syncSkipLinkWhenDeviceGateOpen();
+}
 
 function qs<T extends HTMLElement>(sel: string, root: ParentNode = document): T | null {
   return root.querySelector(sel) as T | null;
@@ -146,6 +205,7 @@ function setUiLanguage(lang: SupportedLang): void {
   setDocumentTitleFromKey("pageTitle");
   updateMetaDescription();
   refreshLegalToggleCopy();
+  updateDeviceLayoutButtons(readStoredDeviceLayout());
 }
 
 function attachSearchHandlers(): () => void {
@@ -248,9 +308,11 @@ async function main(): Promise<void> {
   setDocumentTitleFromKey("pageTitle");
   updateMetaDescription();
   refreshLegalToggleCopy();
+  initDeviceLayoutFromStorage();
 
   wireSettingsPanel();
   wireLegalToggle();
+  wireDeviceLayoutPickers();
 
   const rerenderGames = attachSearchHandlers();
   wireLangSwitch(() => {

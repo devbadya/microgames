@@ -1169,3 +1169,200 @@ body {
   display: inline-flex;
   text-decoration: none;
 }
+
+/* -------------------------------------------------------------------------
+ * First-visit device gate + layout modes (phone / tablet / desktop)
+ * ------------------------------------------------------------------------- */
+
+body.deviceGateOpen {
+  overflow: hidden;
+}
+
+.deviceGate {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(1rem, env(safe-area-inset-top))
+    max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+  background: rgba(4, 6, 12, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.deviceGate[hidden] {
+  display: none !important;
+}
+
+.deviceGate:not([hidden]) {
+  display: flex;
+}
+
+.deviceGateCard {
+  width: min(100%, 440px);
+  padding: 1.45rem 1.35rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(180deg, rgba(15, 22, 34, 0.98) 0%, rgba(8, 12, 22, 0.98) 100%);
+  box-shadow: 0 28px 90px var(--shadow-strong), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.deviceGateTitle {
+  margin: 0;
+  font-size: clamp(1.2rem, 4.2vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--text-strong);
+}
+
+.deviceGateLead {
+  margin: 0.7rem 0 1.2rem;
+  font-size: 0.94rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.deviceGateActions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+@media (min-width: 420px) {
+  .deviceGateActions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.deviceGateActions--panel {
+  margin-top: 0.35rem;
+}
+
+@media (min-width: 360px) {
+  .deviceGateActions--panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.deviceLayoutBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0.72rem 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.deviceLayoutBtn:hover,
+.deviceLayoutBtn:focus-visible {
+  border-color: rgba(110, 231, 255, 0.45);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(110, 231, 255, 0.12);
+}
+
+.deviceLayoutBtn--active {
+  border-color: rgba(110, 231, 255, 0.55);
+  background: rgba(110, 231, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-device-layout="phone"] .container {
+  width: min(1100px, calc(100% - 1.25rem));
+}
+
+html[data-device-layout="phone"] .siteHeaderInner {
+  padding: 0.55rem 0;
+}
+
+html[data-device-layout="phone"] .heroInner {
+  padding: 2.5rem 0 1.75rem;
+}
+
+html[data-device-layout="phone"] .heroTitle {
+  font-size: clamp(1.72rem, 7.5vw, 2.45rem);
+}
+
+html[data-device-layout="phone"] .heroLead {
+  font-size: 1.06rem;
+}
+
+html[data-device-layout="phone"] .heroCta {
+  min-height: 2.85rem;
+  padding: 0.78rem 1.35rem;
+  font-size: 1rem;
+}
+
+html[data-device-layout="phone"] .iconBtn {
+  width: 2.85rem;
+  height: 2.85rem;
+  font-size: 1.12rem;
+}
+
+html[data-device-layout="phone"] .langBtn {
+  min-width: 2.85rem;
+  min-height: 2.55rem;
+}
+
+html[data-device-layout="phone"] .grid {
+  grid-template-columns: 1fr;
+  gap: 1.05rem;
+}
+
+html[data-device-layout="phone"] .input {
+  font-size: 1.05rem;
+  padding: 1rem 1.05rem;
+}
+
+html[data-device-layout="tablet"] .container {
+  width: min(1100px, calc(100% - 1.65rem));
+}
+
+html[data-device-layout="tablet"] .heroInner {
+  grid-template-columns: 1fr;
+  padding: 2.75rem 0 1.85rem;
+}
+
+html[data-device-layout="tablet"] .heroArt {
+  display: none;
+}
+
+html[data-device-layout="tablet"] .heroTitle {
+  font-size: clamp(1.82rem, 4.5vw, 2.65rem);
+}
+
+html[data-device-layout="tablet"] .grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 1.05rem;
+}
+
+html[data-device-layout="tablet"] .langBtn {
+  min-height: 2.45rem;
+  min-width: 2.65rem;
+}
+
+html[data-device-layout="tablet"] .iconBtn {
+  width: 2.65rem;
+  height: 2.65rem;
+}
+
+html[data-device-layout="desktop"] .grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 340px));
+}

@@ -70,6 +70,15 @@ const UI = {
     settingsLangHeading: "Language",
     settingsLangLead: "The whole site remembers your choice.",
 
+    deviceGateTitle: "How are you playing?",
+    deviceGateLead: "We tune spacing, game cards, and tap targets for your screen. You can change this anytime in the menu.",
+    deviceGateGroupAria: "Device type",
+    devicePhone: "Phone",
+    deviceTablet: "Tablet",
+    deviceDesktop: "PC",
+    deviceLayoutSettingsHeading: "Screen & touch",
+    deviceLayoutSettingsLead: "Optimises the home page for your device.",
+
     legalCardTitle: "Legal & judiciary reference",
     legalCardLead:
       "Brief context about how courts are organised in Germany and Germany’s place in EU judicial comparisons — for orientation only.",
@@ -134,6 +143,16 @@ const UI = {
     settingsSubtitle: "Einstellungen, Barrierefreiheit, Referenzen",
     settingsLangHeading: "Sprache",
     settingsLangLead: "Die gesamte Website merkt sich Ihre Auswahl.",
+
+    deviceGateTitle: "Womit spielst du?",
+    deviceGateLead:
+      "Wir passen Abstände, Karten und Bedienflächen an dein Display an. Im Menü kannst du das jederzeit ändern.",
+    deviceGateGroupAria: "Gerätetyp",
+    devicePhone: "Handy",
+    deviceTablet: "Tablet",
+    deviceDesktop: "PC",
+    deviceLayoutSettingsHeading: "Bildschirm & Bedienung",
+    deviceLayoutSettingsLead: "Optimiert die Startseite für dein Gerät.",
 
     legalCardTitle: "Rechtlicher & juristischer Orientierungsrahmen",
     legalCardLead:
@@ -228,6 +247,11 @@ export function applyDataI18n(root: ParentNode): void {
   root.querySelectorAll<HTMLButtonElement>('button[data-i18n-aria]').forEach((b) => {
     const ak = b.getAttribute("data-i18n-aria") as UiKey | null;
     if (ak && ak in UI.en) b.setAttribute("aria-label", translate(ak));
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-i18n-aria-label]").forEach((el) => {
+    const ak = el.getAttribute("data-i18n-aria-label") as UiKey | null;
+    if (ak && ak in UI.en) el.setAttribute("aria-label", translate(ak));
   });
 
   root.querySelectorAll<HTMLInputElement>("input[data-i18n-placeholder]").forEach((input) => {

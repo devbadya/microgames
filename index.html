@@ -11,6 +11,17 @@
     />
     <meta name="theme-color" content="#06080f" />
     <meta name="color-scheme" content="dark" />
+    <script>
+      (function () {
+        try {
+          var k = "microgames.deviceLayout";
+          var v = localStorage.getItem(k);
+          if (v === "phone" || v === "tablet" || v === "desktop") {
+            document.documentElement.setAttribute("data-device-layout", v);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -22,6 +33,56 @@
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
   <body>
+    <div
+      class="deviceGate"
+      id="deviceGate"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deviceGateHeading"
+      hidden
+    >
+      <div class="deviceGateCard">
+        <h2 id="deviceGateHeading" class="deviceGateTitle" data-i18n="deviceGateTitle">How are you playing?</h2>
+        <p class="deviceGateLead" data-i18n="deviceGateLead">
+          We tune spacing, game cards, and tap targets for your screen. You can change this anytime in the menu.
+        </p>
+        <div
+          class="deviceGateActions"
+          role="group"
+          data-i18n-aria-label="deviceGateGroupAria"
+          aria-label=""
+        >
+          <button type="button" class="deviceLayoutBtn" data-set-device-layout="phone" id="deviceGatePhone" aria-pressed="false">
+            <span data-i18n="devicePhone">Phone</span>
+          </button>
+          <button type="button" class="deviceLayoutBtn" data-set-device-layout="tablet" aria-pressed="false">
+            <span data-i18n="deviceTablet">Tablet</span>
+          </button>
+          <button type="button" class="deviceLayoutBtn" data-set-device-layout="desktop" aria-pressed="false">
+            <span data-i18n="deviceDesktop">PC</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        try {
+          var k = "microgames.deviceLayout";
+          var v = localStorage.getItem(k);
+          if (v !== "phone" && v !== "tablet" && v !== "desktop") {
+            document.body.classList.add("deviceGateOpen");
+            var g = document.getElementById("deviceGate");
+            if (g) g.removeAttribute("hidden");
+          }
+        } catch (e) {
+          document.body.classList.add("deviceGateOpen");
+          var g2 = document.getElementById("deviceGate");
+          if (g2) g2.removeAttribute("hidden");
+        }
+      })();
+    </script>
+
     <a class="skipLink" href="#games" data-i18n="skipToGames">Skip to games</a>
 
     <div class="noise" aria-hidden="true"></div>
@@ -159,6 +220,31 @@
               </button>
               <button type="button" class="langBtn" data-set-lang="de" id="langDePanel" aria-pressed="false">
                 Deutsch
+              </button>
+            </div>
+          </section>
+
+          <section class="settingsCard" aria-labelledby="deviceLayoutSectionTitle">
+            <h3 class="settingsCardTitle" id="deviceLayoutSectionTitle" data-i18n="deviceLayoutSettingsHeading">
+              Screen & touch
+            </h3>
+            <p class="settingsCardLead" data-i18n="deviceLayoutSettingsLead">
+              Optimises the home page for your device.
+            </p>
+            <div
+              class="deviceGateActions deviceGateActions--panel"
+              role="group"
+              data-i18n-aria-label="deviceGateGroupAria"
+              aria-label=""
+            >
+              <button type="button" class="deviceLayoutBtn" data-set-device-layout="phone" id="devicePhonePanel" aria-pressed="false">
+                <span data-i18n="devicePhone">Phone</span>
+              </button>
+              <button type="button" class="deviceLayoutBtn" data-set-device-layout="tablet" id="deviceTabletPanel" aria-pressed="false">
+                <span data-i18n="deviceTablet">Tablet</span>
+              </button>
+              <button type="button" class="deviceLayoutBtn" data-set-device-layout="desktop" id="deviceDesktopPanel" aria-pressed="false">
+                <span data-i18n="deviceDesktop">PC</span>
               </button>
             </div>
           </section>
